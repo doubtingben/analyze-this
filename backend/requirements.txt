@@ -1,0 +1,13 @@
+fastapi
+uvicorn[standard]
+sqlmodel
+httpx
+authlib
+itsdangerous
+python-dotenv
+google-auth
+google-auth-oauthlib
+jinja2
+python-multipart
+requests
+aiofiles
