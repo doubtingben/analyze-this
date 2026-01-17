@@ -1,7 +1,7 @@
 import { Image } from 'expo-image';
-import { Platform, StyleSheet, Button, FlatList, TouchableOpacity, Share, View, Alert } from 'react-native';
+import { StyleSheet, FlatList, TouchableOpacity, Share, View, Alert, TextInput } from 'react-native';
 import { useShareIntent } from 'expo-share-intent';
-import { useEffect, useCallback } from 'react';
+import { useEffect, useCallback, useState } from 'react';
 import { useFocusEffect } from 'expo-router';
 
 import { HelloWave } from '@/components/hello-wave';
@@ -9,10 +9,13 @@ import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { useShareHistory, HistoryItem } from '@/hooks/useShareHistory';
 import { Ionicons } from '@expo/vector-icons';
+import { useAuth } from '@/context/AuthContext';
 
 export default function HomeScreen() {
   const { hasShareIntent, shareIntent, resetShareIntent } = useShareIntent();
   const { history, addToHistory, removeItem, loadHistory } = useShareHistory();
+  const { user, signIn, signOut } = useAuth();
+  const [searchQuery, setSearchQuery] = useState('');
 
   useFocusEffect(
     useCallback(() => {
@@ -39,6 +42,10 @@ export default function HomeScreen() {
       Alert.alert(error.message);
     }
   };
+
+  const filteredHistory = history.filter(item =>
+    item.value.toLowerCase().includes(searchQuery.toLowerCase())
+  );
 
   const renderItem = ({ item }: { item: HistoryItem }) => (
     <ThemedView style={styles.card}>
@@ -67,9 +74,8 @@ export default function HomeScreen() {
 
   return (
     <ThemedView style={styles.container}>
-      {/* Header Section mimicking original Parallax feel but static for FlatList header */}
       <FlatList
-        data={history}
+        data={filteredHistory}
         keyExtractor={(item) => item.id}
         renderItem={renderItem}
         contentContainerStyle={styles.listContent}
@@ -80,21 +86,42 @@ export default function HomeScreen() {
                 source={require('@/assets/images/partial-react-logo.png')}
                 style={styles.reactLogo}
               />
-              <View style={styles.titleContainer}>
-                <ThemedText type="title">Analyze This</ThemedText>
-                <HelloWave />
+              <View style={styles.headerContent}>
+                <View style={styles.titleContainer}>
+                  <ThemedText type="title">Analyze This</ThemedText>
+                  <HelloWave />
+                </View>
+                <TouchableOpacity onPress={user ? signOut : signIn} style={styles.authButton}>
+                  <Ionicons name={user ? "log-out-outline" : "logo-google"} size={20} color="white" />
+                  <ThemedText style={styles.authButtonText}>{user ? 'Logout' : 'Login'}</ThemedText>
+                </TouchableOpacity>
               </View>
             </View>
 
+            <View style={styles.controlsContainer}>
+              <ThemedView style={styles.searchContainer}>
+                <Ionicons name="search" size={20} color="#888" style={{ marginRight: 8 }} />
+                <TextInput
+                  style={styles.searchInput}
+                  placeholder="Search items..."
+                  placeholderTextColor="#888"
+                  value={searchQuery}
+                  onChangeText={setSearchQuery}
+                />
+              </ThemedView>
+            </View>
+
             <ThemedView style={styles.sectionHeader}>
-              <ThemedText type="subtitle">Shared History</ThemedText>
-              <ThemedText>{history.length} items</ThemedText>
+              <ThemedText type="subtitle">
+                {user ? 'My Cloud Items' : 'Local History'}
+              </ThemedText>
+              <ThemedText>{filteredHistory.length} items</ThemedText>
             </ThemedView>
 
-            {history.length === 0 && (
+            {filteredHistory.length === 0 && (
               <View style={styles.emptyState}>
                 <ThemedText style={styles.emptyStateText}>
-                  No shared items yet. Share content to the app to see it here.
+                  {searchQuery ? 'No matches found.' : 'No shared items yet.'}
                 </ThemedText>
               </View>
             )}
@@ -115,7 +142,12 @@ const styles = StyleSheet.create({
     justifyContent: 'flex-end',
     padding: 16,
     overflow: 'hidden',
-    marginBottom: 16,
+    marginBottom: 0,
+  },
+  headerContent: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-end',
   },
   reactLogo: {
     height: 178,
@@ -129,6 +161,36 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
+  },
+  authButton: {
+    backgroundColor: '#0a7ea4',
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 20,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6
+  },
+  authButtonText: {
+    color: 'white',
+    fontWeight: '600'
+  },
+  controlsContainer: {
+    padding: 16,
+    backgroundColor: 'transparent',
+  },
+  searchContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(128,128,128, 0.1)',
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    height: 40,
+  },
+  searchInput: {
+    flex: 1,
+    height: '100%',
+    color: '#000', // Adjust for theme if needed
   },
   sectionHeader: {
     paddingHorizontal: 16,
