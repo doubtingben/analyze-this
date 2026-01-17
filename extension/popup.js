@@ -16,13 +16,14 @@ document.addEventListener('DOMContentLoaded', async () => {
         errorEl.innerText = '';
 
         try {
-            const token = await getAuthToken();
-            if (!token) {
-                errorEl.innerText = 'Authentication failed. Please sign in.';
+            const authResult = await getAuthToken();
+            if (authResult.error) {
+                errorEl.innerText = 'Auth Error: ' + authResult.error;
                 return;
             }
+            const token = authResult.token;
 
-            const response = await fetch("http://localhost:8000/api/share", {
+            const response = await fetch(`${CONFIG.API_BASE_URL}/api/share`, {
                 method: "POST",
                 headers: {
                     "Content-Type": "application/json",
@@ -54,9 +55,9 @@ function getAuthToken() {
         chrome.identity.getAuthToken({ interactive: true }, (token) => {
             if (chrome.runtime.lastError) {
                 console.error(chrome.runtime.lastError);
-                resolve(null);
+                resolve({ error: chrome.runtime.lastError.message });
             } else {
-                resolve(token);
+                resolve({ token });
             }
         });
     });

@@ -3,38 +3,51 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request, Depends, HTTPException, status
 from fastapi.responses import HTMLResponse, RedirectResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
-from sqlmodel import SQLModel, create_engine, Session, select
+from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.sessions import SessionMiddleware
+import requests
 from authlib.integrations.starlette_client import OAuth, OAuthError
 from dotenv import load_dotenv
 from jinja2 import Template
+import firebase_admin
+from firebase_admin import credentials, firestore
+from google.cloud.firestore import Client as FirestoreClient
 
 from models import User, SharedItem
 
 # Load environment variables
 load_dotenv()
 
-DATABASE_URL = "sqlite:///./database.db"
 SECRET_KEY = os.getenv("SECRET_KEY", "super-secret-key-please-change")
 GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID")
 GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET")
+GOOGLE_EXTENSION_CLIENT_ID = os.getenv("GOOGLE_EXTENSION_CLIENT_ID")
 
-# DB Setup
-engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
+# Firebase Init
+# If GOOGLE_APPLICATION_CREDENTIALS is set, or in Cloud Run, default app creds will work.
+# Helper to check if initialized to avoid errors on reload
+if not firebase_admin._apps:
+    firebase_admin.initialize_app()
 
-def create_db_and_tables():
-    SQLModel.metadata.create_all(engine)
-
-def get_session():
-    with Session(engine) as session:
-        yield session
+db: FirestoreClient = firestore.client()
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    create_db_and_tables()
+    # No SQL db to create
     yield
 
+
 app = FastAPI(lifespan=lifespan)
+
+# CORS Setup
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # For dev only. In prod, specify extension ID
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 app.add_middleware(SessionMiddleware, secret_key=SECRET_KEY)
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
@@ -57,16 +70,44 @@ oauth.register(
 # --- Routes ---
 
 @app.get("/")
-def read_root(request: Request, db: Session = Depends(get_session)):
+def read_root(request: Request):
     user = request.session.get('user')
     if user:
-        items = db.exec(select(SharedItem).where(SharedItem.user_email == user['email']).order_by(SharedItem.created_at.desc())).all()
-        # Simple dashboard template inline for simplicity
+        # Firestore Query
+        items_ref = db.collection('shared_items')
+        query = items_ref.where(field_path='user_email', op_string='==', value=user['email']).order_by('created_at', direction=firestore.Query.DESCENDING)
+        items = []
+        for doc in query.stream():
+            data = doc.to_dict()
+            data['firestore_id'] = doc.id
+            items.append(data)
+        
+        # Simple dashboard template
         template = """
         <html>
             <head>
                 <title>Analyze This Dashboard</title>
                 <link rel="icon" href="/static/favicon.png">
+                <script>
+                    async function deleteItem(itemId) {
+                        if (!confirm('Are you sure you want to delete this item?')) return;
+                        
+                        try {
+                            const response = await fetch('/api/items/' + itemId, {
+                                method: 'DELETE'
+                            });
+                            
+                            if (response.ok) {
+                                window.location.reload();
+                            } else {
+                                alert('Failed to delete item');
+                            }
+                        } catch (error) {
+                            console.error('Error:', error);
+                            alert('An error occurred');
+                        }
+                    }
+                </script>
             </head>
             <body style="font-family: sans-serif; max-width: 800px; margin: 0 auto; padding: 20px;">
                 <h1>Analyze This</h1>
@@ -76,9 +117,16 @@ def read_root(request: Request, db: Session = Depends(get_session)):
                 <ul>
                 {% for item in items %}
                     <li style="margin-bottom: 20px; border: 1px solid #ddd; padding: 10px; border-radius: 8px;">
-                        <strong>{{ item.title or 'No Title' }}</strong> <small>({{ item.type }})</small><br/>
-                        {{ item.content }}<br/>
-                        <small style="color: grey;">{{ item.created_at }}</small>
+                        <div style="display: flex; justify-content: space-between; align-items: start;">
+                            <div>
+                                <strong>{{ item.title or 'No Title' }}</strong> <small>({{ item.type }})</small>
+                            </div>
+                            <button onclick="deleteItem('{{ item.firestore_id }}')" style="background: #ff4444; color: white; border: none; padding: 5px 10px; border-radius: 4px; cursor: pointer;">Delete</button>
+                        </div>
+                        <div style="margin-top: 5px;">
+                            {{ item.content }}
+                        </div>
+                        <small style="color: grey; display: block; margin-top: 5px;">{{ item.created_at }}</small>
                     </li>
                 {% endfor %}
                 </ul>
@@ -90,25 +138,46 @@ def read_root(request: Request, db: Session = Depends(get_session)):
 
 @app.get("/login")
 async def login(request: Request):
+    # Ensure fully qualified URL for redirect_uri to avoid mismatches
+    # Cloud Run behind load balancer might need X-Forwarded-Proto considerations, but starlette handles some.
+    # We'll rely on url_for
     redirect_uri = request.url_for('auth')
+    # Force https if deploying
+    if 'cloud.google' in str(redirect_uri) or 'interestedparticipant.org' in str(redirect_uri) or '.run.app' in str(redirect_uri):
+         redirect_uri = str(redirect_uri).replace('http:', 'https:')
+
     return await oauth.google.authorize_redirect(request, redirect_uri)
 
 @app.get("/auth")
-async def auth(request: Request, db: Session = Depends(get_session)):
+async def auth(request: Request):
     try:
         token = await oauth.google.authorize_access_token(request)
     except OAuthError as error:
         return HTMLResponse(f'<h1>{error.error}</h1>')
+    
     user_info = token.get('userinfo')
     if user_info:
         request.session['user'] = user_info
         
-        # Create/Update User in DB
-        existing_user = db.exec(select(User).where(User.email == user_info['email'])).first()
-        if not existing_user:
-            new_user = User(email=user_info['email'], name=user_info.get('name'), picture=user_info.get('picture'))
-            db.add(new_user)
-            db.commit()
+        # Create/Update User in Firestore
+        users_ref = db.collection('users')
+        # Use email as document ID or query? Let's query to be safe, or use email as ID if unique.
+        # Google emails are unique. Let's use email as ID for simplicity and speed.
+        
+        # Sanitize email for ID? (dots are allowed in IDs, slashes not). Email safety:
+        # Just in case, let's query.
+        
+        # Check if exists
+        user_doc_ref = users_ref.document(user_info['email'])  # Direct ID mapping if safe
+        # If we worry about characters, we can sha256 it, but email is readable.
+        
+        user_data = {
+            'email': user_info['email'],
+            'name': user_info.get('name'),
+            'picture': user_info.get('picture'),
+            'updated_at': firestore.SERVER_TIMESTAMP
+        }
+        user_doc_ref.set(user_data, merge=True)
             
     return RedirectResponse(url='/')
 
@@ -122,14 +191,29 @@ from google.oauth2 import id_token
 from google.auth.transport import requests as google_requests
 
 def verify_google_token(token: str):
+    # Method 1: Try verifying as ID Token (Web Client)
     try:
         id_info = id_token.verify_oauth2_token(token, google_requests.Request(), GOOGLE_CLIENT_ID)
         return id_info
     except ValueError:
-        return None
+        pass
+        
+    # Method 2: Try verifying as Access Token (Extension Client)
+    try:
+        # Call Google UserInfo endpoint
+        response = requests.get(
+            'https://www.googleapis.com/oauth2/v2/userinfo',
+            headers={'Authorization': f'Bearer {token}'}
+        )
+        if response.status_code == 200:
+            return response.json()
+    except Exception:
+        pass
+        
+    return None
 
 @app.post("/api/share")
-async def share_item(request: Request, item: SharedItem, db: Session = Depends(get_session)):
+async def share_item(request: Request, item: SharedItem):
     # Check for Bearer token for API access (Extension/Mobile)
     auth_header = request.headers.get('Authorization')
     user_email = None
@@ -147,13 +231,18 @@ async def share_item(request: Request, item: SharedItem, db: Session = Depends(g
         raise HTTPException(status_code=401, detail="Unauthorized")
         
     item.user_email = user_email
-    db.add(item)
-    db.commit()
-    db.refresh(item)
+    
+    # Save to Firestore
+    item_dict = item.dict()
+    # Serialize datetime to be firestore friendly (though dict matches, let's just dump)
+    # Pydantic dict with json encoders might be safer logic, but default python types work with firebase-admin
+    
+    db.collection('shared_items').add(item_dict)
+    
     return item
 
 @app.get("/api/items")
-async def get_items(request: Request, db: Session = Depends(get_session)):
+async def get_items(request: Request):
     auth_header = request.headers.get('Authorization')
     user_email = None
     
@@ -168,5 +257,39 @@ async def get_items(request: Request, db: Session = Depends(get_session)):
     if not user_email:
         raise HTTPException(status_code=401, detail="Unauthorized")
 
-    items = db.exec(select(SharedItem).where(SharedItem.user_email == user_email).order_by(SharedItem.created_at.desc())).all()
+    items_ref = db.collection('shared_items')
+    query = items_ref.where(field_path='user_email', op_string='==', value=user_email).order_by('created_at', direction=firestore.Query.DESCENDING)
+    items = [item.to_dict() for item in query.stream()]
+    
     return items
+
+@app.delete("/api/items/{item_id}")
+async def delete_item(item_id: str, request: Request):
+    # Auth Check
+    auth_header = request.headers.get('Authorization')
+    user_email = None
+    
+    if auth_header and auth_header.startswith('Bearer '):
+        token = auth_header.split(' ')[1]
+        user_info = verify_google_token(token)
+        if user_info:
+            user_email = user_info['email']
+    elif 'user' in request.session:
+        user_email = request.session['user']['email']
+        
+    if not user_email:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+
+    # Firestore Operation
+    item_ref = db.collection('shared_items').document(item_id)
+    doc = item_ref.get()
+    
+    if not doc.exists:
+        raise HTTPException(status_code=404, detail="Item not found")
+        
+    item_data = doc.to_dict()
+    if item_data.get('user_email') != user_email:
+        raise HTTPException(status_code=403, detail="Forbidden: You do not own this item")
+        
+    item_ref.delete()
+    return {"status": "success", "deleted_id": item_id}

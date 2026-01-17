@@ -1,4 +1,5 @@
 // Background Service Worker
+importScripts('config.js');
 
 // Create context menu on install
 chrome.runtime.onInstalled.addListener(() => {
@@ -16,8 +17,11 @@ chrome.runtime.onInstalled.addListener(() => {
 
 // Handle context menu clicks
 chrome.contextMenus.onClicked.addListener((info, tab) => {
-    if (info.menuItemId === "analyze-this-selection" && info.selectionText) {
-        sendToBackend("text", info.selectionText, tab.title || "Selected Text");
+    if (info.menuItemId === "analyze-this-selection") {
+        console.log("Context menu clicked: analyze-this-selection");
+        const selectedText = info.selectionText || "";
+        console.log("Selected text:", selectedText);
+        sendToBackend("text", selectedText, tab.title || "Selected Text");
     } else if (info.menuItemId === "analyze-this-page") {
         sendToBackend("webUrl", tab.url, tab.title || "Web Page");
     }
@@ -33,7 +37,7 @@ async function sendToBackend(type, content, title) {
             return;
         }
 
-        const response = await fetch("http://localhost:8000/api/share", {
+        const response = await fetch(`${CONFIG.API_BASE_URL}/api/share`, {
             method: "POST",
             headers: {
                 "Content-Type": "application/json",

@@ -10,7 +10,8 @@
     "newArchEnabled": true,
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.analyzethis.mobile"
+      "bundleIdentifier": "com.analyzethis.mobile",
+      "buildNumber": "1"
     },
     "android": {
       "adaptiveIcon": {
@@ -21,7 +22,8 @@
       },
       "edgeToEdgeEnabled": true,
       "predictiveBackGestureEnabled": false,
-      "package": "com.analyzethis.mobile"
+      "package": "com.analyzethis.mobile",
+      "versionCode": 1
     },
     "web": {
       "output": "static",
@@ -78,8 +80,10 @@
     "extra": {
       "router": {},
       "eas": {
-        "projectId": "7b70429d-ea0d-403d-aade-3d26f2f8bee8"
+        "projectId": "7b70429d-ea0d-403d-aade-3d26f2f8bee8",
+        "build": {}
       }
-    }
+    },
+    "owner": "doubtingben"
   }
 }

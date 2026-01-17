@@ -10,7 +10,7 @@
         "scripting"
     ],
     "oauth2": {
-        "client_id": "YOUR_EXTENSION_CLIENT_ID",
+        "client_id": "106064975526-hvkkuvcknntaflhdofobf9vpkj9o3rfv.apps.googleusercontent.com",
         "scopes": [
             "https://www.googleapis.com/auth/userinfo.email"
         ]
