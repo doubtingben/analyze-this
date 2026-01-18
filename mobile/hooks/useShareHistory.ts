@@ -1,5 +1,6 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useState, useRef } from 'react';
+import { Alert } from 'react-native';
 import { ShareIntent } from 'expo-share-intent';
 import { useAuth } from '@/context/AuthContext';
 import { API_URL } from '@/constants/Config';
@@ -67,8 +68,14 @@ export function useShareHistory() {
         }
     }, []);
 
+    const historyRef = useRef(history);
+    useEffect(() => {
+        historyRef.current = history;
+    }, [history]);
+
     const addToHistory = useCallback(
         async (intent: ShareIntent) => {
+            console.log("Received share intent:", JSON.stringify(intent, null, 2));
             let type: HistoryItem['type'] = 'text';
             let value = '';
 
@@ -84,6 +91,8 @@ export function useShareHistory() {
                 value = intent.files[0].path || intent.files[0].uri || 'File';
             }
 
+            console.log(`Processed share item: type=${type}, value=${value}`);
+
             const newItem: HistoryItem = {
                 id: Date.now().toString() + Math.random().toString(36).substr(2, 9),
                 timestamp: Date.now(),
@@ -92,9 +101,12 @@ export function useShareHistory() {
                 originalIntent: intent,
             };
 
+            const currentHistory = historyRef.current;
+
             if (user && user.idToken) {
                 // Sync to Backend
                 try {
+                    console.log("Syncing to backend...");
                     const response = await fetch(`${API_URL}/api/share`, {
                         method: 'POST',
                         headers: {
@@ -105,27 +117,36 @@ export function useShareHistory() {
                             title: 'From Mobile', // Optional
                             content: value,
                             type: type,
-                            // created_at handled by backend or we send it? Backend timestamp is better usually.
-                            // Looking at backend models.py would clarify, but let's assume basic fields. 
-                            // The backend main.py shows SharedItem model.
+                            user_email: user.email,
                         })
                     });
+
                     if (response.ok) {
+                        console.log("Backend sync successful");
                         // Reload to get the new ID and correct timestamp
                         loadHistory();
+                    } else {
+                        const errorText = await response.text();
+                        console.error("Backend sync failed:", response.status, errorText);
+                        Alert.alert(`Failed to save to cloud: ${response.status}`);
+                        // Fallback to local
+                        const newHistory = [newItem, ...currentHistory];
+                        setHistory(newHistory);
                     }
                 } catch (e) {
                     console.error("Failed to sync item", e);
-                    // Fallback to local? Or show error? For now, let's just add to local view locally
-                    const newHistory = [newItem, ...history];
-                    setHistory(newHistory); // Optimistic update could be complex with sync.
+                    Alert.alert(`Network error saving item: ${e}`);
+                    // Fallback to local
+                    const newHistory = [newItem, ...currentHistory];
+                    setHistory(newHistory);
                 }
             } else {
-                const newHistory = [newItem, ...history];
+                console.log("No user logged in, saving locally");
+                const newHistory = [newItem, ...currentHistory];
                 await saveHistory(newHistory);
             }
         },
-        [history, saveHistory, user, loadHistory]
+        [saveHistory, user, loadHistory]
     );
 
     const removeItem = useCallback(

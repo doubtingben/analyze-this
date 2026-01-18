@@ -2,6 +2,8 @@ import { createContext, useContext, useState, useEffect } from 'react';
 import * as Google from 'expo-auth-session/providers/google';
 import * as WebBrowser from 'expo-web-browser';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as Linking from 'expo-linking';
+import { ResponseType } from 'expo-auth-session';
 
 WebBrowser.maybeCompleteAuthSession();
 
@@ -45,6 +47,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         // By using the web client ID, we force the browser-based flow which accepts our redirect URI.
         androidClientId: process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID,
         redirectUri: 'https://interestedparticipant.org/oauthredirect',
+        responseType: ResponseType.Token,
     });
 
     useEffect(() => {
@@ -54,12 +57,52 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     useEffect(() => {
         if (response?.type === 'success') {
             const { authentication } = response;
-            // We can use authentication.idToken
-            // Verify with backend or just use it. 
-            // For this task, we assume we send IT to backend.
             fetchUserInfo(authentication?.accessToken);
         }
     }, [response]);
+
+    // Manual listener for the custom redirect because useAuthRequest might miss the scheme change
+    useEffect(() => {
+        const handleUrl = (event: { url: string }) => {
+            const url = event.url;
+            console.log('AuthContext: Received URL:', url); // DEBUG LOG
+
+            // Handle only if it looks like our redirect
+            if (url.includes('oauthredirect')) {
+                let token = '';
+
+                // Check hash first
+                if (url.includes('#')) {
+                    const hash = url.split('#')[1];
+                    const params = new URLSearchParams(hash);
+                    token = params.get('access_token') || '';
+                }
+
+                // If not in hash, check query
+                if (!token && url.includes('?')) {
+                    const search = url.split('?')[1];
+                    const params = new URLSearchParams(search);
+                    token = params.get('access_token') || '';
+                }
+
+                console.log('AuthContext: Parsed token:', token ? 'Found' : 'Not found'); // DEBUG LOG
+
+                if (token) {
+                    fetchUserInfo(token);
+                }
+            }
+        };
+
+        // Check initial URL if app was closed
+        Linking.getInitialURL().then(url => {
+            if (url) handleUrl({ url });
+        });
+
+        const subscription = Linking.addEventListener('url', handleUrl);
+        return () => {
+            subscription.remove();
+        };
+    }, []);
 
     async function loadUser() {
         try {
@@ -85,7 +128,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                 email: userDetails.email,
                 name: userDetails.name,
                 picture: userDetails.picture,
-                idToken: response?.type === 'success' ? response.authentication?.accessToken : undefined // Store access token for API calls
+                idToken: token // Store access token for API calls
             };
             setUser(authorizedUser);
             await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(authorizedUser));

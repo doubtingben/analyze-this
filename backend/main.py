@@ -75,7 +75,7 @@ def read_root(request: Request):
     if user:
         # Firestore Query
         items_ref = db.collection('shared_items')
-        query = items_ref.where(field_path='user_email', op_string='==', value=user['email']).order_by('created_at', direction=firestore.Query.DESCENDING)
+        query = items_ref.where(field_path='user_email', op_string='==', value=user['email']).order_by('created_at', direction=firestore.Query.DESCENDING).limit(50)
         items = []
         for doc in query.stream():
             data = doc.to_dict()
@@ -193,6 +193,15 @@ async def oauth_redirect():
         <head>
             <title>Authentication Redirect</title>
             <meta name="viewport" content="width=device-width, initial-scale=1">
+            <script>
+                window.onload = function() {
+                    var hash = window.location.hash;
+                    var search = window.location.search;
+                    var targetUrl = 'analyzethis://oauthredirect' + search + hash;
+                    document.getElementById('link').href = targetUrl;
+                    window.location.href = targetUrl;
+                }
+            </script>
             <style>
                 body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; padding: 20px; text-align: center; }
                 .button { display: inline-block; background-color: #007bff; color: white; padding: 12px 24px; text-decoration: none; border-radius: 4px; font-weight: bold; margin-top: 20px; }
@@ -200,8 +209,8 @@ async def oauth_redirect():
         </head>
         <body>
             <h1>Authentication Complete</h1>
-            <p>You can now return to the app.</p>
-            <p><small>If you are seeing this page, the app didn't automatically open.</small></p>
+            <p>Redirecting back to app...</p>
+            <p><a id="link" href="#" class="button">Click here if not redirected</a></p>
         </body>
     </html>
     """
@@ -280,7 +289,11 @@ async def get_items(request: Request):
 
     items_ref = db.collection('shared_items')
     query = items_ref.where(field_path='user_email', op_string='==', value=user_email).order_by('created_at', direction=firestore.Query.DESCENDING)
-    items = [item.to_dict() for item in query.stream()]
+    items = []
+    for doc in query.stream():
+        data = doc.to_dict()
+        data['firestore_id'] = doc.id
+        items.append(data)
     
     return items
 

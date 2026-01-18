@@ -24,6 +24,7 @@
       "predictiveBackGestureEnabled": false,
       "package": "com.analyzethis.mobile",
       "versionCode": 1,
+      "usesCleartextTraffic": true,
       "intentFilters": [
         {
           "action": "VIEW",

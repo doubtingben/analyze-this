@@ -1,7 +1,7 @@
 import { Image } from 'expo-image';
 import { StyleSheet, FlatList, TouchableOpacity, Share, View, Alert, TextInput } from 'react-native';
 import { useShareIntent } from 'expo-share-intent';
-import { useEffect, useCallback, useState } from 'react';
+import { useEffect, useCallback, useState, useRef } from 'react';
 import { useFocusEffect } from 'expo-router';
 
 import { HelloWave } from '@/components/hello-wave';
@@ -23,12 +23,20 @@ export default function HomeScreen() {
     }, [loadHistory])
   );
 
+  const processingRef = useRef(false);
+
   useEffect(() => {
-    if (hasShareIntent && shareIntent) {
+    if (hasShareIntent && shareIntent && !processingRef.current) {
       if (shareIntent.type === 'text' || shareIntent.type === 'weburl' || (shareIntent.files && shareIntent.files.length > 0)) {
-        addToHistory(shareIntent);
-        resetShareIntent(); // Clear intent after adding
+        processingRef.current = true;
+        (async () => {
+          await addToHistory(shareIntent);
+          resetShareIntent(); // Clear intent after adding
+          processingRef.current = false;
+        })();
       }
+    } else if (!hasShareIntent) {
+      processingRef.current = false;
     }
   }, [hasShareIntent, shareIntent, addToHistory, resetShareIntent]);
 
@@ -76,7 +84,7 @@ export default function HomeScreen() {
     <ThemedView style={styles.container}>
       <FlatList
         data={filteredHistory}
-        keyExtractor={(item) => item.id}
+        keyExtractor={(item, index) => item.id ? `${item.id}-${index}` : `item-${index}`}
         renderItem={renderItem}
         contentContainerStyle={styles.listContent}
         ListHeaderComponent={
