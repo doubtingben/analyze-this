@@ -18,4 +18,5 @@ class SharedItem(BaseModel):
     title: Optional[str] = None
     created_at: datetime = Field(default_factory=datetime.utcnow)
     item_metadata: Optional[dict] = Field(default=None)
+    analysis: Optional[dict] = Field(default=None)
 

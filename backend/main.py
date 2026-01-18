@@ -262,6 +262,15 @@ async def share_item(request: Request, item: SharedItem):
         
     item.user_email = user_email
     
+    # Run Analysis
+    try:
+        from analysis import analyze_content
+        analysis_result = analyze_content(item.content, item.type)
+        if analysis_result:
+            item.analysis = analysis_result
+    except Exception as e:
+        print(f"Analysis failed: {e}")
+    
     # Save to Firestore
     item_dict = item.dict()
     # Serialize datetime to be firestore friendly (though dict matches, let's just dump)

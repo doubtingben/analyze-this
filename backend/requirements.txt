@@ -10,3 +10,4 @@ gunicorn
 itsdangerous
 google-auth
 google-auth-oauthlib
+openai

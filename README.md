@@ -19,4 +19,13 @@ The mobile application is located in the `mobile/` directory and uses React Nati
 
 **Important**: Testing the "Share" intent requires a Development Build (`npx expo run:ios/android`). It will not work in standard Expo Go.
 
+
+### Running Analysis Tests
+
+To run the analysis tests (located in `backend/tests/test_analysis.py`), execute the following command from the project root:
+
+```bash
+backend/.venv/bin/python backend/tests/test_analysis.py
+```
+
 For detailed verification steps, see the [Walkthrough](file:///Users/bwilson/.gemini/antigravity/brain/5d3c40ca-2baf-4861-95a6-d24494436b93/walkthrough.md).
