@@ -186,6 +186,27 @@ async def logout(request: Request):
     request.session.pop('user', None)
     return RedirectResponse(url='/')
 
+@app.get("/oauthredirect")
+async def oauth_redirect():
+    html_content = """
+    <html>
+        <head>
+            <title>Authentication Redirect</title>
+            <meta name="viewport" content="width=device-width, initial-scale=1">
+            <style>
+                body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; padding: 20px; text-align: center; }
+                .button { display: inline-block; background-color: #007bff; color: white; padding: 12px 24px; text-decoration: none; border-radius: 4px; font-weight: bold; margin-top: 20px; }
+            </style>
+        </head>
+        <body>
+            <h1>Authentication Complete</h1>
+            <p>You can now return to the app.</p>
+            <p><small>If you are seeing this page, the app didn't automatically open.</small></p>
+        </body>
+    </html>
+    """
+    return HTMLResponse(content=html_content)
+
 # --- API Endpoints ---
 from google.oauth2 import id_token
 from google.auth.transport import requests as google_requests

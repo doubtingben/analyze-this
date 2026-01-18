@@ -5,17 +5,6 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 
 WebBrowser.maybeCompleteAuthSession();
 
-// Hardcoded for now, ideal to move to .env but for simplicity reusing the backend logic hint
-// The backend uses a specific web client ID. For mobile we need an Expo specific one or use the web one with redirect.
-// Given the plan to use expo-auth-session, we'll try to use the web client ID if possible, or assume user provides one.
-// The user approved the plan which noted: "I will use the existing GOOGLE_CLIENT_ID from the backend environment"
-// But that's for backend verification. Mobile needs its own ID usually.
-// Let's assume for now we use a placeholder or the one from backend if feasible (it often isn't for native).
-// I will add a TODO or use a placeholder string that matches typical patterns.
-// Actually, I should check existing .env or code for any ID.
-// I'll leave it as a constant for now that can be swapped.
-
-const WEB_CLIENT_ID = '97184240700-123456789.apps.googleusercontent.com'; // Placeholder, user will need to update
 const STORAGE_KEY = 'auth_user';
 
 interface User {
@@ -48,9 +37,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const [isLoading, setIsLoading] = useState(true);
 
     const [request, response, promptAsync] = Google.useAuthRequest({
-        // We need to configure this correctly. For now using basic setup.
-        // In a real app we'd need iosClientId, androidClientId, webClientId.
-        webClientId: process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID || '',
+        // Use the Web Client ID for all platforms to support HTTPS redirects
+        clientId: process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID,
+        iosClientId: process.env.EXPO_PUBLIC_IOS_GOOGLE_CLIENT_ID,
+        // We do NOT set androidClientId to the Android-specific ID because that forces a flow
+        // that doesn't support custom/https redirects in the same way.
+        // By using the web client ID, we force the browser-based flow which accepts our redirect URI.
+        androidClientId: process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID,
+        redirectUri: 'https://interestedparticipant.org/oauthredirect',
     });
 
     useEffect(() => {
