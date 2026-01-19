@@ -8,6 +8,7 @@ import { HelloWave } from '@/components/hello-wave';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { useShareHistory, HistoryItem } from '@/hooks/useShareHistory';
+import { MediaHistoryItem, WebUrlHistoryItem, TextHistoryItem } from '@/components/history-items';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '@/context/AuthContext';
 
@@ -80,30 +81,18 @@ export default function HomeScreen() {
     item.value.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
-  const renderItem = ({ item }: { item: HistoryItem }) => (
-    <ThemedView style={styles.card}>
-      <View style={styles.cardHeader}>
-        <ThemedText type="defaultSemiBold" style={styles.dateText}>
-          {new Date(item.timestamp).toLocaleString()}
-        </ThemedText>
-        <TouchableOpacity onPress={() => removeItem(item.id)}>
-          <Ionicons name="trash-outline" size={20} color="#ff4444" />
-        </TouchableOpacity>
-      </View>
-
-      <ThemedText style={styles.cardContent} numberOfLines={3}>
-        {item.value}
-      </ThemedText>
-
-      <View style={styles.cardFooter}>
-        <ThemedText style={styles.typeBadge}>{item.type.toUpperCase()}</ThemedText>
-        <TouchableOpacity style={styles.shareButton} onPress={() => handleShare(item)}>
-          <Ionicons name="share-outline" size={18} color="#0a7ea4" />
-          <ThemedText style={styles.shareText}>Share</ThemedText>
-        </TouchableOpacity>
-      </View>
-    </ThemedView>
-  );
+  const renderItem = ({ item }: { item: HistoryItem }) => {
+    switch (item.type) {
+      case 'media':
+        return <MediaHistoryItem item={item} onDelete={removeItem} onShare={handleShare} />;
+      case 'webUrl':
+        return <WebUrlHistoryItem item={item} onDelete={removeItem} onShare={handleShare} />;
+      case 'text':
+      case 'file':
+      default:
+        return <TextHistoryItem item={item} onDelete={removeItem} onShare={handleShare} />;
+    }
+  };
 
   return (
     <ThemedView style={styles.container}>
@@ -234,54 +223,6 @@ const styles = StyleSheet.create({
   },
   listContent: {
     paddingBottom: 40,
-  },
-  card: {
-    marginHorizontal: 16,
-    marginBottom: 12,
-    padding: 16,
-    borderRadius: 12,
-    backgroundColor: 'rgba(128,128,128, 0.1)', // Subtle background
-    borderWidth: 1,
-    borderColor: 'rgba(128,128,128, 0.2)',
-  },
-  cardHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginBottom: 8,
-  },
-  dateText: {
-    fontSize: 12,
-    opacity: 0.7,
-  },
-  cardContent: {
-    marginBottom: 12,
-  },
-  cardFooter: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    borderTopWidth: 1,
-    borderTopColor: 'rgba(128,128,128, 0.1)',
-    paddingTop: 8,
-  },
-  typeBadge: {
-    fontSize: 10,
-    fontWeight: 'bold',
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    backgroundColor: 'rgba(128,128,128, 0.2)',
-    borderRadius: 4,
-    overflow: 'hidden',
-  },
-  shareButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4
-  },
-  shareText: {
-    color: '#0a7ea4',
-    fontSize: 14,
-    fontWeight: '600'
   },
   emptyState: {
     padding: 32,
