@@ -5,9 +5,11 @@
 - waiting on approval of developer account
 
 ## Android
-- Can't share images.
 
 ## Backend
+
+## Worker
+- Need to test
 
 ## Prompts
 

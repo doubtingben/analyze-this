@@ -20,6 +20,7 @@ export function useShareHistory() {
     const { user } = useAuth();
     const [history, setHistory] = useState<HistoryItem[]>([]);
     const [isLoading, setIsLoading] = useState(true);
+    const [isSyncing, setIsSyncing] = useState(false);
 
     const loadHistory = useCallback(async () => {
         setIsLoading(true);
@@ -56,6 +57,7 @@ export function useShareHistory() {
             console.error('Failed to load history', e);
         } finally {
             setIsLoading(false);
+            setIsSyncing(false);
         }
     }, [user]);
 
@@ -121,6 +123,7 @@ export function useShareHistory() {
                     let headers: Record<string, string> = {
                         'Authorization': `Bearer ${user.idToken}`
                     };
+                    setIsSyncing(true);
 
                     if (type === 'media') {
                         const formData = new FormData();
@@ -180,6 +183,8 @@ export function useShareHistory() {
                     // Fallback to local
                     const newHistory = [newItem, ...currentHistory];
                     setHistory(newHistory);
+                } finally {
+                    setIsSyncing(false);
                 }
             } else {
                 console.log("No user logged in, saving locally");
@@ -194,6 +199,7 @@ export function useShareHistory() {
         async (id: string) => {
             if (user && user.idToken) {
                 try {
+                    setIsSyncing(true);
                     await fetch(`${API_URL}/api/items/${id}`, {
                         method: 'DELETE',
                         headers: {
@@ -203,6 +209,8 @@ export function useShareHistory() {
                     loadHistory();
                 } catch (e) {
                     console.error("Failed to delete", e);
+                } finally {
+                    setIsSyncing(false);
                 }
             } else {
                 const newHistory = history.filter((item) => item.id !== id);
@@ -229,5 +237,6 @@ export function useShareHistory() {
         addToHistory,
         removeItem,
         clearHistory,
+        isSyncing,
     };
 }

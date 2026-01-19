@@ -1,5 +1,5 @@
 import { Image } from 'expo-image';
-import { StyleSheet, FlatList, TouchableOpacity, Share, View, Alert, TextInput } from 'react-native';
+import { StyleSheet, FlatList, TouchableOpacity, Share, View, Alert, TextInput, RefreshControl, ActivityIndicator } from 'react-native';
 import { useShareIntent } from 'expo-share-intent';
 import { useEffect, useCallback, useState, useRef } from 'react';
 import { useFocusEffect } from 'expo-router';
@@ -13,7 +13,7 @@ import { useAuth } from '@/context/AuthContext';
 
 export default function HomeScreen() {
   const { hasShareIntent, shareIntent, resetShareIntent } = useShareIntent();
-  const { history, addToHistory, removeItem, loadHistory } = useShareHistory();
+  const { history, addToHistory, removeItem, loadHistory, isSyncing, isLoading } = useShareHistory();
   const { user, signIn, signOut } = useAuth();
   const [searchQuery, setSearchQuery] = useState('');
 
@@ -112,6 +112,9 @@ export default function HomeScreen() {
         keyExtractor={(item, index) => item.id ? `${item.id}-${index}` : `item-${index}`}
         renderItem={renderItem}
         contentContainerStyle={styles.listContent}
+        refreshControl={
+          <RefreshControl refreshing={isLoading} onRefresh={loadHistory} />
+        }
         ListHeaderComponent={
           <>
             <View style={styles.header}>
@@ -149,6 +152,12 @@ export default function HomeScreen() {
                 {user ? 'My Cloud Items' : 'Local History'}
               </ThemedText>
               <ThemedText>{filteredHistory.length} items</ThemedText>
+              {isSyncing && (
+                <View style={styles.syncContainer}>
+                  <ActivityIndicator size="small" color="#0a7ea4" />
+                  <ThemedText style={styles.syncText}>Syncing...</ThemedText>
+                </View>
+              )}
             </ThemedView>
 
             {filteredHistory.length === 0 && (
@@ -290,5 +299,14 @@ const styles = StyleSheet.create({
   emptyStateText: {
     textAlign: 'center',
     opacity: 0.6,
+  },
+  syncContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  syncText: {
+    fontSize: 12,
+    opacity: 0.7,
   }
 });
