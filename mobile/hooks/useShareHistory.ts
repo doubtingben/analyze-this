@@ -86,9 +86,19 @@ export function useShareHistory() {
                 type = 'text';
                 value = intent.text;
             } else if (intent.files && intent.files.length > 0) {
-                type = 'file';
                 // @ts-ignore
-                value = intent.files[0].path || intent.files[0].uri || 'File';
+                const file = intent.files[0];
+                // @ts-ignore
+                const mimeType = file.mimeType || intent.type;
+
+                if (mimeType && mimeType.startsWith('image/')) {
+                    type = 'media';
+                } else {
+                    type = 'file';
+                }
+
+                // @ts-ignore
+                value = file.path || file.uri || 'File';
             }
 
             console.log(`Processed share item: type=${type}, value=${value}`);
@@ -107,18 +117,49 @@ export function useShareHistory() {
                 // Sync to Backend
                 try {
                     console.log("Syncing to backend...");
-                    const response = await fetch(`${API_URL}/api/share`, {
-                        method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/json',
-                            'Authorization': `Bearer ${user.idToken}`
-                        },
-                        body: JSON.stringify({
-                            title: 'From Mobile', // Optional
+                    let body;
+                    let headers: Record<string, string> = {
+                        'Authorization': `Bearer ${user.idToken}`
+                    };
+
+                    if (type === 'media') {
+                        const formData = new FormData();
+                        formData.append('title', 'From Mobile');
+                        formData.append('content', value); // Will be replaced by URL on backend, but good to send original path too? or backend ignore?
+                        formData.append('type', type);
+                        formData.append('user_email', user.email);
+
+                        // Append file
+                        // @ts-ignore
+                        const file = intent.files[0];
+                        // @ts-ignore
+                        const mimeType = file.mimeType || 'image/jpeg';
+                        // @ts-ignore
+                        const fileName = file.fileName || file.name || `upload_${Date.now()}`;
+
+                        // @ts-ignore
+                        formData.append('file', {
+                            uri: value, // value is URI from previous step
+                            name: fileName,
+                            type: mimeType,
+                        } as any);
+
+                        body = formData;
+                        // Content-Type is handled automatically by fetch for FormData
+                    } else {
+                        headers['Content-Type'] = 'application/json';
+                        body = JSON.stringify({
+                            title: 'From Mobile',
                             content: value,
                             type: type,
                             user_email: user.email,
-                        })
+                        });
+                    }
+
+                    const response = await fetch(`${API_URL}/api/share`, {
+                        method: 'POST',
+                        headers: headers,
+                        body: body
                     });
 
                     if (response.ok) {

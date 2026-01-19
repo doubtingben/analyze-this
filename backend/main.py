@@ -1,6 +1,6 @@
 import os
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, Request, Depends, HTTPException, status
+from fastapi import FastAPI, Request, Depends, HTTPException, status, File, UploadFile, Form
 from fastapi.responses import HTMLResponse, RedirectResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
@@ -10,7 +10,7 @@ from authlib.integrations.starlette_client import OAuth, OAuthError
 from dotenv import load_dotenv
 from jinja2 import Template
 import firebase_admin
-from firebase_admin import credentials, firestore
+from firebase_admin import credentials, firestore, storage
 from google.cloud.firestore import Client as FirestoreClient
 
 from models import User, SharedItem
@@ -27,7 +27,9 @@ GOOGLE_EXTENSION_CLIENT_ID = os.getenv("GOOGLE_EXTENSION_CLIENT_ID")
 # If GOOGLE_APPLICATION_CREDENTIALS is set, or in Cloud Run, default app creds will work.
 # Helper to check if initialized to avoid errors on reload
 if not firebase_admin._apps:
-    firebase_admin.initialize_app()
+    firebase_admin.initialize_app(options={
+        'storageBucket': os.getenv('FIREBASE_STORAGE_BUCKET')
+    })
 
 db: FirestoreClient = firestore.client()
 
@@ -242,15 +244,34 @@ def verify_google_token(token: str):
         
     return None
 
+import uuid
+import datetime
+
 @app.post("/api/share")
-async def share_item(request: Request, item: SharedItem):
-    # Check for Bearer token for API access (Extension/Mobile)
+async def share_item(
+    request: Request,
+    title: str = Form(None),
+    content: str = Form(None),
+    type: str = Form(None),
+    file: UploadFile = File(None),
+    # For JSON body support (legacy/extension), we can't easily mix Body and Form in the same endpoint 
+    # without a bit of work or separate endpoints.
+    # However, existing clients send JSON. FastAPI handles this by checking Content-Type.
+    # To support BOTH, we usually inspect Request or use a dependency.
+    # A cleaner way is to have the client always send JSON or always send Form, or use separate endpoints.
+    # Given the constraint to keep `/api/share`, and that the Extension uses JSON,
+    # we'll try to read the body first if content-type is json.
+    # BUT FastAPI parsing logic is strict.
+    # STRATEGY: Receive Request and parse manually if needed, OR use optional Body & Form.
+    # FastAPI doesn't support optional Body AND optional Form in the same route well (it expects one or the other based on media type).
+    # workaround: Check Content-Type header.
+):
+    # Auth Check
     auth_header = request.headers.get('Authorization')
     user_email = None
     
     if auth_header and auth_header.startswith('Bearer '):
         token = auth_header.split(' ')[1]
-        # Validate Google ID Token
         user_info = verify_google_token(token)
         if user_info:
             user_email = user_info['email']
@@ -259,26 +280,85 @@ async def share_item(request: Request, item: SharedItem):
     
     if not user_email:
         raise HTTPException(status_code=401, detail="Unauthorized")
-        
-    item.user_email = user_email
+
+    # Determine Input Type
+    content_type = request.headers.get('content-type', '')
     
-    # Run Analysis
-    try:
-        from analysis import analyze_content
-        analysis_result = analyze_content(item.content, item.type)
-        if analysis_result:
-            item.analysis = analysis_result
-    except Exception as e:
-        print(f"Analysis failed: {e}")
+    item_data = {}
+    
+    if 'application/json' in content_type:
+        # JSON Request (Extension)
+        try:
+            json_body = await request.json()
+            item_data = json_body
+            # Validate with Pydantic model manually if needed
+            # For now, just trust the keys: title, content, type
+        except Exception:
+            raise HTTPException(status_code=400, detail="Invalid JSON")
+    elif 'multipart/form-data' in content_type:
+        # Form Request (Mobile with Image)
+        item_data = {
+            'title': title,
+            'content': content,
+            'type': type
+        }
+        
+        # Handle File Upload
+        if file:
+            try:
+                bucket = storage.bucket()
+                # Create a unique filename
+                extension = file.filename.split('.')[-1] if '.' in file.filename else 'bin'
+                blob_name = f"uploads/{user_email}/{uuid.uuid4()}.{extension}"
+                blob = bucket.blob(blob_name)
+                
+                # Upload
+                # Read file into memory to avoid "Stream must be at beginning" errors with SpooledTemporaryFile
+                file_content = await file.read()
+                blob.upload_from_string(file_content, content_type=file.content_type)
+                
+
+                # UBLA enabled buckets don't allow make_public() (ACLs).
+                # Generate a signed URL valid for a long time (e.g. 1 year) or V4 signed URL
+                # UPDATE: We now store the PATH (blob_name) and generate the URL on read.
+                # This prevents links from expiring and allows better access control.
+                
+                # Use PATH as content
+                item_data['content'] = blob_name
+                item_data['type'] = 'media' # Force type if it was missing or 'file'
+                
+            except Exception as e:
+                print(f"Upload failed: {e}")
+                raise HTTPException(status_code=500, detail=f"File upload failed: {str(e)}")
+    else:
+        raise HTTPException(status_code=400, detail="Unsupported Content-Type")
+
+    # Construct Item
+    if not item_data.get('type'):
+         item_data['type'] = 'text' # Default
+         
+    new_item = SharedItem(
+        title=item_data.get('title'),
+        content=item_data.get('content'),
+        type=item_data.get('type'),
+        user_email=user_email,
+        created_at=datetime.datetime.now(datetime.timezone.utc)
+    )
+    
+    # Analysis is now handled by a background worker
+    # try:
+    #     from analysis import analyze_content
+    #     analysis_result = analyze_content(new_item.content, new_item.type)
+    #     if analysis_result:
+    #         new_item.analysis = analysis_result
+    # except Exception as e:
+    #     print(f"Analysis failed: {e}")
     
     # Save to Firestore
-    item_dict = item.dict()
-    # Serialize datetime to be firestore friendly (though dict matches, let's just dump)
-    # Pydantic dict with json encoders might be safer logic, but default python types work with firebase-admin
-    
+    item_dict = new_item.dict()
     db.collection('shared_items').add(item_dict)
     
-    return item
+    return new_item
 
 @app.get("/api/items")
 async def get_items(request: Request):
@@ -299,9 +379,26 @@ async def get_items(request: Request):
     items_ref = db.collection('shared_items')
     query = items_ref.where(field_path='user_email', op_string='==', value=user_email).order_by('created_at', direction=firestore.Query.DESCENDING)
     items = []
+    bucket = storage.bucket()
+    
     for doc in query.stream():
         data = doc.to_dict()
         data['firestore_id'] = doc.id
+        
+        # Check if we need to generate a signed URL
+        if data.get('type') == 'media' and data.get('content') and not data.get('content').startswith('http'):
+            try:
+                blob_name = data['content']
+                blob = bucket.blob(blob_name)
+                url = blob.generate_signed_url(
+                    version="v4",
+                    expiration=datetime.timedelta(days=7),
+                    method="GET"
+                )
+                data['content'] = url
+            except Exception as e:
+                print(f"Failed to sign URL for {data.get('content')}: {e}")
+        
         items.append(data)
     
     return items

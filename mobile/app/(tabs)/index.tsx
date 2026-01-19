@@ -25,18 +25,43 @@ export default function HomeScreen() {
 
   const processingRef = useRef(false);
 
+  const lastProcessedRef = useRef<string | null>(null);
+
   useEffect(() => {
     if (hasShareIntent && shareIntent && !processingRef.current) {
+      // Deduplicate based on content signature
+      const signature = JSON.stringify({
+        text: shareIntent.text,
+        webUrl: shareIntent.webUrl,
+        type: shareIntent.type,
+        // @ts-ignore - access path safely or fallback
+        files: shareIntent.files?.map(f => f.path ?? '')
+      });
+
+      if (lastProcessedRef.current === signature) {
+        // Already processing or processed this exact intent
+        return;
+      }
+
       if (shareIntent.type === 'text' || shareIntent.type === 'weburl' || (shareIntent.files && shareIntent.files.length > 0)) {
         processingRef.current = true;
+        lastProcessedRef.current = signature;
+
         (async () => {
-          await addToHistory(shareIntent);
-          resetShareIntent(); // Clear intent after adding
-          processingRef.current = false;
+          try {
+            await addToHistory(shareIntent);
+          } catch (e) {
+            console.error("Error adding to history:", e);
+          } finally {
+            resetShareIntent(); // Clear intent after adding
+            processingRef.current = false;
+            // We do NOT clear lastProcessedRef here to prevent re-processing until intent is cleared externally
+          }
         })();
       }
     } else if (!hasShareIntent) {
       processingRef.current = false;
+      lastProcessedRef.current = null;
     }
   }, [hasShareIntent, shareIntent, addToHistory, resetShareIntent]);
 

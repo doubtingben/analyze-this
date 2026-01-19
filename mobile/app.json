@@ -84,6 +84,12 @@
                 "data": {
                   "mimeType": "text/*"
                 }
+              },
+              {
+                "action": "android.intent.action.SEND",
+                "data": {
+                  "mimeType": "image/*"
+                }
               }
             ]
           },
