@@ -22,6 +22,9 @@ yarn-error.log*
 # Brain Artifacts
 .gemini/
 
+# Worktrees
+.worktrees/
+
 # Mobile
 .expo/
 *.jks
