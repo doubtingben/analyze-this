@@ -8,7 +8,6 @@ from starlette.middleware.sessions import SessionMiddleware
 import requests
 from authlib.integrations.starlette_client import OAuth, OAuthError
 from dotenv import load_dotenv
-from jinja2 import Template
 import firebase_admin
 from firebase_admin import credentials, firestore, storage
 from google.cloud.firestore import Client as FirestoreClient
@@ -73,70 +72,7 @@ oauth.register(
 
 @app.get("/")
 def read_root(request: Request):
-    user = request.session.get('user')
-    if user:
-        # Firestore Query
-        items_ref = db.collection('shared_items')
-        query = items_ref.where(field_path='user_email', op_string='==', value=user['email']).order_by('created_at', direction=firestore.Query.DESCENDING).limit(50)
-        items = []
-        for doc in query.stream():
-            data = doc.to_dict()
-            data['firestore_id'] = doc.id
-            items.append(data)
-        
-        # Simple dashboard template
-        template = """
-        <html>
-            <head>
-                <title>Analyze This Dashboard</title>
-                <link rel="icon" href="/static/favicon.png">
-                <script>
-                    async function deleteItem(itemId) {
-                        if (!confirm('Are you sure you want to delete this item?')) return;
-                        
-                        try {
-                            const response = await fetch('/api/items/' + itemId, {
-                                method: 'DELETE'
-                            });
-                            
-                            if (response.ok) {
-                                window.location.reload();
-                            } else {
-                                alert('Failed to delete item');
-                            }
-                        } catch (error) {
-                            console.error('Error:', error);
-                            alert('An error occurred');
-                        }
-                    }
-                </script>
-            </head>
-            <body style="font-family: sans-serif; max-width: 800px; margin: 0 auto; padding: 20px;">
-                <h1>Analyze This</h1>
-                <p>Welcome, {{ user.name }} | <a href="/logout">Logout</a></p>
-                <hr/>
-                <h2>Shared Items</h2>
-                <ul>
-                {% for item in items %}
-                    <li style="margin-bottom: 20px; border: 1px solid #ddd; padding: 10px; border-radius: 8px;">
-                        <div style="display: flex; justify-content: space-between; align-items: start;">
-                            <div>
-                                <strong>{{ item.title or 'No Title' }}</strong> <small>({{ item.type }})</small>
-                            </div>
-                            <button onclick="deleteItem('{{ item.firestore_id }}')" style="background: #ff4444; color: white; border: none; padding: 5px 10px; border-radius: 4px; cursor: pointer;">Delete</button>
-                        </div>
-                        <div style="margin-top: 5px;">
-                            {{ item.content }}
-                        </div>
-                        <small style="color: grey; display: block; margin-top: 5px;">{{ item.created_at }}</small>
-                    </li>
-                {% endfor %}
-                </ul>
-            </body>
-        </html>
-        """
-        return HTMLResponse(Template(template).render(user=user, items=items))
-    return HTMLResponse('<a href="/login">Login with Google</a>')
+    return FileResponse("static/index.html")
 
 @app.get("/login")
 async def login(request: Request):
@@ -402,6 +338,13 @@ async def get_items(request: Request):
         items.append(data)
     
     return items
+
+@app.get("/api/user")
+async def get_current_user(request: Request):
+    user = request.session.get('user')
+    if not user:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    return {"email": user.get('email'), "name": user.get('name'), "picture": user.get('picture')}
 
 @app.delete("/api/items/{item_id}")
 async def delete_item(item_id: str, request: Request):
