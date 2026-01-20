@@ -13,6 +13,11 @@ chrome.runtime.onInstalled.addListener(() => {
         title: "Analyze this page",
         contexts: ["page"]
     });
+    chrome.contextMenus.create({
+        id: "analyze-this-image",
+        title: "Analyze this image",
+        contexts: ["image"]
+    });
 });
 
 // Handle context menu clicks
@@ -24,6 +29,13 @@ chrome.contextMenus.onClicked.addListener((info, tab) => {
         sendToBackend("text", selectedText, tab.title || "Selected Text");
     } else if (info.menuItemId === "analyze-this-page") {
         sendToBackend("webUrl", tab.url, tab.title || "Web Page");
+    } else if (info.menuItemId === "analyze-this-image") {
+        console.log("Context menu clicked: analyze-this-image");
+        const imageUrl = info.srcUrl || "";
+        console.log("Image URL:", imageUrl);
+        // Use page title for context, with "Image from" prefix
+        const title = tab.title ? `Image from ${tab.title}` : "Shared Image";
+        sendToBackend("media", imageUrl, title);
     }
 });
 
