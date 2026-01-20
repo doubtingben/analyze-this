@@ -3,26 +3,39 @@ const loadingEl = document.getElementById('loading');
 const emptyStateEl = document.getElementById('empty-state');
 const itemsContainerEl = document.getElementById('items-container');
 const userNameEl = document.getElementById('user-name');
+const userInfoEl = document.getElementById('user-info');
+const loginStateEl = document.getElementById('login-state');
 
 // Initialize the app
 async function init() {
     try {
         const user = await fetchUser();
+        if (!user) {
+            showLoginState();
+            return;
+        }
         userNameEl.textContent = `Welcome, ${user.name || user.email}`;
 
         const items = await fetchItems();
         renderItems(items);
     } catch (error) {
         console.error('Initialization error:', error);
+        showLoginState();
     }
+}
+
+// Show login state (not logged in)
+function showLoginState() {
+    loadingEl.style.display = 'none';
+    userInfoEl.style.display = 'none';
+    loginStateEl.style.display = 'block';
 }
 
 // Fetch current user
 async function fetchUser() {
     const response = await fetch('/api/user');
     if (response.status === 401) {
-        window.location.href = '/login';
-        throw new Error('Not authenticated');
+        return null;
     }
     if (!response.ok) {
         throw new Error('Failed to fetch user');
@@ -34,7 +47,7 @@ async function fetchUser() {
 async function fetchItems() {
     const response = await fetch('/api/items');
     if (response.status === 401) {
-        window.location.href = '/login';
+        showLoginState();
         throw new Error('Not authenticated');
     }
     if (!response.ok) {
