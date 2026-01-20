@@ -14,6 +14,6 @@ const LOCAL_API_URL = getLocalApiUrl();
 const PROD_API_URL = 'https://interestedparticipant.org';
 
 // Forcing Prod URL for preview testing as requested
-export const API_URL = PROD_API_URL;
-// export const API_URL = __DEV__ ? LOCAL_API_URL : PROD_API_URL;
+// export const API_URL = PROD_API_URL;
+export const API_URL = __DEV__ ? LOCAL_API_URL : PROD_API_URL;
 

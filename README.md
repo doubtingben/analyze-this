@@ -20,6 +20,7 @@ The mobile application is located in the `mobile/` directory and uses React Nati
 **Important**: Testing the "Share" intent requires a Development Build (`npx expo run:ios/android`). It will not work in standard Expo Go.
 
 
+
 ### Running Analysis Tests
 
 To run the analysis tests (located in `backend/tests/test_analysis.py`), execute the following command from the project root:
@@ -28,4 +29,26 @@ To run the analysis tests (located in `backend/tests/test_analysis.py`), execute
 backend/.venv/bin/python backend/tests/test_analysis.py
 ```
 
-For detailed verification steps, see the [Walkthrough](file:///Users/bwilson/.gemini/antigravity/brain/5d3c40ca-2baf-4861-95a6-d24494436b93/walkthrough.md).
+## Local Development Environment
+
+To run the project locally without modifying the production environment:
+
+### Backend
+
+1.  Navigate to `backend/`.
+2.  Install dependencies: `pip install -r requirements.txt`.
+3.  Run in development mode:
+    ```bash
+    APP_ENV=development uvicorn main:app --reload
+    ```
+    This will use a local SQLite database (`development.db`) instead of Firestore, and bypass Google Auth validation (accepting `dev-token`).
+
+### Mobile App
+
+1.  Run the app: `npx expo start`.
+2.  In the Dashboard, tap the **Dev Login** button (visible only in dev builds). This authenticates you as a test user ("Developer") without needing Google Sign-In.
+
+### Chrome Extension
+
+1.  Ensure `extension/config.js` has `API_BASE_URL` set to `http://localhost:8000`.
+2.  Load the extension unpacked in Chrome (Developer Mode).

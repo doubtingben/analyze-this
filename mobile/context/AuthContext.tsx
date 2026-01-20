@@ -19,6 +19,7 @@ interface User {
 interface AuthContextType {
     user: User | null;
     signIn: () => void;
+    signInDev?: () => void;
     signOut: () => void;
     isLoading: boolean;
 }
@@ -141,13 +142,24 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         await promptAsync();
     };
 
+    const signInDev = async () => {
+        const devUser = {
+            email: 'dev@example.com',
+            name: 'Developer',
+            picture: 'https://via.placeholder.com/150',
+            idToken: 'dev-token',
+        };
+        setUser(devUser);
+        await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(devUser));
+    };
+
     const signOut = async () => {
         setUser(null);
         await AsyncStorage.removeItem(STORAGE_KEY);
     };
 
     return (
-        <AuthContext.Provider value={{ user, signIn, signOut, isLoading }}>
+        <AuthContext.Provider value={{ user, signIn, signInDev, signOut, isLoading }}>
             {children}
         </AuthContext.Provider>
     );

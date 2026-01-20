@@ -11,3 +11,5 @@ itsdangerous
 google-auth
 google-auth-oauthlib
 openai
+aiosqlite
+sqlalchemy

@@ -15,7 +15,7 @@ import { useAuth } from '@/context/AuthContext';
 export default function HomeScreen() {
   const { hasShareIntent, shareIntent, resetShareIntent } = useShareIntent();
   const { history, addToHistory, removeItem, loadHistory, isSyncing, isLoading } = useShareHistory();
-  const { user, signIn, signOut } = useAuth();
+  const { user, signIn, signInDev, signOut } = useAuth();
   const [searchQuery, setSearchQuery] = useState('');
 
   useFocusEffect(
@@ -116,10 +116,18 @@ export default function HomeScreen() {
                   <ThemedText type="title">Analyze This</ThemedText>
                   <HelloWave />
                 </View>
-                <TouchableOpacity onPress={user ? signOut : signIn} style={styles.authButton}>
-                  <Ionicons name={user ? "log-out-outline" : "logo-google"} size={20} color="white" />
-                  <ThemedText style={styles.authButtonText}>{user ? 'Logout' : 'Login'}</ThemedText>
-                </TouchableOpacity>
+                <View style={{ flexDirection: 'row', gap: 8 }}>
+                  {__DEV__ && !user && (
+                    <TouchableOpacity onPress={signInDev} style={[styles.authButton, { backgroundColor: '#666' }]}>
+                      <Ionicons name="construct-outline" size={20} color="white" />
+                      <ThemedText style={styles.authButtonText}>Dev</ThemedText>
+                    </TouchableOpacity>
+                  )}
+                  <TouchableOpacity onPress={user ? signOut : signIn} style={styles.authButton}>
+                    <Ionicons name={user ? "log-out-outline" : "logo-google"} size={20} color="white" />
+                    <ThemedText style={styles.authButtonText}>{user ? 'Logout' : 'Login'}</ThemedText>
+                  </TouchableOpacity>
+                </View>
               </View>
             </View>
 
