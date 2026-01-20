@@ -32,9 +32,14 @@ export function HistoryItemCard({ item, onDelete, onShare, children, badgeColor 
   return (
     <ThemedView style={styles.card}>
       <View style={styles.cardHeader}>
-        <ThemedText type="defaultSemiBold" style={styles.dateText}>
-          {new Date(item.timestamp).toLocaleString()}
-        </ThemedText>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+          <ThemedText type="defaultSemiBold" style={styles.dateText}>
+            {new Date(item.timestamp).toLocaleString()}
+          </ThemedText>
+          {item.analysis && (
+            <Ionicons name="sparkles" size={14} color="#FFD700" />
+          )}
+        </View>
         <TouchableOpacity onPress={() => onDelete(item.id)}>
           <Ionicons name="trash-outline" size={20} color="#ff4444" />
         </TouchableOpacity>

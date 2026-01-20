@@ -12,6 +12,7 @@ export interface HistoryItem {
     type: 'text' | 'webUrl' | 'media' | 'file';
     originalIntent?: ShareIntent;
     firestore_id?: string;
+    analysis?: any;
 }
 
 const STORAGE_KEY = 'share_history_v1';
@@ -40,7 +41,8 @@ export function useShareHistory() {
                         timestamp: new Date(item.created_at).getTime(),
                         value: item.content || (item as any).value, // support both schemas if they differ
                         type: item.type,
-                        firestore_id: item.firestore_id
+                        firestore_id: item.firestore_id,
+                        analysis: item.analysis
                     }));
                     setHistory(mappedItems);
                 } else {
