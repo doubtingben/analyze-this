@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Analyze This</title>
+    <link rel="icon" href="/static/favicon.png">
+    <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+    <div class="container">
+        <header class="header">
+            <h1>Analyze This</h1>
+            <div class="user-info" id="user-info">
+                <span id="user-name"></span>
+                <a href="/logout" class="logout-link">Logout</a>
+            </div>
+        </header>
+
+        <main>
+            <div id="loading" class="loading">
+                Loading...
+            </div>
+
+            <div id="empty-state" class="empty-state" style="display: none;">
+                <p>No items yet. Share something from the mobile app or browser extension!</p>
+            </div>
+
+            <div id="items-container" class="items-container">
+            </div>
+        </main>
+    </div>
+
+    <script src="/static/app.js"></script>
+</body>
+</html>
