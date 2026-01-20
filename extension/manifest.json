@@ -2,6 +2,7 @@
     "manifest_version": 3,
     "name": "Analyze This",
     "version": "1.0",
+    "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEArAhDKPO3CzBJoXMa+vOB0mCwSCiey5ySHPtMREKSsZ0jZJZP2hdLIWx3LTicMG0k29f1k5Jg0aLeEq8IaRIKqoBX99LUB677UcqLPxlA2cokNZWqrJov8OYH7Xjp2m/JKgAOr4VTsL2Y7q4ARDtKjwEcy4JNWd14hFmTEHmu6ceG1UapggbEBA3LD+fWr2ttaJwggUXEdSEVzQuVSvtcKj/6OIXUO8H4TcaKcWhEQk8BGVj34xIE3cKJ8EenM8HoSOYK9er87J+eaLUl5FfAuwphhGJ2ALZ6SH9o7n6gxKz2RaI/qPcDdqIeI2YVwB5Sv2imJL76O9erK65u7+kEyQIDAQAB",
     "description": "Share pages or text to Analyze This for review.",
     "permissions": [
         "contextMenus",
