@@ -1,4 +1,6 @@
 import os
+import shutil
+from pathlib import Path
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request, Depends, HTTPException, status, File, UploadFile, Form
 from fastapi.responses import HTMLResponse, RedirectResponse, FileResponse
@@ -9,10 +11,10 @@ import requests
 from authlib.integrations.starlette_client import OAuth, OAuthError
 from dotenv import load_dotenv
 import firebase_admin
-from firebase_admin import credentials, firestore, storage
-from google.cloud.firestore import Client as FirestoreClient
+from firebase_admin import credentials, storage
 
 from models import User, SharedItem
+from database import DatabaseInterface, FirestoreDatabase, SQLiteDatabase
 
 # Load environment variables
 load_dotenv()
@@ -21,20 +23,23 @@ SECRET_KEY = os.getenv("SECRET_KEY", "super-secret-key-please-change")
 GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID")
 GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET")
 GOOGLE_EXTENSION_CLIENT_ID = os.getenv("GOOGLE_EXTENSION_CLIENT_ID")
+APP_ENV = os.getenv("APP_ENV", "production")
 
-# Firebase Init
-# If GOOGLE_APPLICATION_CREDENTIALS is set, or in Cloud Run, default app creds will work.
-# Helper to check if initialized to avoid errors on reload
-if not firebase_admin._apps:
-    firebase_admin.initialize_app(options={
-        'storageBucket': os.getenv('FIREBASE_STORAGE_BUCKET')
-    })
+# --- Database & Storage Initialization ---
 
-db: FirestoreClient = firestore.client()
+db: DatabaseInterface = None
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # No SQL db to create
+    global db
+    if APP_ENV == "development":
+        print("Starting in DEVELOPMENT mode using SQLite")
+        db = SQLiteDatabase()
+        if hasattr(db, 'init_db'):
+            await db.init_db()
+    else:
+        print("Starting in PRODUCTION mode using Firestore")
+        db = FirestoreDatabase()
     yield
 
 
@@ -56,7 +61,8 @@ app.mount("/static", StaticFiles(directory="static"), name="static")
 async def favicon():
     return FileResponse("static/favicon.png")
 
-# Auth Setup
+# --- Auth Setup ---
+
 oauth = OAuth()
 oauth.register(
     name='google',
@@ -71,7 +77,68 @@ oauth.register(
 # --- Routes ---
 
 @app.get("/")
-def read_root(request: Request):
+async def read_root(request: Request):
+    if APP_ENV == "development":
+        user = request.session.get('user')
+        if user:
+            # Firestore Query
+            items = await db.get_shared_items(user['email'])
+            
+            # Simple dashboard template
+            template = """
+            <html>
+                <head>
+                    <title>Analyze This Dashboard</title>
+                    <link rel="icon" href="/static/favicon.png">
+                    <script>
+                        async function deleteItem(itemId) {
+                            if (!confirm('Are you sure you want to delete this item?')) return;
+                            
+                            try {
+                                const response = await fetch('/api/items/' + itemId, {
+                                    method: 'DELETE'
+                                });
+                                
+                                if (response.ok) {
+                                    window.location.reload();
+                                } else {
+                                    alert('Failed to delete item');
+                                }
+                            } catch (error) {
+                                console.error('Error:', error);
+                                alert('An error occurred');
+                            }
+                        }
+                    </script>
+                </head>
+                <body style="font-family: sans-serif; max-width: 800px; margin: 0 auto; padding: 20px;">
+                    <h1>Analyze This</h1>
+                    <p>Welcome, {{ user.name }} | <a href="/logout">Logout</a></p>
+                    <hr/>
+                    <h2>Shared Items</h2>
+                    <ul>
+                    {% for item in items %}
+                        <li style="margin-bottom: 20px; border: 1px solid #ddd; padding: 10px; border-radius: 8px;">
+                            <div style="display: flex; justify-content: space-between; align-items: start;">
+                                <div>
+                                    <strong>{{ item.title or 'No Title' }}</strong> <small>({{ item.type }})</small>
+                                </div>
+                                <button onclick="deleteItem('{{ item.firestore_id }}')" style="background: #ff4444; color: white; border: none; padding: 5px 10px; border-radius: 4px; cursor: pointer;">Delete</button>
+                            </div>
+                            <div style="margin-top: 5px;">
+                                {{ item.content }}
+                            </div>
+                            <small style="color: grey; display: block; margin-top: 5px;">{{ item.created_at }}</small>
+                        </li>
+                    {% endfor %}
+                    </ul>
+                </body>
+            </html>
+            """
+            from jinja2 import Template
+            return HTMLResponse(Template(template).render(user=user, items=items))
+        return HTMLResponse('<a href="/login">Login with Google</a>')
+    
     return FileResponse("static/index.html")
 
 @app.get("/login")
@@ -97,25 +164,15 @@ async def auth(request: Request):
     if user_info:
         request.session['user'] = user_info
         
-        # Create/Update User in Firestore
-        users_ref = db.collection('users')
-        # Use email as document ID or query? Let's query to be safe, or use email as ID if unique.
-        # Google emails are unique. Let's use email as ID for simplicity and speed.
-        
-        # Sanitize email for ID? (dots are allowed in IDs, slashes not). Email safety:
-        # Just in case, let's query.
-        
+        # Create/Update User in DB
         # Check if exists
-        user_doc_ref = users_ref.document(user_info['email'])  # Direct ID mapping if safe
-        # If we worry about characters, we can sha256 it, but email is readable.
-        
-        user_data = {
-            'email': user_info['email'],
-            'name': user_info.get('name'),
-            'picture': user_info.get('picture'),
-            'updated_at': firestore.SERVER_TIMESTAMP
-        }
-        user_doc_ref.set(user_data, merge=True)
+        user = User(
+            email=user_info['email'],
+            name=user_info.get('name'),
+            picture=user_info.get('picture'),
+            # created_at handled by default
+        )
+        await db.upsert_user(user)
             
     return RedirectResponse(url='/')
 
@@ -159,6 +216,14 @@ from google.oauth2 import id_token
 from google.auth.transport import requests as google_requests
 
 def verify_google_token(token: str):
+    # DEV_BYPASS
+    if APP_ENV == "development" and token == "dev-token":
+        return {
+            "email": "dev@example.com",
+            "name": "Developer",
+            "picture": "https://via.placeholder.com/150"
+        }
+
     # Method 1: Try verifying as ID Token (Web Client)
     try:
         id_info = id_token.verify_oauth2_token(token, google_requests.Request(), GOOGLE_CLIENT_ID)
@@ -242,25 +307,35 @@ async def share_item(
         # Handle File Upload
         if file:
             try:
-                bucket = storage.bucket()
                 # Create a unique filename
                 extension = file.filename.split('.')[-1] if '.' in file.filename else 'bin'
-                blob_name = f"uploads/{user_email}/{uuid.uuid4()}.{extension}"
-                blob = bucket.blob(blob_name)
+                blob_name_relative = f"uploads/{user_email}/{uuid.uuid4()}.{extension}"
                 
-                # Upload
-                # Read file into memory to avoid "Stream must be at beginning" errors with SpooledTemporaryFile
-                file_content = await file.read()
-                blob.upload_from_string(file_content, content_type=file.content_type)
+                if APP_ENV == "development":
+                    # Local Storage Strategy
+                    local_path = Path("static") / blob_name_relative
+                    # Ensure directory exists
+                    local_path.parent.mkdir(parents=True, exist_ok=True)
+                    
+                    with open(local_path, "wb") as buffer:
+                        shutil.copyfileobj(file.file, buffer)
+                        
+                    # For local dev, we just store the relative path for now, 
+                    # similar to prod, but the retrieval needs to handle it.
+                    # Actually, let's store the full access URL for simplicity? 
+                    # Or keep storing the path and let get_items resolve it.
+                    # existing prod logic stores "blob_name" (path).
+                    # Let's stick to that.
+                    item_data['content'] = blob_name_relative
+                    
+                else:
+                    # Prod: Firebase Storage
+                    bucket = storage.bucket()
+                    blob = bucket.blob(blob_name_relative)
+                    file_content = await file.read()
+                    blob.upload_from_string(file_content, content_type=file.content_type)
+                    item_data['content'] = blob_name_relative
                 
-
-                # UBLA enabled buckets don't allow make_public() (ACLs).
-                # Generate a signed URL valid for a long time (e.g. 1 year) or V4 signed URL
-                # UPDATE: We now store the PATH (blob_name) and generate the URL on read.
-                # This prevents links from expiring and allows better access control.
-                
-                # Use PATH as content
-                item_data['content'] = blob_name
                 item_data['type'] = 'media' # Force type if it was missing or 'file'
                 
             except Exception as e:
@@ -290,9 +365,8 @@ async def share_item(
     # except Exception as e:
     #     print(f"Analysis failed: {e}")
     
-    # Save to Firestore
-    item_dict = new_item.dict()
-    db.collection('shared_items').add(item_dict)
+    # Save to DB
+    await db.create_shared_item(new_item)
     
     return new_item
 
@@ -312,30 +386,35 @@ async def get_items(request: Request):
     if not user_email:
         raise HTTPException(status_code=401, detail="Unauthorized")
 
-    items_ref = db.collection('shared_items')
-    query = items_ref.where(field_path='user_email', op_string='==', value=user_email).order_by('created_at', direction=firestore.Query.DESCENDING)
-    items = []
-    bucket = storage.bucket()
+    items = await db.get_shared_items(user_email)
     
-    for doc in query.stream():
-        data = doc.to_dict()
-        data['firestore_id'] = doc.id
-        
-        # Check if we need to generate a signed URL
-        if data.get('type') == 'media' and data.get('content') and not data.get('content').startswith('http'):
-            try:
-                blob_name = data['content']
-                blob = bucket.blob(blob_name)
-                url = blob.generate_signed_url(
-                    version="v4",
-                    expiration=datetime.timedelta(days=7),
-                    method="GET"
-                )
-                data['content'] = url
-            except Exception as e:
-                print(f"Failed to sign URL for {data.get('content')}: {e}")
-        
-        items.append(data)
+    # Process items (Signed URLs etc)
+    # We only need to do this for media items in PROD or adjust URLs in DEV
+    
+    if APP_ENV == "development":
+        # DEV: transform content path to localhost static URL
+        base_url = str(request.base_url).rstrip('/')
+        for item in items:
+            if item.get('type') == 'media' and item.get('content') and not item.get('content').startswith('http'):
+                # Assumes content is relative path like uploads/email/uuid.ext
+                # Mounted at /static
+                item['content'] = f"{base_url}/static/{item['content']}"
+    else:
+        # PROD: Firebase Signed URLs
+        bucket = storage.bucket()
+        for item in items:
+            if item.get('type') == 'media' and item.get('content') and not item.get('content').startswith('http'):
+                try:
+                    blob_name = item['content']
+                    blob = bucket.blob(blob_name)
+                    url = blob.generate_signed_url(
+                        version="v4",
+                        expiration=datetime.timedelta(days=7),
+                        method="GET"
+                    )
+                    item['content'] = url
+                except Exception as e:
+                    print(f"Failed to sign URL for {item.get('content')}: {e}")
     
     return items
 
@@ -363,16 +442,14 @@ async def delete_item(item_id: str, request: Request):
     if not user_email:
         raise HTTPException(status_code=401, detail="Unauthorized")
 
-    # Firestore Operation
-    item_ref = db.collection('shared_items').document(item_id)
-    doc = item_ref.get()
-    
-    if not doc.exists:
-        raise HTTPException(status_code=404, detail="Item not found")
-        
-    item_data = doc.to_dict()
-    if item_data.get('user_email') != user_email:
+    try:
+        success = await db.delete_shared_item(item_id, user_email)
+        if not success:
+            # Could mean not found or just failed
+            # db.delete_shared_item raises ValueError if forbidden
+            # and returns False if not found
+            raise HTTPException(status_code=404, detail="Item not found")
+    except ValueError:
         raise HTTPException(status_code=403, detail="Forbidden: You do not own this item")
         
-    item_ref.delete()
     return {"status": "success", "deleted_id": item_id}
