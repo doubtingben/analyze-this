@@ -53,7 +53,7 @@ async function sendToBackend(type, content, title) {
         const token = await getAuthToken();
         if (!token) {
             console.error("No auth token available. Please login via popup.");
-            // Open popup or alert user (limitations in SW)
+            showNotification('Not Signed In', 'Please sign in via the extension popup');
             return;
         }
 
@@ -73,13 +73,16 @@ async function sendToBackend(type, content, title) {
 
         if (response.ok) {
             console.log("Item shared successfully");
-            // Optionally show notification
+            showNotification('Success', 'Item shared successfully');
         } else {
-            console.error("Failed to share", await response.text());
+            const errorText = await response.text();
+            console.error("Failed to share", errorText);
+            showNotification('Share Failed', errorText || 'Unknown error');
         }
 
     } catch (error) {
         console.error("Error sharing item:", error);
+        showNotification('Error', error.message || 'Failed to share item');
     }
 }
 
@@ -163,6 +166,10 @@ async function handleCaptureComplete(dataUrl, tab) {
 }
 
 function showNotification(title, message) {
-    // Use console for now - notifications require additional permission
-    console.log(`[${title}] ${message}`);
+    chrome.notifications.create({
+        type: 'basic',
+        iconUrl: 'icons/icon128.png',
+        title: title,
+        message: message
+    });
 }
