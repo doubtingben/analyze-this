@@ -401,21 +401,15 @@ async def get_items(request: Request):
                 # Mounted at /static
                 item['content'] = f"{base_url}/static/{item['content']}"
     else:
-        # PROD: Firebase Signed URLs
+        # PROD: Firebase Storage public URLs
+        from urllib.parse import quote
         bucket = storage.bucket()
+        bucket_name = bucket.name
         for item in items:
             if item.get('type') in image_types and item.get('content') and not item.get('content').startswith('http'):
-                try:
-                    blob_name = item['content']
-                    blob = bucket.blob(blob_name)
-                    url = blob.generate_signed_url(
-                        version="v4",
-                        expiration=datetime.timedelta(days=7),
-                        method="GET"
-                    )
-                    item['content'] = url
-                except Exception as e:
-                    print(f"Failed to sign URL for {item.get('content')}: {e}")
+                blob_name = item['content']
+                encoded_blob = quote(blob_name, safe='')
+                item['content'] = f"https://firebasestorage.googleapis.com/v0/b/{bucket_name}/o/{encoded_blob}?alt=media"
     
     return items
 
