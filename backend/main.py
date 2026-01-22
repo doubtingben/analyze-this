@@ -389,13 +389,14 @@ async def get_items(request: Request):
     items = await db.get_shared_items(user_email)
     
     # Process items (Signed URLs etc)
-    # We only need to do this for media items in PROD or adjust URLs in DEV
-    
+    # We only need to do this for media/screenshot items in PROD or adjust URLs in DEV
+    image_types = ('media', 'screenshot')
+
     if APP_ENV == "development":
         # DEV: transform content path to localhost static URL
         base_url = str(request.base_url).rstrip('/')
         for item in items:
-            if item.get('type') == 'media' and item.get('content') and not item.get('content').startswith('http'):
+            if item.get('type') in image_types and item.get('content') and not item.get('content').startswith('http'):
                 # Assumes content is relative path like uploads/email/uuid.ext
                 # Mounted at /static
                 item['content'] = f"{base_url}/static/{item['content']}"
@@ -403,7 +404,7 @@ async def get_items(request: Request):
         # PROD: Firebase Signed URLs
         bucket = storage.bucket()
         for item in items:
-            if item.get('type') == 'media' and item.get('content') and not item.get('content').startswith('http'):
+            if item.get('type') in image_types and item.get('content') and not item.get('content').startswith('http'):
                 try:
                     blob_name = item['content']
                     blob = bucket.blob(blob_name)

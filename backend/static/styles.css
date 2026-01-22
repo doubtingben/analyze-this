@@ -152,6 +152,11 @@ body {
     color: #166534;
 }
 
+.type-badge.screenshot {
+    background-color: #f3e8ff;
+    color: #7c3aed;
+}
+
 .type-badge.web_url {
     background-color: #dbeafe;
     color: #1e40af;

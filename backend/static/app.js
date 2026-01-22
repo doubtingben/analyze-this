@@ -112,6 +112,7 @@ function renderItem(item) {
 
     switch (item.type) {
         case 'media':
+        case 'screenshot':
             renderMediaItem(item, content);
             break;
         case 'web_url':
