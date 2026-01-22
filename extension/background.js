@@ -166,10 +166,17 @@ async function handleCaptureComplete(dataUrl, tab) {
 }
 
 function showNotification(title, message) {
-    chrome.notifications.create({
+    const notificationId = 'analyze-this-' + Date.now();
+    chrome.notifications.create(notificationId, {
         type: 'basic',
         iconUrl: 'icons/icon128.png',
         title: title,
         message: message
+    }, (createdId) => {
+        if (chrome.runtime.lastError) {
+            console.error('Notification error:', chrome.runtime.lastError.message);
+        } else {
+            console.log('Notification created:', createdId);
+        }
     });
 }
