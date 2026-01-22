@@ -28,7 +28,14 @@ chrome.contextMenus.onClicked.addListener((info, tab) => {
         console.log("Selected text:", selectedText);
         sendToBackend("text", selectedText, tab.title || "Selected Text");
     } else if (info.menuItemId === "analyze-this-page") {
-        sendToBackend("webUrl", tab.url, tab.title || "Web Page");
+        // Inject capture script to take full-page screenshot
+        chrome.scripting.executeScript({
+            target: { tabId: tab.id },
+            files: ['capture.js']
+        }).catch(error => {
+            console.error('Failed to inject capture script:', error);
+            showNotification('Capture Failed', 'Cannot capture this page');
+        });
     } else if (info.menuItemId === "analyze-this-image") {
         console.log("Context menu clicked: analyze-this-image");
         const imageUrl = info.srcUrl || "";
@@ -86,4 +93,74 @@ function getAuthToken() {
             }
         });
     });
+}
+
+// Message handler for capture requests
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  if (message.action === 'captureVisibleTab') {
+    chrome.tabs.captureVisibleTab(null, { format: 'png' }, dataUrl => {
+      if (chrome.runtime.lastError) {
+        sendResponse({ error: chrome.runtime.lastError.message });
+      } else {
+        sendResponse({ dataUrl });
+      }
+    });
+    return true; // Keep message channel open for async response
+  }
+
+  if (message.action === 'captureComplete') {
+    handleCaptureComplete(message.dataUrl, sender.tab);
+  }
+
+  if (message.action === 'captureError') {
+    console.error('Capture failed:', message.error);
+    showNotification('Capture Failed', message.error);
+  }
+});
+
+// State to track pending captures
+let pendingCapture = null;
+
+async function handleCaptureComplete(dataUrl, tab) {
+  try {
+    const token = await getAuthToken();
+    if (!token) {
+      showNotification('Error', 'Not authenticated');
+      return;
+    }
+
+    // Convert data URL to blob
+    const response = await fetch(dataUrl);
+    const blob = await response.blob();
+
+    // Create form data
+    const formData = new FormData();
+    formData.append('file', blob, 'screenshot.jpg');
+    formData.append('type', 'screenshot');
+    formData.append('title', tab.title || 'Page Screenshot');
+
+    // Upload to backend
+    const uploadResponse = await fetch(`${CONFIG.API_BASE_URL}/api/share`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${token}`
+      },
+      body: formData
+    });
+
+    if (uploadResponse.ok) {
+      showNotification('Success', 'Screenshot captured and shared');
+    } else {
+      const errorText = await uploadResponse.text();
+      showNotification('Upload Failed', errorText);
+    }
+  } catch (error) {
+    console.error('Upload error:', error);
+    showNotification('Error', error.message);
+  }
+}
+
+function showNotification(title, message) {
+  // Use console for now - notifications require additional permission
+  console.log(`[${title}] ${message}`);
 }
