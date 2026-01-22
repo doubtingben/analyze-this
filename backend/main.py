@@ -240,9 +240,13 @@ def verify_google_token(token: str):
         )
         if response.status_code == 200:
             return response.json()
-    except Exception:
+        else:
+            print(f"Token verification failed (Method 2). Status: {response.status_code}, Body: {response.text}")
+    except Exception as e:
+        print(f"Token verification exception (Method 2): {e}")
         pass
         
+    print("Token verification failed: Invalid token")
     return None
 
 import uuid
@@ -405,8 +409,11 @@ async def get_items(request: Request):
         # We replace the content path with a URL to our own API
         # This avoids needing a private key for Signed URLs
         base_url = str(request.base_url).rstrip('/')
+        if APP_ENV != "development":
+             base_url = base_url.replace("http://", "https://")
+             
         for item in items:
-            if item.get('type') == 'media' and item.get('content') and not item.get('content').startswith('http'):
+            if item.get('type') in image_types and item.get('content') and not item.get('content').startswith('http'):
                 # Content is "runs/email/uuid.ext"
                 # We want /api/content/runs/email/uuid.ext
                 item['content'] = f"{base_url}/api/content/{item['content']}"

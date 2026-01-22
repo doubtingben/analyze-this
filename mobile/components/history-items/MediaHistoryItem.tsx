@@ -1,7 +1,10 @@
 import { StyleSheet, View } from 'react-native';
 import { Image } from 'expo-image';
 import { HistoryItem } from '@/hooks/useShareHistory';
+import { useAuth } from '../../context/AuthContext';
 import { HistoryItemCard } from './HistoryItemCard';
+
+console.log('MediaHistoryItem loaded, useAuth:', useAuth);
 
 interface MediaHistoryItemProps {
   item: HistoryItem;
@@ -10,15 +13,29 @@ interface MediaHistoryItemProps {
 }
 
 export function MediaHistoryItem({ item, onDelete, onShare }: MediaHistoryItemProps) {
+  const { user } = useAuth();
+
+  const imageSource = {
+    uri: item.value,
+    headers: user?.idToken ? { Authorization: `Bearer ${user.idToken}` } : undefined
+  };
+
+  console.log('Rendering MediaHistoryItem:', item.id);
+  console.log('Image Source URI:', item.value);
+  console.log('Has Auth Token:', !!user?.idToken);
+
   return (
     <HistoryItemCard item={item} onDelete={onDelete} onShare={onShare}>
       <View style={styles.imageContainer}>
         <Image
-          source={{ uri: item.value }}
+          source={imageSource}
           style={styles.image}
           contentFit="cover"
           transition={200}
           cachePolicy="memory-disk"
+          onLoadStart={() => console.log('Image load start:', item.value)}
+          onLoad={() => console.log('Image loaded successfully:', item.value)}
+          onError={(e) => console.error('Image load failed:', item.value, e.error)}
         />
       </View>
     </HistoryItemCard>

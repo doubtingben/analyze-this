@@ -140,7 +140,7 @@ async function handleCaptureComplete(dataUrl, tab) {
 
         // Create form data
         const formData = new FormData();
-        formData.append('file', blob, 'screenshot.jpg');
+        formData.append('file', blob, 'screenshot.png');
         formData.append('type', 'screenshot');
         formData.append('title', tab.title || 'Page Screenshot');
 

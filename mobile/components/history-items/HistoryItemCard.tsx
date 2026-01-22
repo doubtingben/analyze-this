@@ -16,7 +16,9 @@ const getBadgeColor = (type: HistoryItem['type']) => {
   switch (type) {
     case 'media':
       return { bg: 'rgba(76, 175, 80, 0.2)', text: '#4CAF50' };
-    case 'webUrl':
+    case 'screenshot':
+      return { bg: 'rgba(156, 39, 176, 0.2)', text: '#9C27B0' };
+    case 'web_url':
       return { bg: 'rgba(33, 150, 243, 0.2)', text: '#2196F3' };
     case 'file':
       return { bg: 'rgba(255, 152, 0, 0.2)', text: '#FF9800' };
@@ -32,9 +34,14 @@ export function HistoryItemCard({ item, onDelete, onShare, children, badgeColor 
   return (
     <ThemedView style={styles.card}>
       <View style={styles.cardHeader}>
-        <ThemedText type="defaultSemiBold" style={styles.dateText}>
-          {new Date(item.timestamp).toLocaleString()}
-        </ThemedText>
+        <View style={{ flex: 1, marginRight: 8 }}>
+          {item.title ? (
+            <ThemedText type="defaultSemiBold" numberOfLines={1}>{item.title}</ThemedText>
+          ) : null}
+          <ThemedText style={styles.dateText}>
+            {new Date(item.timestamp).toLocaleString()}
+          </ThemedText>
+        </View>
         <TouchableOpacity onPress={() => onDelete(item.id)}>
           <Ionicons name="trash-outline" size={20} color="#ff4444" />
         </TouchableOpacity>

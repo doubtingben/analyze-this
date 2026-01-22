@@ -70,7 +70,7 @@ export default function HomeScreen() {
     try {
       await Share.share({
         message: item.value,
-        url: item.type === 'webUrl' ? item.value : undefined,
+        url: item.type === 'web_url' ? item.value : undefined,
       });
     } catch (error: any) {
       Alert.alert(error.message);
@@ -84,8 +84,9 @@ export default function HomeScreen() {
   const renderItem = ({ item }: { item: HistoryItem }) => {
     switch (item.type) {
       case 'media':
+      case 'screenshot':
         return <MediaHistoryItem item={item} onDelete={removeItem} onShare={handleShare} />;
-      case 'webUrl':
+      case 'web_url':
         return <WebUrlHistoryItem item={item} onDelete={removeItem} onShare={handleShare} />;
       case 'text':
       case 'file':

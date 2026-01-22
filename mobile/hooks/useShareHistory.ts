@@ -9,9 +9,10 @@ export interface HistoryItem {
     id: string;
     timestamp: number;
     value: string;
-    type: 'text' | 'webUrl' | 'media' | 'file';
+    type: 'text' | 'web_url' | 'media' | 'file' | 'screenshot';
     originalIntent?: ShareIntent;
     firestore_id?: string;
+    title?: string;
 }
 
 const STORAGE_KEY = 'share_history_v1';
@@ -40,7 +41,8 @@ export function useShareHistory() {
                         timestamp: new Date(item.created_at).getTime(),
                         value: item.content || (item as any).value, // support both schemas if they differ
                         type: item.type,
-                        firestore_id: item.firestore_id
+                        firestore_id: item.firestore_id,
+                        title: item.title
                     }));
                     setHistory(mappedItems);
                 } else {
@@ -82,7 +84,7 @@ export function useShareHistory() {
             let value = '';
 
             if (intent.webUrl) {
-                type = 'webUrl';
+                type = 'web_url';
                 value = intent.webUrl;
             } else if (intent.text) {
                 type = 'text';
