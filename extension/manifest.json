@@ -8,7 +8,8 @@
         "contextMenus",
         "identity",
         "activeTab",
-        "scripting"
+        "scripting",
+        "offscreen"
     ],
     "oauth2": {
         "client_id": "106064975526-hvkkuvcknntaflhdofobf9vpkj9o3rfv.apps.googleusercontent.com",

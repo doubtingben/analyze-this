@@ -7,46 +7,40 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
 
     document.getElementById('send-btn').addEventListener('click', async () => {
-        const title = document.getElementById('title').value;
-        const content = document.getElementById('content').value;
+        const titleInput = document.getElementById('title');
+        const customTitle = titleInput ? titleInput.value : "";
+
         const statusEl = document.getElementById('status');
         const errorEl = document.getElementById('error');
 
-        statusEl.innerText = 'Sending...';
+        statusEl.innerText = 'Starting capture...';
         errorEl.innerText = '';
 
-        try {
-            const authResult = await getAuthToken();
-            if (authResult.error) {
-                errorEl.innerText = 'Auth Error: ' + authResult.error;
-                return;
-            }
-            const token = authResult.token;
-
-            const response = await fetch(`${CONFIG.API_BASE_URL}/api/share`, {
-                method: "POST",
-                headers: {
-                    "Content-Type": "application/json",
-                    "Authorization": `Bearer ${token}`
-                },
-                body: JSON.stringify({
-                    type: "webUrl",
-                    content: content,
-                    title: title,
-                    user_email: "placeholder"
-                })
-            });
-
-            if (response.ok) {
-                statusEl.innerText = 'Saved successfully!';
-                setTimeout(() => window.close(), 1500);
-            } else {
-                errorEl.innerText = 'Error: ' + response.statusText;
-            }
-
-        } catch (e) {
-            errorEl.innerText = 'Error: ' + e.message;
+        const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+        if (tab && (tab.url.startsWith('chrome://') || tab.url.startsWith('edge://') || tab.url.startsWith('about:') || tab.url.startsWith('chrome-extension://'))) {
+            errorEl.innerText = 'Error: Cannot capture restricted URLs (chrome://, about:, etc).';
+            statusEl.innerText = '';
+            return;
         }
+
+        // Send message to background script to handle capture
+        console.log("Sending message to background...");
+        chrome.runtime.sendMessage({
+            action: 'capture_from_popup',
+            title: customTitle
+        }, (response) => {
+            console.log("Response received:", response);
+            if (chrome.runtime.lastError) {
+                console.error("Runtime error:", chrome.runtime.lastError);
+                errorEl.innerText = 'Error: ' + chrome.runtime.lastError.message;
+            } else if (response && response.status === 'started') {
+                statusEl.innerText = 'Capturing started in background...';
+                // Close popup after a delay to show status
+                setTimeout(() => window.close(), 3000);
+            } else {
+                errorEl.innerText = 'Unknown response from background';
+            }
+        });
     });
 });
 
