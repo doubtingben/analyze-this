@@ -64,36 +64,13 @@
       [
         "expo-share-intent",
         {
-          "ios": {
-            "activationRules": {
-              "NSExtensionActivationSupportsWebURLWithMaxCount": 1,
-              "NSExtensionActivationSupportsWebPageWithMaxCount": 1,
-              "NSExtensionActivationSupportsText": true
-            }
+          "iosActivationRules": {
+            "NSExtensionActivationSupportsWebURLWithMaxCount": 1,
+            "NSExtensionActivationSupportsWebPageWithMaxCount": 1,
+            "NSExtensionActivationSupportsText": true,
+            "NSExtensionActivationSupportsImageWithMaxCount": 1
           },
-          "android": {
-            "intentFilters": [
-              {
-                "action": "android.intent.action.SEND",
-                "data": {
-                  "mimeType": "text/plain"
-                }
-              },
-              {
-                "action": "android.intent.action.SEND",
-                "data": {
-                  "mimeType": "text/*"
-                }
-              },
-              {
-                "action": "android.intent.action.SEND",
-                "data": {
-                  "mimeType": "image/*"
-                }
-              }
-            ]
-          },
-          "scheme": "analyzethis"
+          "androidIntentFilters": ["text/*", "image/*"]
         }
       ]
     ],
