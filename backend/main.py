@@ -336,7 +336,7 @@ async def share_item(
                     blob.upload_from_string(file_content, content_type=file.content_type)
                     item_data['content'] = blob_name_relative
                 
-                item_data['type'] = 'media' # Force type if it was missing or 'file'
+                item_data['type'] = item_data.get('type', 'media')  # Preserve type if provided
                 
             except Exception as e:
                 print(f"Upload failed: {e}")
