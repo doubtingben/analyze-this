@@ -3,7 +3,7 @@ import shutil
 from pathlib import Path
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request, Depends, HTTPException, status, File, UploadFile, Form
-from fastapi.responses import HTMLResponse, RedirectResponse, FileResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.sessions import SessionMiddleware
@@ -400,23 +400,62 @@ async def get_items(request: Request):
                 # Mounted at /static
                 item['content'] = f"{base_url}/static/{item['content']}"
     else:
-        # PROD: Firebase Signed URLs
-        bucket = storage.bucket()
+        # PROD: Proxy through backend
+        # We replace the content path with a URL to our own API
+        # This avoids needing a private key for Signed URLs
+        base_url = str(request.base_url).rstrip('/')
         for item in items:
             if item.get('type') == 'media' and item.get('content') and not item.get('content').startswith('http'):
-                try:
-                    blob_name = item['content']
-                    blob = bucket.blob(blob_name)
-                    url = blob.generate_signed_url(
-                        version="v4",
-                        expiration=datetime.timedelta(days=7),
-                        method="GET"
-                    )
-                    item['content'] = url
-                except Exception as e:
-                    print(f"Failed to sign URL for {item.get('content')}: {e}")
+                # Content is "runs/email/uuid.ext"
+                # We want /api/content/runs/email/uuid.ext
+                item['content'] = f"{base_url}/api/content/{item['content']}"
     
     return items
+
+@app.get("/api/content/{blob_path:path}")
+async def get_content(blob_path: str, request: Request):
+    # Auth Check
+    auth_header = request.headers.get('Authorization')
+    user_email = None
+    
+    if auth_header and auth_header.startswith('Bearer '):
+        token = auth_header.split(' ')[1]
+        user_info = verify_google_token(token)
+        if user_info:
+            user_email = user_info['email']
+    elif 'user' in request.session:
+        user_email = request.session['user']['email']
+        
+    if not user_email:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+
+    # Security Check: Ensure user owns the file
+    # The blob path is typically "uploads/{email}/{uuid}.{ext}"
+    if f"/{user_email}/" not in blob_path:
+        # Allow if it's strictly the user's email directory
+        # This is a basic check.
+        print(f"Access denied for {user_email} to {blob_path}")
+        raise HTTPException(status_code=403, detail="Forbidden")
+
+    try:
+        if APP_ENV == "development":
+             return FileResponse(f"static/{blob_path}")
+        else:
+            bucket = storage.bucket()
+            blob = bucket.blob(blob_path)
+            
+            # Streaming response
+            # We need to install 'requests' or use google-cloud-storage transfer
+            # simpler: read into memory or use a generator
+            
+            # Since GCS client is synchronous by default, we'll read as bytes.
+            # For large files, this isn't ideal, but for images it's fine.
+            content = blob.download_as_bytes()
+            return Response(content, media_type=blob.content_type)
+            
+    except Exception as e:
+        print(f"Error serving content: {e}")
+        raise HTTPException(status_code=404, detail="File not found")
 
 @app.get("/api/user")
 async def get_current_user(request: Request):
