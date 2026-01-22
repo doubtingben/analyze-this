@@ -27,13 +27,15 @@
         <data android:scheme="analyzethis"/>
         <data android:scheme="exp+analyze-this"/>
       </intent-filter>
-      <intent-filter>
-        <action android:name="android.intent.action.SEND"/>
-        <data android:mimeType="text/*"/>
+      <intent-filter android:autoVerify="true" data-generated="true">
+        <action android:name="android.intent.action.VIEW"/>
+        <data android:scheme="https" android:host="interestedparticipant.org" android:pathPrefix="/oauthredirect"/>
+        <category android:name="android.intent.category.BROWSABLE"/>
         <category android:name="android.intent.category.DEFAULT"/>
       </intent-filter>
       <intent-filter>
         <action android:name="android.intent.action.SEND"/>
+        <data android:mimeType="text/*"/>
         <data android:mimeType="image/*"/>
         <category android:name="android.intent.category.DEFAULT"/>
       </intent-filter>
