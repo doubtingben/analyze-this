@@ -47,7 +47,6 @@
       const viewportWidth = window.innerWidth;
       const viewportHeight = window.innerHeight;
       const fullHeight = Math.min(document.documentElement.scrollHeight, MAX_HEIGHT);
-      const fullWidth = document.documentElement.scrollWidth;
 
       // Calculate chunks
       const chunks = [];
@@ -134,6 +133,12 @@
         chrome.runtime.sendMessage({
           action: 'captureComplete',
           dataUrl: reader.result
+        });
+      };
+      reader.onerror = () => {
+        chrome.runtime.sendMessage({
+          action: 'captureError',
+          error: 'Failed to read captured image data'
         });
       };
       reader.readAsDataURL(blob);
