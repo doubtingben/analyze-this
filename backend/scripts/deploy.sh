@@ -8,6 +8,9 @@ REGION="us-central1"
 echo "Deploying $SERVICE_NAME to Google Cloud Run..."
 
 # Deploy from source (requires Cloud Build api enabled)
+# Ensure we are in the backend directory
+cd "$(dirname "$0")/.."
+
 gcloud run deploy $SERVICE_NAME \
   --source . \
   --platform managed \
