@@ -30,3 +30,4 @@ yarn-error.log*
 *.jks
 key.json
 *.pem
+backend/version.txt

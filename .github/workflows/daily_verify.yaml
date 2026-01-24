@@ -1,0 +1,58 @@
+name: Daily Verification
+
+on:
+  schedule:
+    - cron: '0 12 * * *'
+  workflow_dispatch:
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r backend/requirements.txt
+
+      - name: Run Backend Tests
+        run: |
+          # Running tests with mocked external calls
+          # Setting APP_ENV to development to skip any prod checks/init
+          export APP_ENV=development
+          python -m unittest backend/tests/test_analysis.py
+
+      - name: Build Backend Docker Image
+        run: |
+          cd backend
+          docker build . -t backend-build-check
+
+      - name: Verify Deployed Version
+        run: |
+          # Get current commit hash
+          CURRENT_HASH=$(git rev-parse HEAD)
+          echo "Current Commit: $CURRENT_HASH"
+
+          # Get deployed version
+          # Using -f to fail on HTTP error (like 404 or 500)
+          # Using -s for silent
+          DEPLOYED_JSON=$(curl -s -f https://interestedparticipant.org/api/version || echo '{"version": "error"}')
+
+          # Parse JSON (using python for reliability)
+          DEPLOYED_VERSION=$(echo "$DEPLOYED_JSON" | python3 -c "import sys, json; print(json.load(sys.stdin).get('version', 'unknown'))")
+          echo "Deployed Version: $DEPLOYED_VERSION"
+
+          if [ "$CURRENT_HASH" != "$DEPLOYED_VERSION" ]; then
+            echo "::error::Mismatch! Local: $CURRENT_HASH, Deployed: $DEPLOYED_VERSION"
+            echo "The deployed version does not match the main branch."
+            exit 1
+          else
+            echo "Verification Successful: Versions match."
+          fi

@@ -25,6 +25,13 @@ GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET")
 GOOGLE_EXTENSION_CLIENT_ID = os.getenv("GOOGLE_EXTENSION_CLIENT_ID")
 APP_ENV = os.getenv("APP_ENV", "production")
 
+# Read Version
+try:
+    with open("version.txt", "r") as f:
+        APP_VERSION = f.read().strip()
+except FileNotFoundError:
+    APP_VERSION = "unknown"
+
 # --- Database & Storage Initialization ---
 
 db: DatabaseInterface = None
@@ -180,6 +187,10 @@ async def auth(request: Request):
 async def logout(request: Request):
     request.session.pop('user', None)
     return RedirectResponse(url='/')
+
+@app.get("/api/version")
+async def get_version():
+    return {"version": APP_VERSION}
 
 @app.get("/oauthredirect")
 async def oauth_redirect():
