@@ -61,8 +61,8 @@ mobile-build: ## Build mobile app for both platforms
 	./mobile/scripts/build-mobile.sh
 
 .PHONY: mobile-eas-build
-mobile-eas-build: ## Build mobile app with EAS (Production)
-	cd mobile && npx eas-cli build --platform all --profile production --non-interactive
+mobile-eas-build: ## Build mobile app with EAS (Preview)
+	cd mobile && npx eas-cli build --platform all --profile preview --non-interactive
 
 .PHONY: mobile-setup-devices
 mobile-setup-devices: ## Setup Android/iOS devices and emulators
