@@ -1,6 +1,5 @@
 import os
 import datetime
-import asyncio
 from abc import ABC, abstractmethod
 from typing import List, Optional, Dict, Any
 import logging
@@ -78,17 +77,12 @@ class FirestoreDatabase(DatabaseInterface):
     async def get_shared_items(self, user_email: str) -> List[dict]:
         items_ref = self.db.collection('shared_items')
         query = items_ref.where(field_path='user_email', op_string='==', value=user_email).order_by('created_at', direction=firestore.Query.DESCENDING)
-
-        def get_docs():
-            items = []
-            for doc in query.stream():
-                data = doc.to_dict()
-                data['firestore_id'] = doc.id
-                items.append(data)
-            return items
-
-        loop = asyncio.get_running_loop()
-        return await loop.run_in_executor(None, get_docs)
+        items = []
+        for doc in query.stream():
+            data = doc.to_dict()
+            data['firestore_id'] = doc.id
+            items.append(data)
+        return items
 
     async def delete_shared_item(self, item_id: str, user_email: str) -> bool:
         item_ref = self.db.collection('shared_items').document(item_id)
