@@ -448,17 +448,37 @@ async def get_content(blob_path: str, request: Request):
     if not user_email:
         raise HTTPException(status_code=401, detail="Unauthorized")
 
-    # Security Check: Ensure user owns the file
-    # The blob path is typically "uploads/{email}/{uuid}.{ext}"
-    if f"/{user_email}/" not in blob_path:
-        # Allow if it's strictly the user's email directory
-        # This is a basic check.
-        print(f"Access denied for {user_email} to {blob_path}")
+    # Security Check: Ensure user owns the file and prevent traversal
+    # 1. Prevent Directory Traversal (basic string check)
+    if ".." in blob_path or blob_path.startswith("/") or "\\" in blob_path:
+        print(f"Potential traversal attempt by {user_email}: {blob_path}")
+        raise HTTPException(status_code=403, detail="Forbidden")
+
+    # 2. Ensure path starts with the user's upload directory
+    # expected prefix: uploads/{user_email}/
+    expected_prefix = f"uploads/{user_email}/"
+    if not blob_path.startswith(expected_prefix):
+        print(f"Access denied for {user_email} to {blob_path} (Prefix mismatch)")
         raise HTTPException(status_code=403, detail="Forbidden")
 
     try:
         if APP_ENV == "development":
-             return FileResponse(f"static/{blob_path}")
+             # 3. Additional filesystem path resolution check for Dev environment
+             base_dir = Path("static").resolve()
+             # Use safe join
+             requested_path = (base_dir / blob_path).resolve()
+
+             # Ensure the resolved path is strictly within the user's upload directory
+             user_upload_dir = (base_dir / "uploads" / user_email).resolve()
+
+             if not str(requested_path).startswith(str(user_upload_dir)):
+                 print(f"Path traversal detected for {user_email}: {blob_path} -> {requested_path}")
+                 raise HTTPException(status_code=403, detail="Forbidden")
+
+             if not requested_path.exists():
+                 raise HTTPException(status_code=404, detail="File not found")
+
+             return FileResponse(str(requested_path))
         else:
             bucket = storage.bucket()
             blob = bucket.blob(blob_path)
@@ -472,6 +492,8 @@ async def get_content(blob_path: str, request: Request):
             content = blob.download_as_bytes()
             return Response(content, media_type=blob.content_type)
             
+    except HTTPException:
+        raise
     except Exception as e:
         print(f"Error serving content: {e}")
         raise HTTPException(status_code=404, detail="File not found")

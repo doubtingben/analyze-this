@@ -16,6 +16,9 @@ echo "$GIT_HASH" > version.txt
 echo "Version set to: $GIT_HASH"
 
 # Deploy from source (requires Cloud Build api enabled)
+# Ensure we are in the backend directory
+cd "$(dirname "$0")/.."
+
 gcloud run deploy $SERVICE_NAME \
   --source . \
   --platform managed \

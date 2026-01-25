@@ -2,6 +2,9 @@
 .DS_Store
 Thumbs.db
 
+# Secrets
+secrets/
+
 # Editors
 .vscode/
 .idea/
@@ -30,4 +33,11 @@ yarn-error.log*
 *.jks
 key.json
 *.pem
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+*.egg-info/
 backend/version.txt
