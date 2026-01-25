@@ -121,7 +121,7 @@ async def read_root(request: Request):
                                 alert('An error occurred');
                             }
                         }
-                        
+
                         function showAnalysis(overview) {
                             alert(overview);
                         }
