@@ -158,6 +158,26 @@ function renderItem(item) {
 
     card.appendChild(content);
 
+    // Details section (hidden by default)
+    const details = document.createElement('div');
+    details.className = 'item-details';
+    details.style.display = 'none';
+
+    const idRow = document.createElement('div');
+    idRow.className = 'item-details-row';
+    idRow.innerHTML = `<span class="item-details-label">ID:</span> <span class="item-details-value">${item.firestore_id || 'N/A'}</span>`;
+    details.appendChild(idRow);
+
+    if (item.analysis?.tags && item.analysis.tags.length > 0) {
+        const tagsRow = document.createElement('div');
+        tagsRow.className = 'item-details-row';
+        const tagsHtml = item.analysis.tags.map(tag => `<span class="item-tag">${tag}</span>`).join('');
+        tagsRow.innerHTML = `<span class="item-details-label">Tags:</span> <span class="item-details-tags">${tagsHtml}</span>`;
+        details.appendChild(tagsRow);
+    }
+
+    card.appendChild(details);
+
     // Footer with date and delete button
     const footer = document.createElement('div');
     footer.className = 'item-footer';
@@ -167,11 +187,27 @@ function renderItem(item) {
     date.textContent = formatDate(item.created_at);
     footer.appendChild(date);
 
+    const footerActions = document.createElement('div');
+    footerActions.className = 'item-footer-actions';
+
+    const infoBtn = document.createElement('button');
+    infoBtn.className = 'info-btn';
+    infoBtn.textContent = 'ℹ️';
+    infoBtn.title = 'Show details';
+    infoBtn.onclick = () => {
+        const isVisible = details.style.display !== 'none';
+        details.style.display = isVisible ? 'none' : 'block';
+        infoBtn.classList.toggle('active', !isVisible);
+    };
+    footerActions.appendChild(infoBtn);
+
     const deleteBtn = document.createElement('button');
     deleteBtn.className = 'delete-btn';
     deleteBtn.textContent = 'Delete';
     deleteBtn.onclick = () => deleteItem(item.firestore_id);
-    footer.appendChild(deleteBtn);
+    footerActions.appendChild(deleteBtn);
+
+    footer.appendChild(footerActions);
 
     card.appendChild(footer);
 
