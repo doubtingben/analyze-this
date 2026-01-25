@@ -1,4 +1,4 @@
-import { StyleSheet, TouchableOpacity, View } from 'react-native';
+import { StyleSheet, TouchableOpacity, View, Alert } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
@@ -78,10 +78,25 @@ export function HistoryItemCard({ item, onDelete, onShare, children, badgeColor 
         <ThemedText style={[styles.typeBadge, { backgroundColor: colors.bg, color: colors.text }]}>
           {formatTypeLabel(item.type)}
         </ThemedText>
-        <TouchableOpacity style={styles.shareButton} onPress={() => onShare(item)}>
-          <Ionicons name="share-outline" size={18} color="#0a7ea4" />
-          <ThemedText style={styles.shareText}>Share</ThemedText>
-        </TouchableOpacity>
+
+        <View style={styles.actionButtons}>
+          {/* Analysis Sparkle */}
+          <TouchableOpacity
+            onPress={() => item.analysis ? Alert.alert('Analysis', item.analysis.overview) : null}
+            activeOpacity={item.analysis ? 0.7 : 1}
+          >
+            <Ionicons
+              name="sparkles"
+              size={20}
+              color={item.analysis ? "#FFD700" : "#ccc"}
+            />
+          </TouchableOpacity>
+
+          <TouchableOpacity style={styles.shareButton} onPress={() => onShare(item)}>
+            <Ionicons name="share-outline" size={18} color="#0a7ea4" />
+            <ThemedText style={styles.shareText}>Share</ThemedText>
+          </TouchableOpacity>
+        </View>
       </View>
     </ThemedView>
   );
@@ -121,6 +136,11 @@ const styles = StyleSheet.create({
     paddingVertical: 2,
     borderRadius: 4,
     overflow: 'hidden',
+  },
+  actionButtons: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 16,
   },
   shareButton: {
     flexDirection: 'row',

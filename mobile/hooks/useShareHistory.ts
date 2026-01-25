@@ -28,6 +28,7 @@ export interface HistoryItem {
     analysis?: { overview: string };
 }
 
+
 const STORAGE_KEY = 'share_history_v1';
 
 export function useShareHistory() {
