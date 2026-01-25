@@ -1,5 +1,4 @@
-import { StyleSheet, View } from 'react-native';
-import { Image } from 'expo-image';
+import { Image, StyleSheet, View } from 'react-native';
 import { HistoryItem } from '@/hooks/useShareHistory';
 import { useAuth } from '../../context/AuthContext';
 import { HistoryItemCard } from './HistoryItemCard';
@@ -30,12 +29,10 @@ export function MediaHistoryItem({ item, onDelete, onShare }: MediaHistoryItemPr
         <Image
           source={imageSource}
           style={styles.image}
-          contentFit="cover"
-          transition={200}
-          cachePolicy="memory-disk"
+          resizeMode="cover"
           onLoadStart={() => console.log('Image load start:', item.value)}
           onLoad={() => console.log('Image loaded successfully:', item.value)}
-          onError={(e) => console.error('Image load failed:', item.value, e.error)}
+          onError={(e) => console.error('Image load failed:', item.value, e.nativeEvent.error)}
         />
       </View>
     </HistoryItemCard>
