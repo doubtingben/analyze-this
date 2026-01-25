@@ -20,19 +20,17 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -r backend/requirements.txt
+          make backend-install
 
       - name: Run Backend Tests
         run: |
           # Running tests with mocked external calls
           # Setting APP_ENV to development to skip any prod checks/init
           export APP_ENV=development
-          python -m unittest backend/tests/test_analysis.py
+          make backend-test
 
       - name: Build Backend Docker Image
-        run: |
-          cd backend
-          docker build . -t backend-build-check
+        run: make backend-docker-build
 
       - name: Verify Deployed Version
         run: |
