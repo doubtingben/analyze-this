@@ -83,11 +83,39 @@ def analyze_content(content: str, item_type: str = 'text'):
         # Let's try to parse it to ensure it's valid JSON
         import json
         try:
-            return json.loads(result_content)
+            parsed = json.loads(result_content)
+            return normalize_analysis(parsed)
         except json.JSONDecodeError:
             logger.error("Failed to decode JSON from AI response")
-            return {"raw_analysis": result_content, "error": "Invalid JSON"}
+            return normalize_analysis({"raw_analysis": result_content, "error": "Invalid JSON"})
 
     except Exception as e:
         logger.error(f"Error during analysis: {e}")
-        return {"error": str(e)}
+        return normalize_analysis({"error": str(e)})
+
+
+def normalize_analysis(raw_response: dict) -> dict:
+    """
+    Normalizes AI analysis response to standard format.
+    Ensures 'overview' field exists even if AI doesn't provide it.
+    """
+    if not raw_response:
+        return {"overview": "Analysis unavailable", "error": "Empty response"}
+
+    # If there's an error, preserve it but ensure overview exists
+    if "error" in raw_response:
+        raw_response.setdefault("overview", f"Error: {raw_response['error']}")
+        return raw_response
+
+    # Ensure overview exists - generate from other fields if missing
+    if "overview" not in raw_response or not raw_response["overview"]:
+        # Try to generate overview from available fields
+        if "step" in raw_response:
+            raw_response["overview"] = f"Suggested action: {raw_response['step']}"
+            raw_response["action"] = raw_response.pop("step")  # Normalize field name
+        elif "details" in raw_response:
+            raw_response["overview"] = str(raw_response["details"])[:200]
+        else:
+            raw_response["overview"] = "Content analyzed - no specific action identified"
+
+    return raw_response
