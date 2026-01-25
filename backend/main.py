@@ -291,6 +291,14 @@ def normalize_share_type(raw_type: Optional[str], content: Optional[str], file: 
                 return ShareType.video
             if mime_type.startswith('audio/'):
                 return ShareType.audio
+        if content:
+            lower_content = content.lower()
+            if lower_content.endswith(IMAGE_EXTENSIONS):
+                return ShareType.image
+            if lower_content.endswith(VIDEO_EXTENSIONS):
+                return ShareType.video
+            if lower_content.endswith(AUDIO_EXTENSIONS):
+                return ShareType.audio
         return ShareType.file
 
     if normalized in ('text', 'image', 'video', 'audio', 'screenshot'):
