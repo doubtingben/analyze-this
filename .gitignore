@@ -2,6 +2,9 @@
 .DS_Store
 Thumbs.db
 
+# Secrets
+secrets/
+
 # Editors
 .vscode/
 .idea/
