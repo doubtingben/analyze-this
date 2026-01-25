@@ -9,4 +9,3 @@ if [[ ! -d node_modules ]]; then
 fi
 
 npx expo export --platform android --platform ios --non-interactive
-
