@@ -600,7 +600,8 @@ async def get_content(blob_path: str, request: Request):
             
             # Since GCS client is synchronous by default, we'll read as bytes.
             # For large files, this isn't ideal, but for images it's fine.
-            content = blob.download_as_bytes()
+            loop = asyncio.get_running_loop()
+            content = await loop.run_in_executor(None, blob.download_as_bytes)
             return Response(content, media_type=blob.content_type)
             
     except HTTPException:
