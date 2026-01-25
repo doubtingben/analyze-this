@@ -58,9 +58,20 @@ async def lifespan(app: FastAPI):
 app = FastAPI(lifespan=lifespan)
 
 # CORS Setup
+ALLOWED_ORIGINS_ENV = os.getenv("ALLOWED_ORIGINS")
+allow_origins = []
+allow_origin_regex = None
+
+if ALLOWED_ORIGINS_ENV:
+    allow_origins = [origin.strip() for origin in ALLOWED_ORIGINS_ENV.split(",") if origin.strip()]
+elif APP_ENV == "development":
+    # Allow localhost and 127.0.0.1 for development
+    allow_origin_regex = r"https?://(localhost|127\.0\.0\.1)(:\d+)?"
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # For dev only. In prod, specify extension ID
+    allow_origins=allow_origins,
+    allow_origin_regex=allow_origin_regex,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
