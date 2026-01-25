@@ -40,3 +40,4 @@ __pycache__/
 .venv/
 venv/
 *.egg-info/
+backend/version.txt

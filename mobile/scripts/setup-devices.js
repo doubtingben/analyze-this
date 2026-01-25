@@ -89,7 +89,7 @@ function createAvd() {
     // Check for system image first - this is complex to script fully reliably without sdkmanager perfectly set up
     // Simplified attempt:
     try {
-        // This assumes system-images;android-35;google_apis;x86_64 is installed. 
+        // This assumes system-images;android-35;google_apis;x86_64 is installed.
         // If not, we'd need to run: sdkmanager "system-images;android-35;google_apis;x86_64"
         log(YELLOW, 'Note: This requires the "system-images;android-35;google_apis;x86_64" package to be installed via SDK Manager.');
 
