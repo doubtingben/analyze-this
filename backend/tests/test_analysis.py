@@ -208,8 +208,9 @@ class TestAnalysis(unittest.TestCase):
         user_message = messages[1]
         self.assertEqual(user_message['content'][1]['image_url']['url'], "data:image/png;base64,ZmFrZS1pbWFnZS1kYXRh")
 
+    @patch('analysis.client')
     @patch('analysis.get_image_data_url')
-    def test_analyze_image_returns_error_when_url_resolution_fails(self, mock_get_url):
+    def test_analyze_image_returns_error_when_url_resolution_fails(self, mock_get_url, mock_client):
         """Should return error result if image URL cannot be resolved."""
         mock_get_url.return_value = None
 
