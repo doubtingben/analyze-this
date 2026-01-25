@@ -80,6 +80,7 @@ function renderItem(item) {
     const card = document.createElement('div');
     card.className = 'item-card';
     card.dataset.id = item.firestore_id;
+    const normalizedType = normalizeType(item);
 
     const header = document.createElement('div');
     header.className = 'item-header';
@@ -97,8 +98,8 @@ function renderItem(item) {
     meta.className = 'item-meta';
 
     const badge = document.createElement('span');
-    badge.className = `type-badge ${item.type || 'text'}`;
-    badge.textContent = formatType(item.type);
+    badge.className = `type-badge ${normalizedType}`;
+    badge.textContent = formatType(normalizedType);
     meta.appendChild(badge);
 
     titleSection.appendChild(meta);
@@ -110,10 +111,17 @@ function renderItem(item) {
     const content = document.createElement('div');
     content.className = 'item-content';
 
-    switch (item.type) {
+    switch (normalizedType) {
         case 'media':
+        case 'image':
         case 'screenshot':
             renderMediaItem(item, content);
+            break;
+        case 'video':
+            renderVideoItem(item, content);
+            break;
+        case 'audio':
+            renderAudioItem(item, content);
             break;
         case 'web_url':
             renderWebUrlItem(item, content);
@@ -166,6 +174,26 @@ function renderMediaItem(item, container) {
     };
 
     container.appendChild(img);
+}
+
+// Render video item
+function renderVideoItem(item, container) {
+    const video = document.createElement('video');
+    video.className = 'item-video';
+    video.src = item.content;
+    video.controls = true;
+    video.preload = 'metadata';
+    container.appendChild(video);
+}
+
+// Render audio item
+function renderAudioItem(item, container) {
+    const audio = document.createElement('audio');
+    audio.className = 'item-audio';
+    audio.src = item.content;
+    audio.controls = true;
+    audio.preload = 'metadata';
+    container.appendChild(audio);
 }
 
 // Render web URL item
@@ -233,13 +261,23 @@ function renderFileItem(item, container) {
 
     const icon = document.createElement('span');
     icon.className = 'item-file-icon';
-    icon.textContent = '\uD83D\uDCC4'; // File emoji
+    icon.textContent = getFileIcon(item); // File emoji
     fileDiv.appendChild(icon);
 
     const name = document.createElement('span');
     name.className = 'item-file-name';
-    name.textContent = item.title || item.content || 'Unknown file';
+    name.textContent = item.title || item.item_metadata?.fileName || item.content || 'Unknown file';
     fileDiv.appendChild(name);
+
+    if (item.content) {
+        const link = document.createElement('a');
+        link.className = 'item-file-link';
+        link.href = item.content;
+        link.target = '_blank';
+        link.rel = 'noopener noreferrer';
+        link.textContent = 'Open';
+        fileDiv.appendChild(link);
+    }
 
     container.appendChild(fileDiv);
 }
@@ -295,7 +333,47 @@ function formatDate(dateStr) {
 // Format type for display
 function formatType(type) {
     if (!type) return 'Text';
-    return type.replace('_', ' ');
+    const labels = {
+        text: 'Text',
+        web_url: 'Web URL',
+        image: 'Image',
+        video: 'Video',
+        audio: 'Audio',
+        file: 'File',
+        screenshot: 'Screenshot',
+        media: 'Media'
+    };
+    return labels[type] || type.replace('_', ' ');
+}
+
+function normalizeType(item) {
+    const rawType = (item.type || '').toString();
+    const normalized = rawType.toLowerCase();
+
+    if (normalized === 'weburl' || normalized === 'web_url') {
+        return 'web_url';
+    }
+
+    const mimeType = item.item_metadata?.mimeType || item.item_metadata?.mime_type;
+    if (mimeType) {
+        if (mimeType.startsWith('image/')) return 'image';
+        if (mimeType.startsWith('video/')) return 'video';
+        if (mimeType.startsWith('audio/')) return 'audio';
+    }
+
+    if (normalized === 'media') {
+        return 'image';
+    }
+
+    return normalized || 'text';
+}
+
+function getFileIcon(item) {
+    const type = normalizeType(item);
+    if (type === 'video') return '\uD83C\uDFA5';
+    if (type === 'audio') return '\uD83C\uDFB5';
+    if (type === 'image') return '🖼️';
+    return '\uD83D\uDCC4';
 }
 
 // Start the app

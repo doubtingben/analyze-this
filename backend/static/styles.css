@@ -152,6 +152,21 @@ body {
     color: #166534;
 }
 
+.type-badge.image {
+    background-color: #dcfce7;
+    color: #166534;
+}
+
+.type-badge.video {
+    background-color: #fef3c7;
+    color: #92400e;
+}
+
+.type-badge.audio {
+    background-color: #e0f2fe;
+    color: #075985;
+}
+
 .type-badge.screenshot {
     background-color: #f3e8ff;
     color: #7c3aed;
@@ -185,6 +200,17 @@ body {
     object-fit: contain;
     background: #f5f5f5;
     display: block;
+}
+
+.item-video,
+.item-audio {
+    width: 100%;
+    border-radius: 8px;
+    background: #f5f5f5;
+}
+
+.item-video {
+    max-height: 280px;
 }
 
 .item-image-error {
@@ -278,6 +304,17 @@ body {
     -webkit-line-clamp: 2;
     -webkit-box-orient: vertical;
     overflow: hidden;
+}
+
+.item-file-link {
+    margin-left: auto;
+    font-size: 12px;
+    color: #3b82f6;
+    text-decoration: none;
+}
+
+.item-file-link:hover {
+    text-decoration: underline;
 }
 
 .item-footer {
