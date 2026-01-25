@@ -4,6 +4,18 @@ on:
   push:
     branches:
       - main
+  workflow_dispatch:
+    inputs:
+      deploy_backend:
+        description: 'Deploy Backend'
+        required: true
+        default: true
+        type: boolean
+      deploy_mobile:
+        description: 'Build Mobile'
+        required: true
+        default: true
+        type: boolean
 
 jobs:
   changes:
@@ -26,7 +38,7 @@ jobs:
 
   deploy-backend:
     needs: changes
-    if: ${{ needs.changes.outputs.backend == 'true' }}
+    if: ${{ needs.changes.outputs.backend == 'true' || inputs.deploy_backend == true }}
     runs-on: ubuntu-latest
     permissions:
       contents: 'read'
@@ -54,7 +66,7 @@ jobs:
 
   build-mobile:
     needs: changes
-    if: ${{ needs.changes.outputs.mobile == 'true' }}
+    if: ${{ needs.changes.outputs.mobile == 'true' || inputs.deploy_mobile == true }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
