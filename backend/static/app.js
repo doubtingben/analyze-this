@@ -80,6 +80,7 @@ function renderItem(item) {
     const card = document.createElement('div');
     card.className = 'item-card';
     card.dataset.id = item.firestore_id;
+    const normalizedType = normalizeType(item);
 
     const header = document.createElement('div');
     header.className = 'item-header';
@@ -97,9 +98,30 @@ function renderItem(item) {
     meta.className = 'item-meta';
 
     const badge = document.createElement('span');
-    badge.className = `type-badge ${item.type || 'text'}`;
-    badge.textContent = formatType(item.type);
+    badge.className = `type-badge ${normalizedType}`;
+    badge.textContent = formatType(normalizedType);
     meta.appendChild(badge);
+
+    // Analysis Sparkle
+    const sparkle = document.createElement('span');
+    sparkle.textContent = '✨';
+    sparkle.style.marginLeft = '10px';
+    sparkle.style.fontSize = '1.2em';
+
+    if (item.analysis) {
+        sparkle.style.cursor = 'pointer';
+        sparkle.title = 'View Analysis';
+        sparkle.onclick = (e) => {
+            e.stopPropagation(); // Prevent card clicks if any
+            alert(item.analysis.overview);
+        };
+    } else {
+        sparkle.style.filter = 'grayscale(100%)';
+        sparkle.style.opacity = '0.5';
+        sparkle.style.cursor = 'default';
+        sparkle.title = 'No Analysis';
+    }
+    meta.appendChild(sparkle);
 
     titleSection.appendChild(meta);
     header.appendChild(titleSection);
@@ -110,10 +132,17 @@ function renderItem(item) {
     const content = document.createElement('div');
     content.className = 'item-content';
 
-    switch (item.type) {
+    switch (normalizedType) {
         case 'media':
+        case 'image':
         case 'screenshot':
             renderMediaItem(item, content);
+            break;
+        case 'video':
+            renderVideoItem(item, content);
+            break;
+        case 'audio':
+            renderAudioItem(item, content);
             break;
         case 'web_url':
             renderWebUrlItem(item, content);
@@ -129,6 +158,26 @@ function renderItem(item) {
 
     card.appendChild(content);
 
+    // Details section (hidden by default)
+    const details = document.createElement('div');
+    details.className = 'item-details';
+    details.style.display = 'none';
+
+    const idRow = document.createElement('div');
+    idRow.className = 'item-details-row';
+    idRow.innerHTML = `<span class="item-details-label">ID:</span> <span class="item-details-value">${item.firestore_id || 'N/A'}</span>`;
+    details.appendChild(idRow);
+
+    if (item.analysis?.tags && item.analysis.tags.length > 0) {
+        const tagsRow = document.createElement('div');
+        tagsRow.className = 'item-details-row';
+        const tagsHtml = item.analysis.tags.map(tag => `<span class="item-tag">${tag}</span>`).join('');
+        tagsRow.innerHTML = `<span class="item-details-label">Tags:</span> <span class="item-details-tags">${tagsHtml}</span>`;
+        details.appendChild(tagsRow);
+    }
+
+    card.appendChild(details);
+
     // Footer with date and delete button
     const footer = document.createElement('div');
     footer.className = 'item-footer';
@@ -138,11 +187,27 @@ function renderItem(item) {
     date.textContent = formatDate(item.created_at);
     footer.appendChild(date);
 
+    const footerActions = document.createElement('div');
+    footerActions.className = 'item-footer-actions';
+
+    const infoBtn = document.createElement('button');
+    infoBtn.className = 'info-btn';
+    infoBtn.textContent = 'ℹ️';
+    infoBtn.title = 'Show details';
+    infoBtn.onclick = () => {
+        const isVisible = details.style.display !== 'none';
+        details.style.display = isVisible ? 'none' : 'block';
+        infoBtn.classList.toggle('active', !isVisible);
+    };
+    footerActions.appendChild(infoBtn);
+
     const deleteBtn = document.createElement('button');
     deleteBtn.className = 'delete-btn';
     deleteBtn.textContent = 'Delete';
     deleteBtn.onclick = () => deleteItem(item.firestore_id);
-    footer.appendChild(deleteBtn);
+    footerActions.appendChild(deleteBtn);
+
+    footer.appendChild(footerActions);
 
     card.appendChild(footer);
 
@@ -166,6 +231,26 @@ function renderMediaItem(item, container) {
     };
 
     container.appendChild(img);
+}
+
+// Render video item
+function renderVideoItem(item, container) {
+    const video = document.createElement('video');
+    video.className = 'item-video';
+    video.src = item.content;
+    video.controls = true;
+    video.preload = 'metadata';
+    container.appendChild(video);
+}
+
+// Render audio item
+function renderAudioItem(item, container) {
+    const audio = document.createElement('audio');
+    audio.className = 'item-audio';
+    audio.src = item.content;
+    audio.controls = true;
+    audio.preload = 'metadata';
+    container.appendChild(audio);
 }
 
 // Render web URL item
@@ -233,13 +318,23 @@ function renderFileItem(item, container) {
 
     const icon = document.createElement('span');
     icon.className = 'item-file-icon';
-    icon.textContent = '\uD83D\uDCC4'; // File emoji
+    icon.textContent = getFileIcon(item); // File emoji
     fileDiv.appendChild(icon);
 
     const name = document.createElement('span');
     name.className = 'item-file-name';
-    name.textContent = item.title || item.content || 'Unknown file';
+    name.textContent = item.title || item.item_metadata?.fileName || item.content || 'Unknown file';
     fileDiv.appendChild(name);
+
+    if (item.content) {
+        const link = document.createElement('a');
+        link.className = 'item-file-link';
+        link.href = item.content;
+        link.target = '_blank';
+        link.rel = 'noopener noreferrer';
+        link.textContent = 'Open';
+        fileDiv.appendChild(link);
+    }
 
     container.appendChild(fileDiv);
 }
@@ -295,7 +390,47 @@ function formatDate(dateStr) {
 // Format type for display
 function formatType(type) {
     if (!type) return 'Text';
-    return type.replace('_', ' ');
+    const labels = {
+        text: 'Text',
+        web_url: 'Web URL',
+        image: 'Image',
+        video: 'Video',
+        audio: 'Audio',
+        file: 'File',
+        screenshot: 'Screenshot',
+        media: 'Media'
+    };
+    return labels[type] || type.replace('_', ' ');
+}
+
+function normalizeType(item) {
+    const rawType = (item.type || '').toString();
+    const normalized = rawType.toLowerCase();
+
+    if (normalized === 'weburl' || normalized === 'web_url') {
+        return 'web_url';
+    }
+
+    const mimeType = item.item_metadata?.mimeType || item.item_metadata?.mime_type;
+    if (mimeType) {
+        if (mimeType.startsWith('image/')) return 'image';
+        if (mimeType.startsWith('video/')) return 'video';
+        if (mimeType.startsWith('audio/')) return 'audio';
+    }
+
+    if (normalized === 'media') {
+        return 'image';
+    }
+
+    return normalized || 'text';
+}
+
+function getFileIcon(item) {
+    const type = normalizeType(item);
+    if (type === 'video') return '\uD83C\uDFA5';
+    if (type === 'audio') return '\uD83C\uDFB5';
+    if (type === 'image') return '🖼️';
+    return '\uD83D\uDCC4';
 }
 
 // Start the app

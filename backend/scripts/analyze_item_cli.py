@@ -16,7 +16,7 @@ except ImportError:
 def main():
     parser = argparse.ArgumentParser(description="Analyze a shared item manually.")
     parser.add_argument('input', help="The content string to analyze, or a path to a file.")
-    parser.add_argument('--type', default='text', help="The type of item (text, image, media, webUrl). Default: text")
+    parser.add_argument('--type', default='text', help="The type of item (text, web_url, image, video, audio, file, screenshot). Default: text")
     
     args = parser.parse_args()
     

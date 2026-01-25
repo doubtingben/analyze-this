@@ -209,6 +209,7 @@ class SQLiteDatabase(DatabaseInterface):
                     'type': item.type,
                     'user_email': item.user_email,
                     'created_at': item.created_at,
+                    'item_metadata': item.item_metadata,
                     'analysis': item.analysis
                 }
                 for item in items

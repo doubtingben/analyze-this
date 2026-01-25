@@ -1,7 +1,25 @@
 from datetime import datetime
+from enum import Enum
 from typing import Optional
 from uuid import UUID, uuid4
 from pydantic import BaseModel, Field
+
+class ShareType(str, Enum):
+    text = 'text'
+    web_url = 'web_url'
+    weburl = 'weburl'
+    media = 'media'
+    image = 'image'
+    video = 'video'
+    audio = 'audio'
+    file = 'file'
+    screenshot = 'screenshot'
+
+class AnalysisResult(BaseModel):
+    overview: str  # Required - human-readable summary for UI
+    action: Optional[str] = None  # e.g., "add_event", "follow_up", "save_image"
+    details: Optional[dict] = None  # Action-specific data
+    tags: Optional[list[str]] = None  # Optional categorization
 
 class User(BaseModel):
     id: Optional[str] = Field(default=None) # Firestore ID
@@ -13,10 +31,9 @@ class User(BaseModel):
 class SharedItem(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid4()))
     user_email: str
-    type: str # 'text', 'webUrl', 'media', etc.
+    type: ShareType
     content: str
     title: Optional[str] = None
     created_at: datetime = Field(default_factory=datetime.utcnow)
     item_metadata: Optional[dict] = Field(default=None)
-    analysis: Optional[dict] = Field(default=None)
-
+    analysis: Optional[AnalysisResult] = Field(default=None)

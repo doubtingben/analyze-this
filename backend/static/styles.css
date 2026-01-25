@@ -152,6 +152,21 @@ body {
     color: #166534;
 }
 
+.type-badge.image {
+    background-color: #dcfce7;
+    color: #166534;
+}
+
+.type-badge.video {
+    background-color: #fef3c7;
+    color: #92400e;
+}
+
+.type-badge.audio {
+    background-color: #e0f2fe;
+    color: #075985;
+}
+
 .type-badge.screenshot {
     background-color: #f3e8ff;
     color: #7c3aed;
@@ -185,6 +200,17 @@ body {
     object-fit: contain;
     background: #f5f5f5;
     display: block;
+}
+
+.item-video,
+.item-audio {
+    width: 100%;
+    border-radius: 8px;
+    background: #f5f5f5;
+}
+
+.item-video {
+    max-height: 280px;
 }
 
 .item-image-error {
@@ -280,6 +306,17 @@ body {
     overflow: hidden;
 }
 
+.item-file-link {
+    margin-left: auto;
+    font-size: 12px;
+    color: #3b82f6;
+    text-decoration: none;
+}
+
+.item-file-link:hover {
+    text-decoration: underline;
+}
+
 .item-footer {
     display: flex;
     justify-content: space-between;
@@ -306,6 +343,75 @@ body {
 
 .delete-btn:hover {
     background: #fecaca;
+}
+
+.item-footer-actions {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+}
+
+.info-btn {
+    background: #f3f4f6;
+    border: none;
+    padding: 6px 10px;
+    border-radius: 6px;
+    font-size: 12px;
+    cursor: pointer;
+    transition: background 0.2s ease;
+}
+
+.info-btn:hover {
+    background: #e5e7eb;
+}
+
+.info-btn.active {
+    background: #dbeafe;
+}
+
+.item-details {
+    margin-top: 12px;
+    padding: 10px 12px;
+    background: #f9fafb;
+    border-radius: 8px;
+    font-size: 12px;
+}
+
+.item-details-row {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    margin-bottom: 6px;
+}
+
+.item-details-row:last-child {
+    margin-bottom: 0;
+}
+
+.item-details-label {
+    color: #6b7280;
+    flex-shrink: 0;
+}
+
+.item-details-value {
+    font-family: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, monospace;
+    color: #9ca3af;
+    word-break: break-all;
+}
+
+.item-details-tags {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+}
+
+.item-tag {
+    display: inline-block;
+    padding: 2px 6px;
+    background: #e5e7eb;
+    color: #374151;
+    border-radius: 4px;
+    font-size: 11px;
 }
 
 @media (max-width: 600px) {

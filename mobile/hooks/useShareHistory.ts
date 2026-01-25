@@ -5,23 +5,110 @@ import { ShareIntent } from 'expo-share-intent';
 import { useAuth } from '@/context/AuthContext';
 import { API_URL } from '@/constants/Config';
 
+export type ShareItemType = 'text' | 'web_url' | 'image' | 'video' | 'audio' | 'file' | 'screenshot';
+
+export interface ShareItemMetadata {
+    fileName?: string;
+    mimeType?: string;
+    fileSize?: number;
+    duration?: number;
+    width?: number;
+    height?: number;
+}
+
 export interface HistoryItem {
     id: string;
     timestamp: number;
     value: string;
-    type: 'text' | 'web_url' | 'media' | 'file' | 'screenshot';
+    type: ShareItemType;
     originalIntent?: ShareIntent;
     firestore_id?: string;
     title?: string;
+    metadata?: ShareItemMetadata;
+    analysis?: {
+        overview: string;
+        action?: string;
+        details?: Record<string, unknown>;
+        tags?: string[];
+    };
 }
 
+
 const STORAGE_KEY = 'share_history_v1';
+
+/**
+ * Generate a fallback title based on share type and content
+ */
+function generateFallbackTitle(type: ShareItemType, value: string): string {
+    switch (type) {
+        case 'web_url': {
+            try {
+                const url = new URL(value);
+                return url.hostname.replace(/^www\./, '');
+            } catch {
+                return 'Shared Link';
+            }
+        }
+        case 'text': {
+            const preview = value.trim().slice(0, 40);
+            return preview.length < value.trim().length ? `${preview}...` : preview;
+        }
+        case 'image':
+            return 'Shared Image';
+        case 'video':
+            return 'Shared Video';
+        case 'audio':
+            return 'Shared Audio';
+        case 'screenshot':
+            return 'Screenshot';
+        case 'file':
+            return 'Shared File';
+        default:
+            return 'Shared Item';
+    }
+}
 
 export function useShareHistory() {
     const { user } = useAuth();
     const [history, setHistory] = useState<HistoryItem[]>([]);
     const [isLoading, setIsLoading] = useState(true);
     const [isSyncing, setIsSyncing] = useState(false);
+
+    const normalizeShareType = useCallback((rawType: string | null | undefined, value: string, metadata?: ShareItemMetadata): ShareItemType => {
+        const normalized = (rawType || '').toLowerCase();
+
+        if (normalized === 'weburl' || normalized === 'web_url') {
+            return 'web_url';
+        }
+
+        const mimeType = metadata?.mimeType;
+        if (mimeType) {
+            if (mimeType.startsWith('image/')) return 'image';
+            if (mimeType.startsWith('video/')) return 'video';
+            if (mimeType.startsWith('audio/')) return 'audio';
+        }
+
+        if (normalized === 'file') {
+            return 'file';
+        }
+
+        if (normalized === 'image' || normalized === 'video' || normalized === 'audio' || normalized === 'screenshot' || normalized === 'text') {
+            return normalized as ShareItemType;
+        }
+
+        if (value) {
+            const lowerValue = value.toLowerCase();
+            if (lowerValue.match(/\.(png|jpe?g|gif|webp|bmp|tiff|svg)$/)) return 'image';
+            if (lowerValue.match(/\.(mp4|mov|m4v|webm|avi|mkv)$/)) return 'video';
+            if (lowerValue.match(/\.(mp3|wav|m4a|aac|flac|ogg)$/)) return 'audio';
+        }
+
+        if (normalized === 'media') {
+            return 'image';
+        }
+
+        return 'text';
+    }, []);
 
     const loadHistory = useCallback(async () => {
         setIsLoading(true);
@@ -36,14 +123,20 @@ export function useShareHistory() {
                 if (response.ok) {
                     const data = await response.json();
                     // map backend data to HistoryItem
-                    const mappedItems: HistoryItem[] = data.map((item: any) => ({
-                        id: item.firestore_id,
-                        timestamp: new Date(item.created_at).getTime(),
-                        value: item.content || (item as any).value, // support both schemas if they differ
-                        type: item.type,
-                        firestore_id: item.firestore_id,
-                        title: item.title
-                    }));
+                    const mappedItems: HistoryItem[] = data.map((item: any) => {
+                        const value = item.content || (item as any).value || '';
+                        const metadata = item.item_metadata as ShareItemMetadata | undefined;
+                        return {
+                            id: item.firestore_id,
+                            timestamp: new Date(item.created_at).getTime(),
+                            value,
+                            type: normalizeShareType(item.type, value, metadata),
+                            firestore_id: item.firestore_id,
+                            title: item.title,
+                            metadata,
+                            analysis: item.analysis,
+                        };
+                    });
                     setHistory(mappedItems);
                 } else {
                     console.error('Failed to fetch from backend');
@@ -52,7 +145,12 @@ export function useShareHistory() {
                 // Load from Local Storage
                 const jsonValue = await AsyncStorage.getItem(STORAGE_KEY);
                 if (jsonValue != null) {
-                    setHistory(JSON.parse(jsonValue));
+                    const parsed = JSON.parse(jsonValue) as HistoryItem[];
+                    const normalized = parsed.map((item) => ({
+                        ...item,
+                        type: normalizeShareType(item.type, item.value, item.metadata),
+                    }));
+                    setHistory(normalized);
                 }
             }
         } catch (e) {
@@ -61,7 +159,7 @@ export function useShareHistory() {
             setIsLoading(false);
             setIsSyncing(false);
         }
-    }, [user]);
+    }, [user, normalizeShareType]);
 
     const saveHistory = useCallback(async (newHistory: HistoryItem[]) => {
         try {
@@ -80,29 +178,44 @@ export function useShareHistory() {
     const addToHistory = useCallback(
         async (intent: ShareIntent) => {
             console.log("Received share intent:", JSON.stringify(intent, null, 2));
-            let type: HistoryItem['type'] = 'text';
+            let type: ShareItemType = 'text';
             let value = '';
+            let title: string | undefined;
+            let metadata: ShareItemMetadata | undefined;
 
             if (intent.webUrl) {
-                type = 'web_url';
                 value = intent.webUrl;
+                title = intent.meta?.title;
+                type = normalizeShareType('web_url', value);
             } else if (intent.text) {
-                type = 'text';
                 value = intent.text;
+                title = intent.meta?.title;
+                type = normalizeShareType('text', value);
             } else if (intent.files && intent.files.length > 0) {
                 // @ts-ignore
                 const file = intent.files[0];
                 // @ts-ignore
-                const mimeType = file.mimeType || intent.type;
+                const mimeType = file.mimeType || intent.type || '';
+                // @ts-ignore
+                const fileName = file.fileName || file.name;
 
-                if (mimeType && mimeType.startsWith('image/')) {
-                    type = 'media';
-                } else {
-                    type = 'file';
-                }
+                metadata = {
+                    fileName,
+                    mimeType,
+                    // @ts-ignore
+                    fileSize: file.size || file.fileSize,
+                    // @ts-ignore
+                    duration: file.duration,
+                    // @ts-ignore
+                    width: file.width,
+                    // @ts-ignore
+                    height: file.height,
+                };
 
                 // @ts-ignore
-                value = file.path || file.uri || 'File';
+                value = file.path || file.uri || file.filePath || file.contentUri || 'File';
+                title = fileName || intent.meta?.title;
+                type = normalizeShareType(intent.type, value, metadata);
             }
 
             console.log(`Processed share item: type=${type}, value=${value}`);
@@ -113,6 +226,8 @@ export function useShareHistory() {
                 type,
                 value,
                 originalIntent: intent,
+                title,
+                metadata,
             };
 
             const currentHistory = historyRef.current;
@@ -127,9 +242,9 @@ export function useShareHistory() {
                     };
                     setIsSyncing(true);
 
-                    if (type === 'media') {
+                    if (intent.files && intent.files.length > 0) {
                         const formData = new FormData();
-                        formData.append('title', 'From Mobile');
+                        formData.append('title', title || generateFallbackTitle(type, value));
                         formData.append('content', value); // Will be replaced by URL on backend, but good to send original path too? or backend ignore?
                         formData.append('type', type);
                         formData.append('user_email', user.email);
@@ -138,9 +253,9 @@ export function useShareHistory() {
                         // @ts-ignore
                         const file = intent.files[0];
                         // @ts-ignore
-                        const mimeType = file.mimeType || 'image/jpeg';
+                        const mimeType = metadata?.mimeType || file.mimeType || 'application/octet-stream';
                         // @ts-ignore
-                        const fileName = file.fileName || file.name || `upload_${Date.now()}`;
+                        const fileName = metadata?.fileName || file.fileName || file.name || `upload_${Date.now()}`;
 
                         // @ts-ignore
                         formData.append('file', {
@@ -149,15 +264,23 @@ export function useShareHistory() {
                             type: mimeType,
                         } as any);
 
+                        if (metadata?.fileName) formData.append('file_name', metadata.fileName);
+                        if (metadata?.mimeType) formData.append('mime_type', metadata.mimeType);
+                        if (metadata?.fileSize) formData.append('file_size', metadata.fileSize.toString());
+                        if (metadata?.duration) formData.append('duration', metadata.duration.toString());
+                        if (metadata?.width) formData.append('width', metadata.width.toString());
+                        if (metadata?.height) formData.append('height', metadata.height.toString());
+
                         body = formData;
                         // Content-Type is handled automatically by fetch for FormData
                     } else {
                         headers['Content-Type'] = 'application/json';
                         body = JSON.stringify({
-                            title: 'From Mobile',
+                            title: title || generateFallbackTitle(type, value),
                             content: value,
                             type: type,
                             user_email: user.email,
+                            item_metadata: metadata,
                         });
                     }
 
@@ -194,7 +317,7 @@ export function useShareHistory() {
                 await saveHistory(newHistory);
             }
         },
-        [saveHistory, user, loadHistory]
+        [saveHistory, user, loadHistory, normalizeShareType]
     );
 
     const removeItem = useCallback(

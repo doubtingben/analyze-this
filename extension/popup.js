@@ -30,7 +30,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                     "Authorization": `Bearer ${token}`
                 },
                 body: JSON.stringify({
-                    type: "webUrl",
+                    type: "web_url",
                     content: content,
                     title: title,
                     user_email: "placeholder"
