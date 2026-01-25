@@ -2,6 +2,7 @@ import os
 import shutil
 from pathlib import Path
 from contextlib import asynccontextmanager
+from typing import Optional
 from fastapi import FastAPI, Request, Depends, HTTPException, status, File, UploadFile, Form
 from fastapi.responses import HTMLResponse, RedirectResponse, FileResponse, Response
 from fastapi.staticfiles import StaticFiles
@@ -13,7 +14,7 @@ from dotenv import load_dotenv
 import firebase_admin
 from firebase_admin import credentials, storage
 
-from models import User, SharedItem
+from models import User, SharedItem, ShareType
 from database import DatabaseInterface, FirestoreDatabase, SQLiteDatabase
 
 # Load environment variables
@@ -275,6 +276,68 @@ def verify_google_token(token: str):
 import uuid
 import datetime
 
+IMAGE_EXTENSIONS = ('.png', '.jpg', '.jpeg', '.gif', '.webp', '.bmp', '.tiff', '.svg')
+VIDEO_EXTENSIONS = ('.mp4', '.mov', '.m4v', '.webm', '.avi', '.mkv')
+AUDIO_EXTENSIONS = ('.mp3', '.wav', '.m4a', '.aac', '.flac', '.ogg')
+
+def normalize_share_type(raw_type: Optional[str], content: Optional[str], file: UploadFile | None, metadata: dict | None) -> ShareType:
+    if raw_type:
+        normalized = raw_type.strip().lower().replace(' ', '_')
+    else:
+        normalized = ''
+
+    if normalized in ('weburl', 'web_url'):
+        return ShareType.web_url
+
+    mime_type = None
+    if metadata:
+        mime_type = metadata.get('mimeType') or metadata.get('mime_type')
+    if not mime_type and file:
+        mime_type = file.content_type
+
+    if normalized == 'file':
+        if mime_type:
+            if mime_type.startswith('image/'):
+                return ShareType.image
+            if mime_type.startswith('video/'):
+                return ShareType.video
+            if mime_type.startswith('audio/'):
+                return ShareType.audio
+        if content:
+            lower_content = content.lower()
+            if lower_content.endswith(IMAGE_EXTENSIONS):
+                return ShareType.image
+            if lower_content.endswith(VIDEO_EXTENSIONS):
+                return ShareType.video
+            if lower_content.endswith(AUDIO_EXTENSIONS):
+                return ShareType.audio
+        return ShareType.file
+
+    if normalized in ('text', 'image', 'video', 'audio', 'screenshot'):
+        return ShareType(normalized)
+
+    if normalized == 'media' or (not normalized and (file or content)):
+        if mime_type:
+            if mime_type.startswith('image/'):
+                return ShareType.image
+            if mime_type.startswith('video/'):
+                return ShareType.video
+            if mime_type.startswith('audio/'):
+                return ShareType.audio
+
+        if content:
+            lower_content = content.lower()
+            if lower_content.endswith(IMAGE_EXTENSIONS):
+                return ShareType.image
+            if lower_content.endswith(VIDEO_EXTENSIONS):
+                return ShareType.video
+            if lower_content.endswith(AUDIO_EXTENSIONS):
+                return ShareType.audio
+
+        return ShareType.file
+
+    return ShareType.text
+
 @app.post("/api/share")
 async def share_item(
     request: Request,
@@ -282,6 +345,12 @@ async def share_item(
     content: str = Form(None),
     type: str = Form(None),
     file: UploadFile = File(None),
+    file_name: str = Form(None),
+    mime_type: str = Form(None),
+    file_size: int = Form(None),
+    duration: float = Form(None),
+    width: int = Form(None),
+    height: int = Form(None),
     # For JSON body support (legacy/extension), we can't easily mix Body and Form in the same endpoint 
     # without a bit of work or separate endpoints.
     # However, existing clients send JSON. FastAPI handles this by checking Content-Type.
@@ -330,6 +399,16 @@ async def share_item(
             'content': content,
             'type': type
         }
+
+        item_metadata = {
+            'fileName': file_name,
+            'mimeType': mime_type,
+            'fileSize': file_size,
+            'duration': duration,
+            'width': width,
+            'height': height,
+        }
+        item_data['item_metadata'] = {key: value for key, value in item_metadata.items() if value is not None}
         
         # Handle File Upload
         if file:
@@ -363,7 +442,7 @@ async def share_item(
                     blob.upload_from_string(file_content, content_type=file.content_type)
                     item_data['content'] = blob_name_relative
                 
-                item_data['type'] = item_data.get('type', 'media')  # Preserve type if provided
+                item_data['type'] = item_data.get('type', 'file')  # Preserve type if provided
                 
             except Exception as e:
                 print(f"Upload failed: {e}")
@@ -372,15 +451,20 @@ async def share_item(
         raise HTTPException(status_code=400, detail="Unsupported Content-Type")
 
     # Construct Item
-    if not item_data.get('type'):
-         item_data['type'] = 'text' # Default
+    normalized_type = normalize_share_type(
+        item_data.get('type'),
+        item_data.get('content'),
+        file,
+        item_data.get('item_metadata')
+    )
          
     new_item = SharedItem(
         title=item_data.get('title'),
         content=item_data.get('content'),
-        type=item_data.get('type'),
+        type=normalized_type,
         user_email=user_email,
-        created_at=datetime.datetime.now(datetime.timezone.utc)
+        created_at=datetime.datetime.now(datetime.timezone.utc),
+        item_metadata=item_data.get('item_metadata')
     )
     
     # Analysis is now handled by a background worker
@@ -417,13 +501,13 @@ async def get_items(request: Request):
     
     # Process items (Signed URLs etc)
     # We only need to do this for media/screenshot items in PROD or adjust URLs in DEV
-    image_types = ('media', 'screenshot')
+    content_types = ('media', 'screenshot', 'image', 'video', 'audio', 'file')
 
     if APP_ENV == "development":
         # DEV: transform content path to localhost static URL
         base_url = str(request.base_url).rstrip('/')
         for item in items:
-            if item.get('type') in image_types and item.get('content') and not item.get('content').startswith('http'):
+            if item.get('type') in content_types and item.get('content') and not item.get('content').startswith('http'):
                 # Assumes content is relative path like uploads/email/uuid.ext
                 # Mounted at /static
                 item['content'] = f"{base_url}/static/{item['content']}"
@@ -436,7 +520,7 @@ async def get_items(request: Request):
              base_url = base_url.replace("http://", "https://")
              
         for item in items:
-            if item.get('type') in image_types and item.get('content') and not item.get('content').startswith('http'):
+            if item.get('type') in content_types and item.get('content') and not item.get('content').startswith('http'):
                 # Content is "runs/email/uuid.ext"
                 # We want /api/content/runs/email/uuid.ext
                 item['content'] = f"{base_url}/api/content/{item['content']}"

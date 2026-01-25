@@ -43,7 +43,7 @@ chrome.contextMenus.onClicked.addListener((info, tab) => {
         console.log("Image URL:", imageUrl);
         // Use page title for context, with "Image from" prefix
         const title = tab.title ? `Image from ${tab.title}` : "Shared Image";
-        sendToBackend("media", imageUrl, title);
+        sendToBackend("image", imageUrl, title);
     }
 });
 

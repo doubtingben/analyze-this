@@ -14,8 +14,12 @@ interface HistoryItemCardProps {
 
 const getBadgeColor = (type: HistoryItem['type']) => {
   switch (type) {
-    case 'media':
+    case 'image':
       return { bg: 'rgba(76, 175, 80, 0.2)', text: '#4CAF50' };
+    case 'video':
+      return { bg: 'rgba(255, 193, 7, 0.2)', text: '#FF8F00' };
+    case 'audio':
+      return { bg: 'rgba(3, 169, 244, 0.2)', text: '#0288D1' };
     case 'screenshot':
       return { bg: 'rgba(156, 39, 176, 0.2)', text: '#9C27B0' };
     case 'web_url':
@@ -28,15 +32,36 @@ const getBadgeColor = (type: HistoryItem['type']) => {
   }
 };
 
+const formatTypeLabel = (type: HistoryItem['type']) => {
+  switch (type) {
+    case 'web_url':
+      return 'Web URL';
+    case 'image':
+      return 'Image';
+    case 'video':
+      return 'Video';
+    case 'audio':
+      return 'Audio';
+    case 'screenshot':
+      return 'Screenshot';
+    case 'file':
+      return 'File';
+    case 'text':
+    default:
+      return 'Text';
+  }
+};
+
 export function HistoryItemCard({ item, onDelete, onShare, children, badgeColor }: HistoryItemCardProps) {
   const colors = badgeColor ?? getBadgeColor(item.type);
+  const title = item.title || item.metadata?.fileName;
 
   return (
     <ThemedView style={styles.card}>
       <View style={styles.cardHeader}>
         <View style={{ flex: 1, marginRight: 8 }}>
-          {item.title ? (
-            <ThemedText type="defaultSemiBold" numberOfLines={1}>{item.title}</ThemedText>
+          {title ? (
+            <ThemedText type="defaultSemiBold" numberOfLines={1}>{title}</ThemedText>
           ) : null}
           <ThemedText style={styles.dateText}>
             {new Date(item.timestamp).toLocaleString()}
@@ -51,7 +76,7 @@ export function HistoryItemCard({ item, onDelete, onShare, children, badgeColor 
 
       <View style={styles.cardFooter}>
         <ThemedText style={[styles.typeBadge, { backgroundColor: colors.bg, color: colors.text }]}>
-          {item.type.toUpperCase()}
+          {formatTypeLabel(item.type)}
         </ThemedText>
 
         <View style={styles.actionButtons}>
