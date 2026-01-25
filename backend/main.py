@@ -1,6 +1,7 @@
 import os
 import shutil
 import asyncio
+import functools
 from pathlib import Path
 from contextlib import asynccontextmanager
 from typing import Optional
@@ -120,7 +121,7 @@ async def read_root(request: Request):
                                 alert('An error occurred');
                             }
                         }
-                        
+
                         function showAnalysis(overview) {
                             alert(overview);
                         }
@@ -449,7 +450,11 @@ async def share_item(
                     bucket = storage.bucket()
                     blob = bucket.blob(blob_name_relative)
                     file_content = await file.read()
-                    blob.upload_from_string(file_content, content_type=file.content_type)
+                    loop = asyncio.get_running_loop()
+                    await loop.run_in_executor(
+                        None,
+                        functools.partial(blob.upload_from_string, file_content, content_type=file.content_type)
+                    )
                     item_data['content'] = blob_name_relative
                 
                 item_data['type'] = item_data.get('type', 'file')  # Preserve type if provided
