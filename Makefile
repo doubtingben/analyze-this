@@ -1,0 +1,154 @@
+# Analyze This - Project Makefile
+# ================================
+
+.PHONY: help
+help: ## Show this help message
+	@echo "Usage: make [target]"
+	@echo ""
+	@echo "Targets:"
+	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-20s\033[0m %s\n", $$1, $$2}'
+
+# ================================
+# Backend
+# ================================
+
+.PHONY: backend-install
+backend-install: ## Install backend dependencies
+	cd backend && pip install -r requirements.txt
+
+.PHONY: backend-run
+backend-run: ## Run the backend server locally
+	cd backend && uvicorn src.main:app --reload --host 0.0.0.0 --port 8000
+
+.PHONY: backend-test
+backend-test: ## Run backend tests
+	python -m unittest backend/tests/test_analysis.py
+
+.PHONY: backend-check
+backend-check: ## Verify backend starts correctly
+	./backend/scripts/check-backend-start.sh
+
+.PHONY: backend-docker-build
+backend-docker-build: ## Build backend Docker image
+	docker build -t analyze-this-backend .
+
+.PHONY: backend-docker-run
+backend-docker-run: ## Run backend Docker container locally
+	docker run -p 8000:8080 -e PORT=8080 analyze-this-backend
+
+.PHONY: backend-deploy
+backend-deploy: ## Deploy backend to Google Cloud Run
+	./backend/scripts/deploy.sh
+
+# ================================
+# Mobile - General
+# ================================
+
+.PHONY: mobile-install
+mobile-install: ## Install mobile dependencies
+	cd mobile && npm install
+
+.PHONY: mobile-start
+mobile-start: ## Start Expo development server
+	cd mobile && npm start
+
+.PHONY: mobile-lint
+mobile-lint: ## Run mobile linting
+	cd mobile && npm run lint
+
+.PHONY: mobile-build
+mobile-build: ## Build mobile app for both platforms
+	./mobile/scripts/build-mobile.sh
+
+.PHONY: mobile-setup-devices
+mobile-setup-devices: ## Setup Android/iOS devices and emulators
+	cd mobile && npm run setup-devices
+
+.PHONY: mobile-reset
+mobile-reset: ## Reset mobile project to blank state
+	cd mobile && npm run reset-project
+
+# ================================
+# Mobile - Android
+# ================================
+
+.PHONY: android-run
+android-run: ## Build and run Android app
+	cd mobile && npm run android
+
+.PHONY: android-build
+android-build: ## Build Android release APK
+	cd mobile/android && ./gradlew assembleRelease
+
+.PHONY: android-build-debug
+android-build-debug: ## Build Android debug APK
+	cd mobile/android && ./gradlew assembleDebug
+
+.PHONY: android-clean
+android-clean: ## Clean Android build
+	cd mobile/android && ./gradlew clean
+
+# ================================
+# Mobile - iOS
+# ================================
+
+.PHONY: ios-run
+ios-run: ## Build and run iOS app
+	cd mobile && npm run ios
+
+.PHONY: ios-build
+ios-build: ## Build iOS app (requires macOS)
+	cd mobile/ios && xcodebuild -workspace AnalyzeThis.xcworkspace -scheme AnalyzeThis -configuration Release -sdk iphoneos
+
+.PHONY: ios-build-simulator
+ios-build-simulator: ## Build iOS app for simulator
+	cd mobile/ios && xcodebuild -workspace AnalyzeThis.xcworkspace -scheme AnalyzeThis -configuration Debug -sdk iphonesimulator
+
+.PHONY: ios-clean
+ios-clean: ## Clean iOS build
+	cd mobile/ios && xcodebuild clean
+
+.PHONY: ios-pod-install
+ios-pod-install: ## Install iOS CocoaPods dependencies
+	cd mobile/ios && pod install
+
+# ================================
+# Mobile - Web
+# ================================
+
+.PHONY: web-run
+web-run: ## Start web version
+	cd mobile && npm run web
+
+# ================================
+# CI / Testing
+# ================================
+
+.PHONY: test
+test: backend-test ## Run all tests
+
+.PHONY: verify
+verify: backend-check mobile-build ## Run full verification (backend + mobile builds)
+
+.PHONY: ci
+ci: test verify ## Run CI pipeline locally
+
+# ================================
+# Setup
+# ================================
+
+.PHONY: install
+install: backend-install mobile-install ## Install all dependencies
+
+.PHONY: clean
+clean: android-clean ## Clean all builds
+	rm -rf mobile/node_modules
+	rm -rf backend/__pycache__
+	find . -type d -name "__pycache__" -exec rm -rf {} + 2>/dev/null || true
+	find . -type f -name "*.pyc" -delete 2>/dev/null || true
+
+# ================================
+# Default
+# ================================
+
+.DEFAULT_GOAL := help
