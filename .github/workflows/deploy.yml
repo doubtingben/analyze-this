@@ -46,6 +46,10 @@ jobs:
       - name: Deploy Backend
         env:
           GOOGLE_EXTENSION_CLIENT_ID: ${{ secrets.GOOGLE_EXTENSION_CLIENT_ID }}
+          SECRET_KEY: ${{ secrets.SECRET_KEY }}
+          GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
+          GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
+          FIREBASE_STORAGE_BUCKET: ${{ secrets.FIREBASE_STORAGE_BUCKET }}
         run: make backend-deploy
 
   build-mobile:
