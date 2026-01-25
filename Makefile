@@ -121,6 +121,21 @@ web-run: ## Start web version
 	cd mobile && npm run web
 
 # ================================
+# Worker Analysis
+# ================================
+
+.PHONY: worker-analyze
+worker-analyze: ## Analyze N unanalyzed items (N=10, FORCE=0)
+	cd backend && python worker_analysis.py --limit $(or $(N),10) $(if $(filter 1,$(FORCE)),--force,)
+
+.PHONY: worker-analyze-id
+worker-analyze-id: ## Analyze specific item by ID (ID=xxx required, FORCE=0)
+ifndef ID
+	$(error ID is required. Usage: make worker-analyze-id ID=your-item-id [FORCE=1])
+endif
+	cd backend && python worker_analysis.py --id $(ID) $(if $(filter 1,$(FORCE)),--force,)
+
+# ================================
 # CI / Testing
 # ================================
 

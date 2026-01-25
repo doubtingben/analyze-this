@@ -1,7 +1,10 @@
 import os
 import logging
+import base64
 from openai import OpenAI
 from dotenv import load_dotenv
+import firebase_admin
+from firebase_admin import storage
 
 load_dotenv()
 
@@ -33,6 +36,54 @@ def get_analysis_prompt():
         logger.error(f"Error reading prompt file: {e}")
         return "You are an AI assistant. Analyze this item."
 
+
+def get_image_data_url(content: str) -> str | None:
+    """
+    Convert a storage path or URL to a data URL for image analysis.
+
+    Args:
+        content: Either a full URL (http/https) or a relative storage path
+
+    Returns:
+        A data URL (base64) or the original URL if already valid
+    """
+    # If it's already a full URL, return as-is
+    if content.startswith(('http://', 'https://')):
+        return content
+
+    # Otherwise, it's a relative storage path - fetch from Firebase Storage
+    try:
+        bucket = storage.bucket()
+        blob = bucket.blob(content)
+
+        if not blob.exists():
+            logger.error(f"Blob does not exist: {content}")
+            return None
+
+        # Download the image bytes
+        image_bytes = blob.download_as_bytes()
+
+        # Determine MIME type from content type or file extension
+        content_type = blob.content_type
+        if not content_type:
+            ext = os.path.splitext(content)[1].lower()
+            mime_map = {
+                '.png': 'image/png',
+                '.jpg': 'image/jpeg',
+                '.jpeg': 'image/jpeg',
+                '.gif': 'image/gif',
+                '.webp': 'image/webp',
+            }
+            content_type = mime_map.get(ext, 'image/jpeg')
+
+        # Encode as base64 data URL
+        b64_data = base64.b64encode(image_bytes).decode('utf-8')
+        return f"data:{content_type};base64,{b64_data}"
+
+    except Exception as e:
+        logger.error(f"Failed to fetch image from storage: {e}")
+        return None
+
 def analyze_content(content: str, item_type: str = 'text'):
     """
     Analyzes the given content using OpenRouter and returns the structured JSON response.
@@ -48,7 +99,12 @@ def analyze_content(content: str, item_type: str = 'text'):
     normalized_type = (item_type or 'text').lower()
 
     if normalized_type in ['image', 'screenshot']:
-        # Assuming content is a URL pointing to an image
+        # Convert storage path to data URL if needed
+        image_url = get_image_data_url(content)
+        if not image_url:
+            logger.error(f"Could not resolve image URL for: {content}")
+            return normalize_analysis({"error": f"Could not load image: {content}"})
+
         messages.append({
             "role": "user",
             "content": [
@@ -56,7 +112,7 @@ def analyze_content(content: str, item_type: str = 'text'):
                 {
                     "type": "image_url",
                     "image_url": {
-                        "url": content
+                        "url": image_url
                     }
                 }
             ]
