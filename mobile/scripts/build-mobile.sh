@@ -10,4 +10,3 @@ fi
 
 npx expo export --platform android --platform ios --non-interactive
 
-popd >/dev/null
