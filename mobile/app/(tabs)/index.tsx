@@ -1,7 +1,7 @@
 import { Image } from 'expo-image';
 import { StyleSheet, FlatList, TouchableOpacity, Share, View, Alert, TextInput, RefreshControl, ActivityIndicator } from 'react-native';
 import { useShareIntent } from 'expo-share-intent';
-import { useEffect, useCallback, useState, useRef } from 'react';
+import { useEffect, useCallback, useState, useRef, useMemo } from 'react';
 import { useFocusEffect } from 'expo-router';
 
 import { HelloWave } from '@/components/hello-wave';
@@ -77,9 +77,12 @@ export default function HomeScreen() {
     }
   };
 
-  const filteredHistory = history.filter(item =>
-    item.value.toLowerCase().includes(searchQuery.toLowerCase())
-  );
+  const filteredHistory = useMemo(() => {
+    const lowerQuery = searchQuery.toLowerCase();
+    return history.filter(item =>
+      (item.value?.toLowerCase() ?? '').includes(lowerQuery)
+    );
+  }, [history, searchQuery]);
 
   const renderItem = ({ item }: { item: HistoryItem }) => {
     switch (item.type) {
