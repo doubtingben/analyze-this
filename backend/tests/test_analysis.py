@@ -96,7 +96,7 @@ class TestAnalysis(unittest.TestCase):
         mock_client.chat.completions.create.return_value = mock_completion
         
         # execution
-        result = analyze_content("http://example.com", item_type='webUrl')
+        result = analyze_content("http://example.com", item_type='web_url')
         
         # Verification
         self.assertEqual(result, {"step": "add_event"})

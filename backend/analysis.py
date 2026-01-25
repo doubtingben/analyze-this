@@ -47,7 +47,9 @@ def analyze_content(content: str, item_type: str = 'text'):
     
     messages = [{"role": "system", "content": prompt_text}]
 
-    if item_type == 'image':
+    normalized_type = (item_type or 'text').lower()
+
+    if normalized_type in ['image', 'screenshot']:
         # Assuming content is a URL pointing to an image
         messages.append({
             "role": "user",
@@ -61,7 +63,7 @@ def analyze_content(content: str, item_type: str = 'text'):
                 }
             ]
         })
-    elif item_type in ['webUrl', 'media']:
+    elif normalized_type in ['web_url', 'weburl', 'media', 'video', 'audio', 'file']:
         # For non-image URLs, ask the model to analyze the content at the URL
         messages.append({"role": "user", "content": f"Analyze the content at this URL:\n\n{content}"})
     else:

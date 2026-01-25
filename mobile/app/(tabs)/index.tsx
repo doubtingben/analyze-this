@@ -8,7 +8,7 @@ import { HelloWave } from '@/components/hello-wave';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { useShareHistory, HistoryItem } from '@/hooks/useShareHistory';
-import { MediaHistoryItem, WebUrlHistoryItem, TextHistoryItem } from '@/components/history-items';
+import { MediaHistoryItem, WebUrlHistoryItem, TextHistoryItem, FileHistoryItem } from '@/components/history-items';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '@/context/AuthContext';
 
@@ -83,13 +83,16 @@ export default function HomeScreen() {
 
   const renderItem = ({ item }: { item: HistoryItem }) => {
     switch (item.type) {
-      case 'media':
+      case 'image':
       case 'screenshot':
         return <MediaHistoryItem item={item} onDelete={removeItem} onShare={handleShare} />;
+      case 'video':
+      case 'audio':
+      case 'file':
+        return <FileHistoryItem item={item} onDelete={removeItem} onShare={handleShare} />;
       case 'web_url':
         return <WebUrlHistoryItem item={item} onDelete={removeItem} onShare={handleShare} />;
       case 'text':
-      case 'file':
       default:
         return <TextHistoryItem item={item} onDelete={removeItem} onShare={handleShare} />;
     }
