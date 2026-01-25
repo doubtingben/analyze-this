@@ -1,5 +1,6 @@
 import os
 import logging
+from functools import lru_cache
 from openai import OpenAI
 from dotenv import load_dotenv
 
@@ -22,6 +23,7 @@ if OPENROUTER_API_KEY:
     except Exception as e:
         logger.error(f"Failed to initialize OpenAI client: {e}")
 
+@lru_cache(maxsize=1)
 def get_analysis_prompt():
     """Reads the analysis prompt from the prompts directory."""
     try:
