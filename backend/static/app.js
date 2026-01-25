@@ -101,6 +101,27 @@ function renderItem(item) {
     badge.textContent = formatType(item.type);
     meta.appendChild(badge);
 
+    // Analysis Sparkle
+    const sparkle = document.createElement('span');
+    sparkle.textContent = '✨';
+    sparkle.style.marginLeft = '10px';
+    sparkle.style.fontSize = '1.2em';
+
+    if (item.analysis) {
+        sparkle.style.cursor = 'pointer';
+        sparkle.title = 'View Analysis';
+        sparkle.onclick = (e) => {
+            e.stopPropagation(); // Prevent card clicks if any
+            alert(item.analysis.overview);
+        };
+    } else {
+        sparkle.style.filter = 'grayscale(100%)';
+        sparkle.style.opacity = '0.5';
+        sparkle.style.cursor = 'default';
+        sparkle.title = 'No Analysis';
+    }
+    meta.appendChild(sparkle);
+
     titleSection.appendChild(meta);
     header.appendChild(titleSection);
 
