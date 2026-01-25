@@ -25,7 +25,12 @@ export interface HistoryItem {
     firestore_id?: string;
     title?: string;
     metadata?: ShareItemMetadata;
-    analysis?: { overview: string };
+    analysis?: {
+        overview: string;
+        action?: string;
+        details?: Record<string, unknown>;
+        tags?: string[];
+    };
 }
 
 
