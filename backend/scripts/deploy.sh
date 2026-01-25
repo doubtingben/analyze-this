@@ -1,8 +1,12 @@
 #!/bin/bash
 set -e
 
+# Get the directory where the script is located
+SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+BACKEND_DIR="$(dirname "$SCRIPT_DIR")"
+
 # Ensure we are in the backend directory
-cd "$(dirname "$0")/.."
+cd "$BACKEND_DIR"
 
 # Configuration
 SERVICE_NAME="analyze-this-backend"
@@ -17,7 +21,7 @@ echo "Version set to: $GIT_HASH"
 
 # Deploy from source (requires Cloud Build api enabled)
 # Ensure we are in the backend directory
-cd "$(dirname "$0")/.."
+cd "$BACKEND_DIR"
 
 gcloud run deploy $SERVICE_NAME \
   --source . \
