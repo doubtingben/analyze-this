@@ -13,4 +13,5 @@ google-auth-oauthlib
 openai
 aiosqlite
 sqlalchemy
+httpx
 greenlet

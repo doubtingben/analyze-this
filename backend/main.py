@@ -8,7 +8,9 @@ from fastapi.responses import HTMLResponse, RedirectResponse, FileResponse, Resp
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.sessions import SessionMiddleware
+from starlette.concurrency import run_in_threadpool
 import requests
+import httpx
 from authlib.integrations.starlette_client import OAuth, OAuthError
 from dotenv import load_dotenv
 import firebase_admin
@@ -239,7 +241,7 @@ async def oauth_redirect():
 from google.oauth2 import id_token
 from google.auth.transport import requests as google_requests
 
-def verify_google_token(token: str):
+async def verify_google_token(token: str):
     # DEV_BYPASS
     if APP_ENV == "development" and token == "dev-token":
         return {
@@ -250,7 +252,13 @@ def verify_google_token(token: str):
 
     # Method 1: Try verifying as ID Token (Web Client)
     try:
-        id_info = id_token.verify_oauth2_token(token, google_requests.Request(), GOOGLE_CLIENT_ID)
+        # Run blocking verification in thread pool
+        id_info = await run_in_threadpool(
+            id_token.verify_oauth2_token,
+            token,
+            google_requests.Request(),
+            GOOGLE_CLIENT_ID
+        )
         return id_info
     except ValueError:
         pass
@@ -258,14 +266,15 @@ def verify_google_token(token: str):
     # Method 2: Try verifying as Access Token (Extension Client)
     try:
         # Call Google UserInfo endpoint
-        response = requests.get(
-            'https://www.googleapis.com/oauth2/v2/userinfo',
-            headers={'Authorization': f'Bearer {token}'}
-        )
-        if response.status_code == 200:
-            return response.json()
-        else:
-            print(f"Token verification failed (Method 2). Status: {response.status_code}, Body: {response.text}")
+        async with httpx.AsyncClient() as client:
+            response = await client.get(
+                'https://www.googleapis.com/oauth2/v2/userinfo',
+                headers={'Authorization': f'Bearer {token}'}
+            )
+            if response.status_code == 200:
+                return response.json()
+            else:
+                print(f"Token verification failed (Method 2). Status: {response.status_code}, Body: {response.text}")
     except Exception as e:
         print(f"Token verification exception (Method 2): {e}")
         pass
@@ -369,7 +378,7 @@ async def share_item(
     
     if auth_header and auth_header.startswith('Bearer '):
         token = auth_header.split(' ')[1]
-        user_info = verify_google_token(token)
+        user_info = await verify_google_token(token)
         if user_info:
             user_email = user_info['email']
     elif 'user' in request.session:
@@ -488,7 +497,7 @@ async def get_items(request: Request):
     
     if auth_header and auth_header.startswith('Bearer '):
         token = auth_header.split(' ')[1]
-        user_info = verify_google_token(token)
+        user_info = await verify_google_token(token)
         if user_info:
             user_email = user_info['email']
     elif 'user' in request.session:
@@ -535,7 +544,7 @@ async def get_content(blob_path: str, request: Request):
     
     if auth_header and auth_header.startswith('Bearer '):
         token = auth_header.split(' ')[1]
-        user_info = verify_google_token(token)
+        user_info = await verify_google_token(token)
         if user_info:
             user_email = user_info['email']
     elif 'user' in request.session:
@@ -609,7 +618,7 @@ async def delete_item(item_id: str, request: Request):
     
     if auth_header and auth_header.startswith('Bearer '):
         token = auth_header.split(' ')[1]
-        user_info = verify_google_token(token)
+        user_info = await verify_google_token(token)
         if user_info:
             user_email = user_info['email']
     elif 'user' in request.session:

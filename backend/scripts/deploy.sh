@@ -1,8 +1,12 @@
 #!/bin/bash
 set -e
 
+# Get the directory where the script is located
+SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+BACKEND_DIR="$(dirname "$SCRIPT_DIR")"
+
 # Ensure we are in the backend directory
-cd "$(dirname "$0")/.."
+cd "$BACKEND_DIR"
 
 # Configuration
 SERVICE_NAME="analyze-this-backend"
@@ -17,7 +21,7 @@ echo "Version set to: $GIT_HASH"
 
 # Deploy from source (requires Cloud Build api enabled)
 # Ensure we are in the backend directory
-cd "$(dirname "$0")/.."
+cd "$BACKEND_DIR"
 
 gcloud run deploy $SERVICE_NAME \
   --source . \
@@ -25,7 +29,7 @@ gcloud run deploy $SERVICE_NAME \
   --region $REGION \
   --project analyze-this-2026 \
   --allow-unauthenticated \
-  --update-env-vars "GOOGLE_EXTENSION_CLIENT_ID=${GOOGLE_EXTENSION_CLIENT_ID}"
+  --update-env-vars "GOOGLE_EXTENSION_CLIENT_ID=${GOOGLE_EXTENSION_CLIENT_ID},SECRET_KEY=${SECRET_KEY},GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID},GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET},FIREBASE_STORAGE_BUCKET=${FIREBASE_STORAGE_BUCKET}"
 
 # Cleanup
 rm version.txt
