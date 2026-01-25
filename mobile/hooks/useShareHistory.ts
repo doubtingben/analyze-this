@@ -36,6 +36,38 @@ export interface HistoryItem {
 
 const STORAGE_KEY = 'share_history_v1';
 
+/**
+ * Generate a fallback title based on share type and content
+ */
+function generateFallbackTitle(type: ShareItemType, value: string): string {
+    switch (type) {
+        case 'web_url': {
+            try {
+                const url = new URL(value);
+                return url.hostname.replace(/^www\./, '');
+            } catch {
+                return 'Shared Link';
+            }
+        }
+        case 'text': {
+            const preview = value.trim().slice(0, 40);
+            return preview.length < value.trim().length ? `${preview}...` : preview;
+        }
+        case 'image':
+            return 'Shared Image';
+        case 'video':
+            return 'Shared Video';
+        case 'audio':
+            return 'Shared Audio';
+        case 'screenshot':
+            return 'Screenshot';
+        case 'file':
+            return 'Shared File';
+        default:
+            return 'Shared Item';
+    }
+}
+
 export function useShareHistory() {
     const { user } = useAuth();
     const [history, setHistory] = useState<HistoryItem[]>([]);
@@ -212,7 +244,7 @@ export function useShareHistory() {
 
                     if (intent.files && intent.files.length > 0) {
                         const formData = new FormData();
-                        formData.append('title', title || 'From Mobile');
+                        formData.append('title', title || generateFallbackTitle(type, value));
                         formData.append('content', value); // Will be replaced by URL on backend, but good to send original path too? or backend ignore?
                         formData.append('type', type);
                         formData.append('user_email', user.email);
@@ -244,7 +276,7 @@ export function useShareHistory() {
                     } else {
                         headers['Content-Type'] = 'application/json';
                         body = JSON.stringify({
-                            title: title || 'From Mobile',
+                            title: title || generateFallbackTitle(type, value),
                             content: value,
                             type: type,
                             user_email: user.email,
