@@ -4,7 +4,9 @@ import sys
 from fastapi.testclient import TestClient
 
 # Add backend directory to path
-sys.path.append(os.path.dirname(os.path.dirname(__file__)))
+BACKEND_DIR = os.path.dirname(os.path.dirname(__file__))
+sys.path.append(BACKEND_DIR)
+os.chdir(BACKEND_DIR)
 
 # Mock Environment BEFORE importing main
 os.environ["APP_ENV"] = "development"

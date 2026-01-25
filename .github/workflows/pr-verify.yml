@@ -24,6 +24,9 @@ jobs:
       - name: Verify backend starts
         run: ./backend/scripts/check-backend-start.sh
 
+      - name: Run backend tests
+        run: python -m unittest backend/tests/test_api.py backend/tests/test_worker_analysis.py
+
       - name: Set up Node
         uses: actions/setup-node@v4
         with:
