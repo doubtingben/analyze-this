@@ -25,6 +25,7 @@ export interface HistoryItem {
     firestore_id?: string;
     title?: string;
     metadata?: ShareItemMetadata;
+    analysis?: { overview: string };
 }
 
 const STORAGE_KEY = 'share_history_v1';
@@ -95,6 +96,7 @@ export function useShareHistory() {
                             firestore_id: item.firestore_id,
                             title: item.title,
                             metadata,
+                            analysis: item.analysis,
                         };
                     });
                     setHistory(mappedItems);
