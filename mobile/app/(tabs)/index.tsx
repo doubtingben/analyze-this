@@ -85,7 +85,6 @@ export default function HomeScreen() {
     switch (item.type) {
       case 'image':
       case 'screenshot':
-      case 'image':
         return <MediaHistoryItem item={item} onDelete={removeItem} onShare={handleShare} />;
       case 'video':
       case 'audio':
