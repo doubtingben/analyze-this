@@ -1,92 +1,69 @@
 # Timeline Feature
 
 ## Overview
-The Timeline is a UI component that displays items plotted by their **referenced time** - the date/time the item refers to, not when it was shared. This gives users a chronological view of events, meetings, deadlines, and other time-based content they've captured.
+The Timeline is a **filtered view** of items that have derived date/time data from analysis. Instead of a complex calendar UI, it's a simple list with a "Now" divider that anchors you to the present moment.
 
-## Core Concept
-When a user shares a media snippet (screenshot, photo, etc.), the analysis worker extracts a `date_time` attribute. This represents when the event/item occurs in the real world:
+## Views
 
-- Screenshot of a calendar invite → plotted at the meeting time
-- Photo of a concert ticket → plotted at the event date
-- Screenshot of a deadline reminder → plotted at the due date
+### Default View (Chronological)
+- All items sorted by `created_at` (when shared)
+- Most recent first
+- This is the existing behavior
 
-## UI Behavior
+### Type Filter
+- Filter items by type: screenshot, image, web_url, text, video, audio, file
+- Can be combined with other views
+- Useful for finding specific content types
 
-### Zoomable Navigation
-The timeline supports multiple zoom levels:
+### Timeline View
+- **Filters to**: Items with `analysis.details.date_time` (derived event time)
+- **Sorted by**: The derived `date_time`, ascending (oldest to newest)
+- **"Now" divider**: Visual separator between past and future items
+- **Auto-scroll**: Opens with view centered on "Now"
 
-| Zoom Level | View | Use Case |
-|------------|------|----------|
-| Day | Hourly slots | Detailed daily schedule |
-| Week | Daily columns | Weekly planning |
-| Month | Day cells | Monthly overview |
-| Year | Month blocks | Long-term view |
-
-### Default View
-The timeline defaults to a **future-focused view** (week or month ahead), showing upcoming items. This makes it immediately useful for "what's coming up?"
-
-### Navigation
-Users can:
-- Scroll backward to view past items
-- Scroll forward to see further into the future
-- Zoom in/out at any point in time (past or future)
-
-### Current Time Indicator
-A "now" line shows the current moment, helping users orient between past and upcoming items.
-
-### Item Display
-Items on the timeline show:
-- Title/overview (from analysis)
-- Time placement (vertical or horizontal based on zoom)
-- Visual indicator of item type (meeting, deadline, event, etc.)
-- Quick actions (view details, mark processed, dismiss)
-
-## State Machine Context
-Items reach the Timeline from the `Analyzed` state when the user chooses "Add to timeline" as the next step. See [Item Lifecycle](./item-lifecycle.md) for full state details.
-
-```mermaid
-stateDiagram-v2
-    Analyzed --> Timeline: User adds to timeline
-
-    state Timeline {
-        [*] --> Upcoming
-        Upcoming --> Review: Event time passed (cron)
-
-        note right of Review
-            "How did it go?"
-            Surfaced in daily conversation
-        end note
-    }
-
-    Review --> Processed: User provides feedback
-    Review --> FollowUp: Needs action
-    Timeline --> Processed: No review needed
+```
+┌─────────────────────────────┐
+│ Jan 20 - Meeting notes      │  ↑ Past events
+│ Jan 24 - Dinner reservation │
+├────────── Now ──────────────┤  ← Initial scroll position
+│ Jan 29 - Flor Fina Dinner   │  ↓ Future events
+│ Feb 3 - Tech Conference     │
+│ Feb 14 - Valentine's dinner │
+└─────────────────────────────┘
 ```
 
-### Time-Based Transition
-A scheduled job (cron) checks for timeline items where `date_time < now`. These items transition from `Upcoming` to `Review` and are queued for the daily user conversation.
-
-### Daily Conversation
-The system initiates a daily check-in with the user to:
-1. Review past events ("How did the meeting go?")
-2. Surface items needing attention
-3. Collect feedback that enriches the item (notes, outcomes, follow-ups)
-
-This keeps items from silently aging out and captures valuable context while memories are fresh.
-
 ## Data Requirements
-For an item to appear on the timeline, analysis must extract:
 
-| Field | Required | Description |
+For an item to appear in Timeline view, analysis must extract:
+
+| Field | Location | Description |
 |-------|----------|-------------|
-| `date_time` | Yes | When the event occurs |
-| `overview` | Yes | Display text |
-| `duration` | No | Length of event (for rendering) |
-| `location` | No | Where (physical/virtual) |
-| `principals` | No | People involved |
+| `date_time` | `analysis.details.date_time` | When the event occurs (ISO 8601) |
+| `overview` | `analysis.overview` | Display text |
 
-## Open Questions
-- [ ] How to handle items with date ranges vs. single points in time?
-- [ ] Should recurring events be expanded or shown as a single item?
-- [ ] What happens to timeline items after their date passes? Auto-archive?
-- [ ] How to handle items with ambiguous dates ("next Tuesday")?
+Optional fields that enhance display:
+- `analysis.details.end_time` - Event end time
+- `analysis.details.location` - Where (physical/virtual)
+- `analysis.details.title` - Event title
+
+## Implementation
+
+### Web UI (backend/static/app.js)
+- Add view toggle buttons: "All" | "Timeline"
+- Add type filter dropdown
+- Implement "Now" divider rendering
+- Auto-scroll to "Now" on timeline view activation
+
+### Mobile (React Native)
+- Similar controls in the history tab
+- FlatList with section headers for "Past" / "Now" / "Upcoming"
+
+## Why This Approach?
+
+The original design called for a zoomable calendar with day/week/month/year views. This simpler approach:
+
+1. **Reuses existing components** - It's still a list, just filtered and sorted differently
+2. **Ships faster** - No complex calendar grid or time positioning logic
+3. **Works on all screen sizes** - List UI is inherently responsive
+4. **Preserves "nowness"** - The Now divider gives temporal context without calendar complexity
+5. **Type filter is independently useful** - Even without timeline, filtering by type helps users find content

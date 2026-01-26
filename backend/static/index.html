@@ -28,6 +28,25 @@
                 Loading...
             </div>
 
+            <div id="filters" class="filters" style="display: none;">
+                <div class="view-toggle">
+                    <button class="view-btn active" data-view="all">All</button>
+                    <button class="view-btn" data-view="timeline">Timeline</button>
+                </div>
+                <div class="type-filter">
+                    <select id="type-filter">
+                        <option value="">All Types</option>
+                        <option value="screenshot">Screenshot</option>
+                        <option value="image">Image</option>
+                        <option value="web_url">Web URL</option>
+                        <option value="text">Text</option>
+                        <option value="video">Video</option>
+                        <option value="audio">Audio</option>
+                        <option value="file">File</option>
+                    </select>
+                </div>
+            </div>
+
             <div id="empty-state" class="empty-state" style="display: none;">
                 <p>No items yet. Share something from the mobile app or browser extension!</p>
             </div>
