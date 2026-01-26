@@ -1,0 +1,6 @@
+source "https://rubygems.org"
+
+gem "fastlane"
+gem "cocoapods"
+# Ruby 2.6 system ruby requires older ffi
+gem "ffi", "~> 1.15.0"

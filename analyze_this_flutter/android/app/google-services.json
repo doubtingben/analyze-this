@@ -1,0 +1,39 @@
+{
+  "project_info": {
+    "project_number": "106064975526",
+    "project_id": "analyze-this-2026",
+    "storage_bucket": "analyze-this-2026.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:106064975526:android:965d2ad66d9f70b0a10667",
+        "android_client_info": {
+          "package_name": "com.analyzethis.mobile"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "106064975526-5cirithftrku0j78rs8h9l34p7lf84kk.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCrY-FY7lNTB0NfXJVe118981pCF6yFloE"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "106064975526-5cirithftrku0j78rs8h9l34p7lf84kk.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

@@ -1,0 +1,25 @@
+default_platform(:ios)
+
+platform :ios do
+  desc "Increment build number based on latest TestFlight build"
+  lane :bump_build_number do
+    # Fetch the latest build number from TestFlight
+    # This action requires authentication (API Key or 2FA)
+    latest_build_number = latest_testflight_build_number(
+      version: get_version_number(target: "Runner"),
+      initial_build_number: 0
+    )
+    
+    # Increment by 1
+    new_build_number = latest_build_number + 1
+    
+    # Valid for native iOS projects, but BREAKS Flutter's $(FLUTTER_BUILD_NUMBER) variable
+    # increment_build_number(
+    #   build_number: new_build_number,
+    #   xcodeproj: "Runner.xcodeproj"
+    # )
+    
+    puts "Latest TestFlight build is #{latest_build_number}. You should build with number #{new_build_number}"
+    puts "Example: flutter build ipa --release --build-number=#{new_build_number}"
+  end
+end
