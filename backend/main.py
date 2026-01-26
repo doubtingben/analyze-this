@@ -152,12 +152,12 @@ async def read_root(request: Request):
                                         <strong>{{ item.title or 'No Title' }}</strong> <small>({{ item.type }})</small>
                                     </div>
                                     {% if item.analysis %}
-                                        <span onclick="showAnalysis('{{ item.analysis.overview | replace('\'', '\\\'') | replace('\n', '\\n') }}')" style="cursor: pointer; font-size: 1.2em;" title="View Analysis">✨</span>
+                                        <span data-overview="{{ item.analysis.overview }}" onclick="showAnalysis(this.dataset.overview)" style="cursor: pointer; font-size: 1.2em;" title="View Analysis">✨</span>
                                     {% else %}
                                         <span style="filter: grayscale(100%); opacity: 0.5; font-size: 1.2em; cursor: default;" title="No Analysis">✨</span>
                                     {% endif %}
                                 </div>
-                                <button onclick="deleteItem('{{ item.firestore_id }}')" style="background: #ff4444; color: white; border: none; padding: 5px 10px; border-radius: 4px; cursor: pointer;">Delete</button>
+                                <button data-id="{{ item.firestore_id }}" onclick="deleteItem(this.dataset.id)" style="background: #ff4444; color: white; border: none; padding: 5px 10px; border-radius: 4px; cursor: pointer;">Delete</button>
                             </div>
                             <div style="margin-top: 5px;">
                                 {{ item.content }}
@@ -171,7 +171,7 @@ async def read_root(request: Request):
             """
 
             from jinja2 import Template
-            return HTMLResponse(Template(template).render(user=user, items=items))
+            return HTMLResponse(Template(template, autoescape=True).render(user=user, items=items))
         return HTMLResponse('<a href="/login">Login with Google</a>')
     
     return FileResponse("static/index.html")
