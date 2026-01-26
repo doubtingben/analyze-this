@@ -1,0 +1,5 @@
+app_identifier "com.analyzethis.mobile" # The bundle identifier of your app
+apple_id "" # Your Apple email address - leaving blank to prompt or use env var
+
+itc_team_id "118491444" # App Store Connect Team ID
+team_id "6622WP4BLP" # Developer Portal Team ID

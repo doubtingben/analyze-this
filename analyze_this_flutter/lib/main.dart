@@ -1,0 +1,324 @@
+import 'dart:async';
+import 'dart:io';
+import 'package:flutter/material.dart';
+import 'package:receive_sharing_intent/receive_sharing_intent.dart';
+import 'package:google_sign_in/google_sign_in.dart';
+import 'package:intl/intl.dart';
+
+import 'auth_service.dart';
+import 'services/api_service.dart';
+import 'models/history_item.dart';
+
+void main() {
+  runApp(const MyApp());
+}
+
+class MyApp extends StatelessWidget {
+  const MyApp({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return MaterialApp(
+      title: 'Analyze This',
+      theme: ThemeData(
+        colorScheme: ColorScheme.fromSeed(seedColor: Colors.blueAccent),
+        useMaterial3: true,
+      ),
+      home: const MyHomePage(title: 'Analyze This - Shared Items'),
+    );
+  }
+}
+
+class MyHomePage extends StatefulWidget {
+  const MyHomePage({super.key, required this.title});
+
+  final String title;
+
+  @override
+  State<MyHomePage> createState() => _MyHomePageState();
+}
+
+class _MyHomePageState extends State<MyHomePage> {
+  late StreamSubscription _intentDataStreamSubscription;
+  final List<SharedMediaFile> _sharedFiles = [];
+  String? _sharedText;
+  final AuthService _authService = AuthService();
+  final ApiService _apiService = ApiService();
+  List<HistoryItem> _history = [];
+  bool _isLoading = false;
+  GoogleSignInAccount? _currentUser;
+
+  @override
+  void initState() {
+    super.initState();
+    _initAuth();
+  }
+
+  Future<void> _initAuth() async {
+    await _authService.init();
+    await _checkSignIn();
+    _initSharingListeners();
+  }
+
+  Future<void> _checkSignIn() async {
+    final user = await _authService.getCurrentUser();
+    setState(() {
+      _currentUser = user;
+    });
+    if (user != null) {
+      _loadHistory();
+    }
+  }
+
+  Future<void> _loadHistory() async {
+    if (_currentUser == null) return;
+    
+    setState(() {
+      _isLoading = true;
+    });
+
+    try {
+      final authHeaders = await _currentUser!.authentication;
+      final token = authHeaders.accessToken; 
+      if (token != null) {
+        final items = await _apiService.fetchHistory(token);
+        setState(() {
+          _history = items;
+        });
+      }
+    } catch (e) {
+      print('Error loading history: $e');
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Failed to load history: $e')),
+      );
+    } finally {
+      setState(() {
+        _isLoading = false;
+      });
+    }
+  }
+  
+  Future<void> _handleShare(List<SharedMediaFile> files, {String? text}) async {
+    if (_currentUser == null) {
+        // TODO: Prompt login or handle offline share
+        return;
+    }
+
+    try {
+        final authHeaders = await _currentUser!.authentication;
+        final token = authHeaders.accessToken;
+        if (token == null) return;
+        
+        setState(() {
+            _isLoading = true;
+        });
+
+        if (files.isNotEmpty) {
+            // Handle file share (image/video/file)
+            // Determine type based on first file
+            final file = files.first;
+            ShareItemType type = ShareItemType.file;
+            if (file.type == SharedMediaType.image) type = ShareItemType.image;
+            if (file.type == SharedMediaType.video) type = ShareItemType.video;
+            
+            await _apiService.uploadShare(token, type, file.path, _currentUser!.email, files: files);
+        } else if (text != null) {
+            // Handle text/link share
+            ShareItemType type = ShareItemType.text;
+            if (text.startsWith('http')) type = ShareItemType.web_url;
+            
+            await _apiService.uploadShare(token, type, text, _currentUser!.email);
+        }
+        
+        // Refresh history
+        await _loadHistory();
+        
+        if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text('Item shared successfully!')),
+            );
+        }
+
+    } catch (e) {
+        print('Error sharing item: $e');
+        if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(content: Text('Failed to share: $e')),
+            );
+        }
+    } finally {
+        setState(() {
+            _isLoading = false;
+            _sharedFiles.clear();
+            _sharedText = null;
+        });
+    }
+  }
+
+  void _initSharingListeners() {
+    // For sharing images, text, and files coming from outside the app while the app is in the memory
+    _intentDataStreamSubscription = ReceiveSharingIntent.instance.getMediaStream().listen((List<SharedMediaFile> value) {
+      if (!mounted) return;
+      print("Shared content received (stream): ${value.length}");
+      
+      // Check if any shared item is text/url
+      final textItem = value.where((f) => f.type == SharedMediaType.text || f.type == SharedMediaType.url).firstOrNull;
+      
+      if (textItem != null) {
+          _handleShare([], text: textItem.path);
+      } else if (value.isNotEmpty) {
+          _handleShare(value);
+      }
+    }, onError: (err) {
+      print("getMediaStream error: $err");
+    });
+
+    // For sharing images, text, and files coming from outside the app while the app is closed
+    ReceiveSharingIntent.instance.getInitialMedia().then((List<SharedMediaFile> value) {
+      if (!mounted) return;
+      print("Shared content received (initial): ${value.length}");
+      
+      final textItem = value.where((f) => f.type == SharedMediaType.text || f.type == SharedMediaType.url).firstOrNull;
+
+      if (textItem != null) {
+           _handleShare([], text: textItem.path);
+      } else if (value.isNotEmpty) {
+           _handleShare(value);
+      }
+      
+      if (value.isNotEmpty) {
+           ReceiveSharingIntent.instance.reset();
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _intentDataStreamSubscription?.cancel();
+    super.dispose();
+  }
+
+  Future<void> _handleSignIn() async {
+    try {
+      final user = await _authService.signIn();
+      setState(() {
+        _currentUser = user;
+      });
+      if (user != null) {
+          _loadHistory();
+      }
+    } catch (error) {
+      print(error);
+    }
+  }
+
+  Future<void> _handleSignOut() async {
+    await _authService.signOut();
+    setState(() {
+      _currentUser = null;
+      _history = [];
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        backgroundColor: Theme.of(context).colorScheme.inversePrimary,
+        title: Text(widget.title),
+        actions: [
+          if (_currentUser != null)
+             IconButton(
+               icon: const Icon(Icons.refresh),
+               onPressed: _loadHistory,
+             ),
+          if (_currentUser != null)
+             IconButton(
+               icon: const Icon(Icons.logout),
+               onPressed: _handleSignOut,
+               tooltip: 'Logout',
+             ),
+        ],
+      ),
+      body: Center(
+        child: _currentUser == null
+            ? Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  const Text('Please sign in to view your history'),
+                  const SizedBox(height: 20),
+                  ElevatedButton(
+                    onPressed: _handleSignIn,
+                    child: const Text('Sign in with Google'),
+                  ),
+                ],
+              )
+            : Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: <Widget>[
+                  Padding(
+                    padding: const EdgeInsets.all(8.0),
+                    child: Column(
+                      children: [
+                        if (_currentUser!.photoUrl != null)
+                          CircleAvatar(backgroundImage: NetworkImage(_currentUser!.photoUrl!)),
+                        Text('Welcome, ${_currentUser!.displayName ?? "User"}'),
+                      ],
+                    ),
+                  ),
+                  const Divider(),
+                  Expanded(
+                    child: _isLoading 
+                        ? const Center(child: CircularProgressIndicator())
+                        : _history.isEmpty 
+                            ? const Center(child: Text('No history items found'))
+                            : ListView.builder(
+                                itemCount: _history.length,
+                                itemBuilder: (context, index) {
+                                  final item = _history[index];
+                                  return ListTile(
+                                    leading: _buildLeadingIcon(item.type),
+                                    title: Text(item.title ?? item.value),
+                                    subtitle: Text(DateFormat.yMMMd().format(DateTime.fromMillisecondsSinceEpoch(item.timestamp))),
+                                    trailing: IconButton(
+                                        icon: const Icon(Icons.delete),
+                                        onPressed: () async {
+                                            // Optimistic update could be done here, but simple await for now
+                                            try {
+                                                final authHeaders = await _currentUser!.authentication;
+                                                final token = authHeaders.accessToken;
+                                                if (token != null) {
+                                                    await _apiService.deleteItem(token, item.id);
+                                                    _loadHistory();
+                                                }
+                                            } catch (e) {
+                                                ScaffoldMessenger.of(context).showSnackBar(
+                                                    SnackBar(content: Text('Failed to delete: $e')),
+                                                );
+                                            }
+                                        },
+                                    ),
+                                    onTap: () {
+                                        // TODO: Open detail view
+                                        // For web_url, launchUrl
+                                    },
+                                  );
+                                },
+                              ),
+                  ),
+                ],
+              ),
+      ),
+    );
+  }
+  
+  Widget _buildLeadingIcon(String type) {
+      switch (type) {
+          case 'image': return const Icon(Icons.image);
+          case 'video': return const Icon(Icons.videocam);
+          case 'web_url': return const Icon(Icons.link);
+          case 'file': return const Icon(Icons.insert_drive_file);
+          default: return const Icon(Icons.text_fields);
+      }
+  }
+}
