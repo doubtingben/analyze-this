@@ -15,6 +15,15 @@ class ShareType(str, Enum):
     file = 'file'
     screenshot = 'screenshot'
 
+class ItemStatus(str, Enum):
+    new = 'new'
+    analyzing = 'analyzing'
+    analyzed = 'analyzed'
+    timeline = 'timeline'
+    follow_up = 'follow_up'
+    processed = 'processed'
+    soft_deleted = 'soft_deleted'
+
 class AnalysisResult(BaseModel):
     overview: str  # Required - human-readable summary for UI
     action: Optional[str] = None  # e.g., "add_event", "follow_up", "save_image"
@@ -37,3 +46,5 @@ class SharedItem(BaseModel):
     created_at: datetime = Field(default_factory=datetime.utcnow)
     item_metadata: Optional[dict] = Field(default=None)
     analysis: Optional[AnalysisResult] = Field(default=None)
+    status: ItemStatus = Field(default=ItemStatus.new)
+    next_step: Optional[str] = Field(default=None)

@@ -1,11 +1,11 @@
 import os
 import argparse
-import firebase_admin
-from firebase_admin import credentials, firestore
-from google.cloud.firestore import Client as FirestoreClient
-from dotenv import load_dotenv
+import asyncio
 import logging
+from dotenv import load_dotenv
+
 from analysis import analyze_content
+from database import DatabaseInterface, FirestoreDatabase, SQLiteDatabase
 
 # Configure logging
 logging.basicConfig(
@@ -16,97 +16,89 @@ logger = logging.getLogger(__name__)
 
 # Load environment variables
 load_dotenv()
+APP_ENV = os.getenv("APP_ENV", "production")
 
-def initialize_firebase():
-    """Initializes Firebase if not already initialized."""
-    if not firebase_admin._apps:
-        try:
-            # Check if running in Cloud Run or locally with credentials
-            firebase_admin.initialize_app(options={
-                'storageBucket': os.getenv('FIREBASE_STORAGE_BUCKET')
-            })
-            logger.info("Firebase initialized successfully.")
-        except Exception as e:
-            logger.error(f"Failed to initialize Firebase: {e}")
-            raise e
+async def get_db() -> DatabaseInterface:
+    if APP_ENV == "development":
+        logger.info("Using SQLiteDatabase")
+        db = SQLiteDatabase()
+        if hasattr(db, 'init_db'):
+            await db.init_db()
+        return db
+    else:
+        logger.info("Using FirestoreDatabase")
+        return FirestoreDatabase()
 
-def process_items(limit: int = 10, item_id: str = None, force: bool = False):
+async def process_items_async(limit: int = 10, item_id: str = None, force: bool = False):
     """
-    Processes unanalyzed items from Firestore.
-    
-    Args:
-        limit: Maximum number of items to process in this run.
-        item_id: Specific item ID to process (overrides limit/unanalyzed check if force is True).
-        force: If True, re-analyze even if analysis exists (only valid with item_id).
+    Processes unanalyzed items using DatabaseInterface.
     """
-    db: FirestoreClient = firestore.client()
-    items_ref = db.collection('shared_items')
+    db = await get_db()
     
     docs_to_process = []
 
     if item_id:
         # Fetch specific document
         logger.info(f"Fetching specific item with ID: {item_id}")
-        doc_ref = items_ref.document(item_id)
-        doc = doc_ref.get()
-        if doc.exists:
-            data = doc.to_dict()
+        data = await db.get_shared_item(item_id)
+        if data:
             # If force is True OR analysis is missing, process it
             if force or not data.get('analysis'):
-                 docs_to_process.append((doc.id, data))
+                 docs_to_process.append(data)
             else:
                 logger.info(f"Item {item_id} already has analysis. Use --force to re-analyze.")
         else:
             logger.error(f"Item {item_id} not found.")
     else:
-        # Query for items without analysis
-        # Note: 'analysis' field might not exist, or be null.
-        # Queries for missing fields are tricky in Firestore (no direct "is missing" filter in all SDKs easily).
-        # We can look for where analysis == None explicitly if stored as null,
-        # or we might have to rely on application logic if the field is just missing.
-        # Alternatively, we can add a 'status' field.
-        # For now, let's try querying where analysis == None.
-        logger.info(f"Querying for up to {limit} unanalyzed items...")
-        
-        # Firestore query strict equality for null
-        query = items_ref.where(field_path='analysis', op_string='==', value=None).limit(limit)
-        results = list(query.stream())
-        
-        # If the field is completely missing (not null), the above might not catch it depending on existing data.
-        # Let's also check if we can query strictly by "analysis" field absence? No direct "exists" query.
-        # But if we saved them with default=None in Pydantic, they should be null in DB if serialized correctly.
-        
-        for doc in results:
-            docs_to_process.append((doc.id, doc.to_dict()))
-            
+        logger.info(f"Querying for up to {limit} new items...")
+        docs_to_process = await db.get_items_by_status("new", limit)
         logger.info(f"Found {len(docs_to_process)} items to process.")
 
-    for doc_id, data in docs_to_process:
-        logger.info(f"Analyzing item {doc_id} ({data.get('type')})...")
+    for data in docs_to_process:
+        doc_id = data.get('firestore_id')
+        logger.info(f"Processing item {doc_id} ({data.get('type')})...")
+        
+        # 1. Mark as Analyzing
+        try:
+             await db.update_shared_item(doc_id, {'status': 'analyzing'})
+        except Exception as e:
+             logger.error(f"Failed to update status to analyzing for {doc_id}: {e}")
         
         content = data.get('content')
         item_type = data.get('type', 'text')
         
         if not content:
             logger.warning(f"Item {doc_id} has no content. Skipping.")
+            await db.update_shared_item(doc_id, {'status': 'processed', 'next_step': 'no_content'})
             continue
             
         try:
-            analysis_result = analyze_content(content, item_type)
+            # Note: analyze_content is synchronous or async? from analysis.py
+            # assuming sync for now based on original valid code
+            # But we are in async function.
+            # Ideally analysis should be async or run in executor.
+            
+            loop = asyncio.get_running_loop()
+            # If analyze_content is CPU bound blocking:
+            analysis_result = await loop.run_in_executor(None, analyze_content, content, item_type)
             
             if analysis_result:
-                # Update Firestore
-                items_ref.document(doc_id).update({
-                    'analysis': analysis_result
+                # Update DB
+                await db.update_shared_item(doc_id, {
+                    'analysis': analysis_result,
+                    'status': 'analyzed',
+                    'next_step': 'timeline'
                 })
-                logger.info(f"Successfully updated item {doc_id} with analysis.")
+                logger.info(f"Successfully analyzed item {doc_id}.")
             else:
                 logger.warning(f"Analysis returned None for item {doc_id}.")
+                await db.update_shared_item(doc_id, {'status': 'processed', 'next_step': 'failed_analysis'})
                 
         except Exception as e:
             logger.error(f"Failed to analyze item {doc_id}: {e}")
+            await db.update_shared_item(doc_id, {'status': 'processed', 'next_step': 'error'})
 
-if __name__ == "__main__":
+def main():
     parser = argparse.ArgumentParser(description="Worker to process unanalyzed shared items.")
     parser.add_argument("--limit", type=int, default=10, help="Number of items to process (default: 10)")
     parser.add_argument("--id", type=str, help="Specific Item ID to process")
@@ -114,5 +106,7 @@ if __name__ == "__main__":
     
     args = parser.parse_args()
     
-    initialize_firebase()
-    process_items(limit=args.limit, item_id=args.id, force=args.force)
+    asyncio.run(process_items_async(limit=args.limit, item_id=args.id, force=args.force))
+
+if __name__ == "__main__":
+    main()

@@ -75,9 +75,16 @@ export function HistoryItemCard({ item, onDelete, onShare, children, badgeColor 
       {children}
 
       <View style={styles.cardFooter}>
-        <ThemedText style={[styles.typeBadge, { backgroundColor: colors.bg, color: colors.text }]}>
-          {formatTypeLabel(item.type)}
-        </ThemedText>
+        <View style={{ flexDirection: 'row', gap: 8 }}>
+          <ThemedText style={[styles.typeBadge, { backgroundColor: colors.bg, color: colors.text }]}>
+            {formatTypeLabel(item.type)}
+          </ThemedText>
+          {item.status && item.status !== 'processed' && item.status !== 'analyzed' && (
+            <ThemedText style={[styles.typeBadge, { backgroundColor: '#E0E0E0', color: '#666' }]}>
+              {item.status === 'new' ? 'Queued' : item.status}
+            </ThemedText>
+          )}
+        </View>
 
         <View style={styles.actionButtons}>
           {/* Analysis Sparkle */}
