@@ -49,8 +49,8 @@ def get_image_data_url(content: str) -> str | None:
     Returns:
         A data URL (base64) or the original URL if already valid
     """
-    # If it's already a full URL, return as-is
-    if content.startswith(('http://', 'https://')):
+    # If it's already a full URL or data URL, return as-is
+    if content.startswith(('http://', 'https://', 'data:')):
         return content
 
     # Otherwise, it's a relative storage path - fetch from Firebase Storage
