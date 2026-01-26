@@ -1,49 +1,43 @@
 document.addEventListener('DOMContentLoaded', async () => {
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-
     if (tab) {
         document.getElementById('title').value = tab.title || '';
-        document.getElementById('content').value = tab.url || '';
     }
 
     document.getElementById('send-btn').addEventListener('click', async () => {
         const title = document.getElementById('title').value;
-        const content = document.getElementById('content').value;
         const statusEl = document.getElementById('status');
         const errorEl = document.getElementById('error');
 
-        statusEl.innerText = 'Sending...';
+        statusEl.innerText = 'Capturing & Sending...';
         errorEl.innerText = '';
 
         try {
-            const authResult = await getAuthToken();
-            if (authResult.error) {
-                errorEl.innerText = 'Auth Error: ' + authResult.error;
+            // Need to capture the visible tab
+            const [currentTab] = await chrome.tabs.query({ active: true, currentWindow: true });
+            if (!currentTab) {
+                errorEl.innerText = 'No active tab found';
                 return;
             }
-            const token = authResult.token;
 
-            const response = await fetch(`${CONFIG.API_BASE_URL}/api/share`, {
-                method: "POST",
-                headers: {
-                    "Content-Type": "application/json",
-                    "Authorization": `Bearer ${token}`
-                },
-                body: JSON.stringify({
-                    type: "web_url",
-                    content: content,
+            chrome.tabs.captureVisibleTab(null, { format: 'png' }, (dataUrl) => {
+                if (chrome.runtime.lastError) {
+                    errorEl.innerText = 'Capture Error: ' + chrome.runtime.lastError.message;
+                    return;
+                }
+
+                // Send to background to handle the upload
+                chrome.runtime.sendMessage({
+                    action: 'uploadCapture',
+                    dataUrl: dataUrl,
                     title: title,
-                    user_email: "placeholder"
-                })
+                    url: currentTab.url
+                });
+
+                // We can close the popup now, background handles the rest
+                statusEl.innerText = 'Sent to background processing...';
+                setTimeout(() => window.close(), 1000);
             });
-
-            if (response.ok) {
-                statusEl.innerText = 'Saved successfully!';
-                setTimeout(() => window.close(), 1500);
-            } else {
-                errorEl.innerText = 'Error: ' + response.statusText;
-            }
-
         } catch (e) {
             errorEl.innerText = 'Error: ' + e.message;
         }

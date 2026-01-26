@@ -117,7 +117,13 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             console.error('captureComplete: sender.tab is undefined');
             return;
         }
-        handleCaptureComplete(message.dataUrl, sender.tab);
+        // Capture from content script (context menu) usually implies current tab URL
+        handleCaptureComplete(message.dataUrl, sender.tab.title, sender.tab.url);
+    }
+
+    // New action for popup or other sources to provide specific metadata
+    if (message.action === 'uploadCapture') {
+        handleCaptureComplete(message.dataUrl, message.title, message.url);
     }
 
     if (message.action === 'captureError') {
@@ -126,7 +132,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     }
 });
 
-async function handleCaptureComplete(dataUrl, tab) {
+async function handleCaptureComplete(dataUrl, title, url) {
     try {
         const token = await getAuthToken();
         if (!token) {
@@ -142,7 +148,10 @@ async function handleCaptureComplete(dataUrl, tab) {
         const formData = new FormData();
         formData.append('file', blob, 'screenshot.png');
         formData.append('type', 'screenshot');
-        formData.append('title', tab.title || 'Page Screenshot');
+        formData.append('title', title || 'Page Screenshot');
+        if (url) {
+            formData.append('url', url);
+        }
 
         // Upload to backend
         const uploadResponse = await fetch(`${CONFIG.API_BASE_URL}/api/share`, {
