@@ -39,14 +39,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const [user, setUser] = useState<User | null>(null);
     const [isLoading, setIsLoading] = useState(true);
 
+    // Hardcoded fallback because process.env is sometimes unreliable in release builds context without extra config
+    const GOOGLE_CLIENT_ID = process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID || '106064975526-5cirithftrku0j78rs8h9l34p7lf84kk.apps.googleusercontent.com';
+
     const [request, response, promptAsync] = Google.useAuthRequest({
         // Use the Web Client ID for all platforms to support HTTPS redirects
-        clientId: process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID,
+        clientId: GOOGLE_CLIENT_ID,
         iosClientId: process.env.EXPO_PUBLIC_IOS_GOOGLE_CLIENT_ID,
         // We do NOT set androidClientId to the Android-specific ID because that forces a flow
         // that doesn't support custom/https redirects in the same way.
         // By using the web client ID, we force the browser-based flow which accepts our redirect URI.
-        androidClientId: process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID,
+        androidClientId: GOOGLE_CLIENT_ID,
         redirectUri: 'https://interestedparticipant.org/oauthredirect',
         responseType: ResponseType.Token,
     });
