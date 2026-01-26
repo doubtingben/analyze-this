@@ -64,6 +64,18 @@ mobile-build: ## Build mobile app for both platforms
 mobile-eas-build: ## Build mobile app with EAS (Preview)
 	cd mobile && npx eas-cli build --platform all --profile preview --non-interactive
 
+.PHONY: mobile-eas-build-ios
+mobile-eas-build-ios: ## Build iOS app with EAS (Preview)
+	cd mobile && npx eas-cli build --platform ios --profile preview --non-interactive
+
+.PHONY: mobile-eas-submit-ios
+mobile-eas-submit-ios: ## Submit latest iOS build to TestFlight
+	cd mobile && npx eas-cli submit --platform ios --profile preview --latest
+
+.PHONY: mobile-eas-build-submit-ios
+mobile-eas-build-submit-ios: ## Build iOS and auto-submit to TestFlight
+	cd mobile && npx eas-cli build --platform ios --profile preview --auto-submit --non-interactive
+
 .PHONY: mobile-setup-devices
 mobile-setup-devices: ## Setup Android/iOS devices and emulators
 	cd mobile && npm run setup-devices

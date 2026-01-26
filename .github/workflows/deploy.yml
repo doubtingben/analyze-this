@@ -85,5 +85,8 @@ jobs:
       - name: Install dependencies
         run: make mobile-install
 
-      - name: Build Mobile
-        run: make mobile-eas-build
+      - name: Build and Submit iOS to TestFlight
+        run: cd mobile && npx eas-cli build --platform ios --profile preview --auto-submit --non-interactive
+
+      - name: Build and Submit Android to Google Play
+        run: cd mobile && npx eas-cli build --platform android --profile preview --auto-submit --non-interactive
