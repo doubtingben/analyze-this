@@ -45,6 +45,14 @@ class DatabaseInterface(ABC):
     async def get_shared_item(self, item_id: str) -> Optional[dict]:
         pass
 
+    @abstractmethod
+    async def update_shared_item(self, item_id: str, updates: dict) -> bool:
+        pass
+
+    @abstractmethod
+    async def get_items_by_status(self, status: str, limit: int = 10) -> List[dict]:
+        pass
+
 
 # --- Firestore Implementation ---
 
@@ -111,6 +119,30 @@ class FirestoreDatabase(DatabaseInterface):
             return data
         return None
 
+    async def update_shared_item(self, item_id: str, updates: dict) -> bool:
+        item_ref = self.db.collection('shared_items').document(item_id)
+        # Check existence if needed, or just update
+        try:
+            item_ref.update(updates)
+            return True
+        except Exception:
+            return False
+
+    async def get_items_by_status(self, status: str, limit: int = 10) -> List[dict]:
+        items_ref = self.db.collection('shared_items')
+        query = items_ref.where(field_path='status', op_string='==', value=status).limit(limit)
+
+        def get_docs():
+            items = []
+            for doc in query.stream():
+                data = doc.to_dict()
+                data['firestore_id'] = doc.id
+                items.append(data)
+            return items
+
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(None, get_docs)
+
 
 # --- SQLite Implementation ---
 
@@ -133,6 +165,8 @@ class DBSharedItem(Base):
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
     item_metadata = Column(JSON, nullable=True)
     analysis = Column(JSON, nullable=True)
+    status = Column(String, default='new')
+    next_step = Column(String, nullable=True)
 
 class SQLiteDatabase(DatabaseInterface):
     def __init__(self, db_url: str = "sqlite+aiosqlite:///./development.db"):
@@ -191,7 +225,9 @@ class SQLiteDatabase(DatabaseInterface):
                 type=item.type,
                 created_at=item.created_at or datetime.datetime.utcnow(),
                 item_metadata=item.item_metadata,
-                analysis=item.analysis
+                analysis=item.analysis,
+                status=item.status,
+                next_step=item.next_step
             )
             session.add(db_item)
             await session.commit()
@@ -216,7 +252,9 @@ class SQLiteDatabase(DatabaseInterface):
                     'user_email': item.user_email,
                     'created_at': item.created_at,
                     'item_metadata': item.item_metadata,
-                    'analysis': item.analysis
+                    'analysis': item.analysis,
+                    'status': item.status,
+                    'next_step': item.next_step
                 }
                 for item in items
             ]
@@ -248,6 +286,47 @@ class SQLiteDatabase(DatabaseInterface):
                     'type': item.type,
                     'user_email': item.user_email,
                     'created_at': item.created_at,
-                    'analysis': item.analysis
+                    'analysis': item.analysis,
+                    'status': item.status,
+                    'next_step': item.next_step
                 }
             return None
+
+    async def update_shared_item(self, item_id: str, updates: dict) -> bool:
+        async with self.SessionLocal() as session:
+            result = await session.execute(select(DBSharedItem).where(DBSharedItem.id == item_id))
+            item = result.scalar_one_or_none()
+            if not item:
+                return False
+            
+            for key, value in updates.items():
+                if hasattr(item, key):
+                     setattr(item, key, value)
+            
+            await session.commit()
+            return True
+
+    async def get_items_by_status(self, status: str, limit: int = 10) -> List[dict]:
+        async with self.SessionLocal() as session:
+            result = await session.execute(
+                select(DBSharedItem)
+                .where(DBSharedItem.status == status)
+                .limit(limit)
+            )
+            items = result.scalars().all()
+            
+            return [
+                {
+                    'firestore_id': item.id,
+                    'title': item.title,
+                    'content': item.content,
+                    'type': item.type,
+                    'user_email': item.user_email,
+                    'created_at': item.created_at,
+                    'item_metadata': item.item_metadata,
+                    'analysis': item.analysis,
+                    'status': item.status,
+                    'next_step': item.next_step
+                }
+                for item in items
+            ]

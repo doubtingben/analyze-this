@@ -31,6 +31,8 @@ export interface HistoryItem {
         details?: Record<string, unknown>;
         tags?: string[];
     };
+    status?: string;
+    next_step?: string;
 }
 
 
@@ -135,6 +137,8 @@ export function useShareHistory() {
                             title: item.title,
                             metadata,
                             analysis: item.analysis,
+                            status: item.status,
+                            next_step: item.next_step,
                         };
                     });
                     setHistory(mappedItems);
