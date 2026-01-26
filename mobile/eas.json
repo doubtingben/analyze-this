@@ -13,7 +13,7 @@
       "autoIncrement": true
     },
     "preview": {
-      "distribution": "internal",
+      "distribution": "store",
       "ios": {
         "resourceClass": "m-medium"
       },
@@ -27,6 +27,7 @@
     }
   },
   "submit": {
+    "preview": {},
     "production": {}
   }
 }
