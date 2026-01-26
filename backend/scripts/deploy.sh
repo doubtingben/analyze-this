@@ -29,7 +29,7 @@ gcloud run deploy $SERVICE_NAME \
   --region $REGION \
   --project analyze-this-2026 \
   --allow-unauthenticated \
-  --update-env-vars "ALLOWED_ORIGINS=https://interestedparticipant.org,GOOGLE_EXTENSION_CLIENT_ID=${GOOGLE_EXTENSION_CLIENT_ID},SECRET_KEY=${SECRET_KEY},GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID},GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET},FIREBASE_STORAGE_BUCKET=${FIREBASE_STORAGE_BUCKET}"
+    --update-env-vars "^@^ALLOWED_ORIGINS=https://interestedparticipant.org,chrome-extension://ilbniloahihehnhalvffoelaliheab@GOOGLE_EXTENSION_CLIENT_ID=${GOOGLE_EXTENSION_CLIENT_ID}@SECRET_KEY=${SECRET_KEY}@GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID}@GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET}@FIREBASE_STORAGE_BUCKET=${FIREBASE_STORAGE_BUCKET}"
 
 # Cleanup
 rm version.txt
