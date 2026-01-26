@@ -5,6 +5,13 @@ const itemsContainerEl = document.getElementById('items-container');
 const userNameEl = document.getElementById('user-name');
 const userInfoEl = document.getElementById('user-info');
 const loginStateEl = document.getElementById('login-state');
+const filtersEl = document.getElementById('filters');
+const typeFilterEl = document.getElementById('type-filter');
+
+// State
+let allItems = [];
+let currentView = 'all'; // 'all' or 'timeline'
+let currentTypeFilter = ''; // '' for all, or specific type
 
 // Initialize the app
 async function init() {
@@ -16,12 +23,101 @@ async function init() {
         }
         userNameEl.textContent = `Welcome, ${user.name || user.email}`;
 
-        const items = await fetchItems();
-        renderItems(items);
+        // Setup filter controls
+        setupFilters();
+
+        allItems = await fetchItems();
+        renderFilteredItems();
     } catch (error) {
         console.error('Initialization error:', error);
         showLoginState();
     }
+}
+
+// Setup filter event listeners
+function setupFilters() {
+    // View toggle buttons
+    document.querySelectorAll('.view-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+            document.querySelectorAll('.view-btn').forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+            currentView = btn.dataset.view;
+            renderFilteredItems();
+        });
+    });
+
+    // Type filter dropdown
+    typeFilterEl.addEventListener('change', () => {
+        currentTypeFilter = typeFilterEl.value;
+        renderFilteredItems();
+    });
+}
+
+// Get event date from analysis details
+function getEventDateTime(item) {
+    if (!item.analysis?.details) return null;
+
+    const details = item.analysis.details;
+    // Look for date_time in various possible field names
+    const dateTimeStr = details.date_time || details.dateTime || details.date ||
+                        details.event_date || details.eventDate || details.start_date;
+
+    if (!dateTimeStr) return null;
+
+    try {
+        // Try to parse the date string
+        const date = new Date(dateTimeStr);
+        if (isNaN(date.getTime())) {
+            // Try to extract a date from common formats like "January 29" or "Jan 29"
+            const currentYear = new Date().getFullYear();
+            const withYear = new Date(`${dateTimeStr} ${currentYear}`);
+            if (!isNaN(withYear.getTime())) {
+                return withYear;
+            }
+            return null;
+        }
+        return date;
+    } catch {
+        return null;
+    }
+}
+
+// Filter and sort items based on current view and type filter
+function getFilteredItems() {
+    let items = [...allItems];
+
+    // Apply type filter
+    if (currentTypeFilter) {
+        items = items.filter(item => normalizeType(item) === currentTypeFilter);
+    }
+
+    // Apply view-specific filtering and sorting
+    if (currentView === 'timeline') {
+        // Filter to only items with derived date/time
+        items = items.filter(item => getEventDateTime(item) !== null);
+
+        // Sort by event date/time (ascending - oldest first)
+        items.sort((a, b) => {
+            const dateA = getEventDateTime(a);
+            const dateB = getEventDateTime(b);
+            return dateA - dateB;
+        });
+    } else {
+        // Default: sort by created_at descending (newest first)
+        items.sort((a, b) => {
+            const dateA = new Date(a.created_at || 0);
+            const dateB = new Date(b.created_at || 0);
+            return dateB - dateA;
+        });
+    }
+
+    return items;
+}
+
+// Render items with current filters applied
+function renderFilteredItems() {
+    const items = getFilteredItems();
+    renderItems(items);
 }
 
 // Show login state (not logged in)
@@ -59,9 +155,17 @@ async function fetchItems() {
 // Render all items
 function renderItems(items) {
     loadingEl.style.display = 'none';
+    filtersEl.style.display = 'flex';
 
     if (!items || items.length === 0) {
         emptyStateEl.style.display = 'block';
+        if (currentView === 'timeline') {
+            emptyStateEl.querySelector('p').textContent = 'No items with event dates found.';
+        } else if (currentTypeFilter) {
+            emptyStateEl.querySelector('p').textContent = `No ${formatType(currentTypeFilter)} items found.`;
+        } else {
+            emptyStateEl.querySelector('p').textContent = 'No items yet. Share something from the mobile app or browser extension!';
+        }
         itemsContainerEl.innerHTML = '';
         return;
     }
@@ -69,9 +173,72 @@ function renderItems(items) {
     emptyStateEl.style.display = 'none';
     itemsContainerEl.innerHTML = '';
 
+    if (currentView === 'timeline') {
+        renderTimelineItems(items);
+    } else {
+        items.forEach(item => {
+            const card = renderItem(item);
+            itemsContainerEl.appendChild(card);
+        });
+    }
+}
+
+// Render items in timeline view with Now divider
+function renderTimelineItems(items) {
+    const now = new Date();
+    let nowDividerInserted = false;
+    let nowDividerEl = null;
+
     items.forEach(item => {
+        const eventDate = getEventDateTime(item);
+
+        // Insert "Now" divider before the first future item
+        if (!nowDividerInserted && eventDate > now) {
+            nowDividerEl = document.createElement('div');
+            nowDividerEl.className = 'now-divider';
+            nowDividerEl.id = 'now-divider';
+            nowDividerEl.innerHTML = '<span>Now</span>';
+            itemsContainerEl.appendChild(nowDividerEl);
+            nowDividerInserted = true;
+        }
+
         const card = renderItem(item);
+
+        // Add event date badge for timeline view
+        const eventDateBadge = document.createElement('div');
+        eventDateBadge.className = 'event-date-badge';
+        eventDateBadge.textContent = formatEventDate(eventDate);
+        card.insertBefore(eventDateBadge, card.firstChild);
+
         itemsContainerEl.appendChild(card);
+    });
+
+    // If all items are in the past, add Now divider at the end
+    if (!nowDividerInserted && items.length > 0) {
+        nowDividerEl = document.createElement('div');
+        nowDividerEl.className = 'now-divider';
+        nowDividerEl.id = 'now-divider';
+        nowDividerEl.innerHTML = '<span>Now</span>';
+        itemsContainerEl.appendChild(nowDividerEl);
+    }
+
+    // Auto-scroll to Now divider
+    if (nowDividerEl) {
+        setTimeout(() => {
+            nowDividerEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }, 100);
+    }
+}
+
+// Format event date for timeline display
+function formatEventDate(date) {
+    if (!date) return '';
+    return date.toLocaleDateString(undefined, {
+        weekday: 'short',
+        month: 'short',
+        day: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit'
     });
 }
 
