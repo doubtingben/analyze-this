@@ -1,115 +1,107 @@
 import os
 import sys
 import unittest
-from unittest.mock import patch
+import asyncio
+from unittest.mock import patch, AsyncMock, MagicMock
 
 # Add backend directory to path
 sys.path.append(os.path.dirname(os.path.dirname(__file__)))
 
 import worker_analysis
 
-
-class FakeDoc:
-    def __init__(self, doc_id, data):
-        self.id = doc_id
-        self._data = data
-
-    def to_dict(self):
-        return self._data
-
-    @property
-    def exists(self):
-        return True
-
-
-class FakeDocRef:
-    def __init__(self, doc):
-        self._doc = doc
-        self.updated = None
-
-    def get(self):
-        return self._doc
-
-    def update(self, payload):
-        self.updated = payload
-
-
-class FakeQuery:
-    def __init__(self, docs):
-        self._docs = docs
-
-    def limit(self, _limit):
-        return self
-
-    def stream(self):
-        return list(self._docs)
-
-
-class FakeCollection:
-    def __init__(self, docs_by_id, docs):
-        self._docs_by_id = docs_by_id
-        self._docs = docs
-        self._doc_refs = {}
-
-    def document(self, doc_id):
-        if doc_id not in self._doc_refs:
-            self._doc_refs[doc_id] = FakeDocRef(self._docs_by_id[doc_id])
-        return self._doc_refs[doc_id]
-
-    def where(self, field_path=None, op_string=None, value=None):
-        return FakeQuery(self._docs)
-
-
-class FakeFirestore:
-    def __init__(self, docs_by_id, docs):
-        self._docs_by_id = docs_by_id
-        self._docs = docs
-        self.collection_called = None
-        self._collection = FakeCollection(self._docs_by_id, self._docs)
-
-    def collection(self, name):
-        self.collection_called = name
-        return self._collection
-
+# Mock Database Interface
+class MockDatabase:
+    def __init__(self):
+        self.items = {}
+        
+    async def get_shared_item(self, item_id):
+        return self.items.get(item_id)
+        
+    async def get_items_by_status(self, status, limit=10):
+        return [item for item in self.items.values() if item.get('status') == status][:limit]
+        
+    async def update_shared_item(self, item_id, updates):
+        if item_id in self.items:
+            self.items[item_id].update(updates)
+            return True
+        return False
 
 class TestWorkerAnalysis(unittest.TestCase):
-    def test_process_items_updates_unanalyzed(self):
-        doc = FakeDoc("item-1", {"content": "hello", "type": "text", "analysis": None})
-        firestore_client = FakeFirestore({"item-1": doc}, [doc])
-
-        with patch("worker_analysis.firestore.client", return_value=firestore_client), patch(
-            "worker_analysis.analyze_content", return_value={"step": "add_event"}
-        ):
-            worker_analysis.process_items(limit=1)
-
-        doc_ref = firestore_client.collection("shared_items").document("item-1")
-        self.assertEqual(doc_ref.updated, {"analysis": {"step": "add_event"}})
-
-    def test_process_items_skips_missing_content(self):
-        doc = FakeDoc("item-2", {"content": None, "type": "text", "analysis": None})
-        firestore_client = FakeFirestore({"item-2": doc}, [doc])
-
-        with patch("worker_analysis.firestore.client", return_value=firestore_client), patch(
-            "worker_analysis.analyze_content"
-        ) as mock_analyze:
-            worker_analysis.process_items(limit=1)
-
+    def setUp(self):
+        self.mock_db = MockDatabase()
+        
+    @patch('worker_analysis.get_db', new_callable=AsyncMock)
+    @patch('worker_analysis.analyze_content')
+    def test_process_items_async_success(self, mock_analyze, mock_get_db):
+        # Setup
+        mock_get_db.return_value = self.mock_db
+        mock_analyze.return_value = {"overview": "Analysis Done", "action": "timeline"}
+        
+        # Data
+        item_id = "item-1"
+        self.mock_db.items[item_id] = {
+            "firestore_id": item_id,
+            "content": "hello", 
+            "type": "text", 
+            "status": "new"
+        }
+        
+        # Execute
+        asyncio.run(worker_analysis.process_items_async(limit=1))
+        
+        # Verify
+        updated_item = self.mock_db.items[item_id]
+        self.assertEqual(updated_item['status'], 'analyzed')
+        self.assertEqual(updated_item['analysis'], {"overview": "Analysis Done", "action": "timeline"})
+        self.assertEqual(updated_item['next_step'], 'timeline')
+        
+    @patch('worker_analysis.get_db', new_callable=AsyncMock)
+    @patch('worker_analysis.analyze_content')
+    def test_process_items_async_skips_no_content(self, mock_analyze, mock_get_db):
+        # Setup
+        mock_get_db.return_value = self.mock_db
+        
+        # Data
+        item_id = "item-2"
+        self.mock_db.items[item_id] = {
+            "firestore_id": item_id,
+            "content": None, 
+            "type": "text", 
+            "status": "new"
+        }
+        
+        # Execute
+        asyncio.run(worker_analysis.process_items_async(limit=1))
+        
+        # Verify
+        updated_item = self.mock_db.items[item_id]
+        self.assertEqual(updated_item['status'], 'processed')  # Should be processed/skipped
+        self.assertEqual(updated_item['next_step'], 'no_content')
         mock_analyze.assert_not_called()
-        doc_ref = firestore_client.collection("shared_items").document("item-2")
-        self.assertIsNone(doc_ref.updated)
 
-    def test_process_items_specific_id(self):
-        doc = FakeDoc("item-3", {"content": "hello", "type": "text", "analysis": None})
-        firestore_client = FakeFirestore({"item-3": doc}, [])
-
-        with patch("worker_analysis.firestore.client", return_value=firestore_client), patch(
-            "worker_analysis.analyze_content", return_value={"step": "add_event"}
-        ):
-            worker_analysis.process_items(item_id="item-3", force=True)
-
-        doc_ref = firestore_client.collection("shared_items").document("item-3")
-        self.assertEqual(doc_ref.updated, {"analysis": {"step": "add_event"}})
-
+    @patch('worker_analysis.get_db', new_callable=AsyncMock)
+    @patch('worker_analysis.analyze_content')
+    def test_process_items_async_specific_id(self, mock_analyze, mock_get_db):
+        # Setup
+        mock_get_db.return_value = self.mock_db
+        mock_analyze.return_value = {"overview": "Forced Analysis", "action": "add_event"}
+        
+        # Data
+        item_id = "item-3"
+        self.mock_db.items[item_id] = {
+            "firestore_id": item_id,
+            "content": "force me", 
+            "type": "text", 
+            "status": "analyzed",
+            "analysis": {"old": "analysis"}
+        }
+        
+        # Execute with force=True
+        asyncio.run(worker_analysis.process_items_async(item_id=item_id, force=True))
+        
+        # Verify
+        updated_item = self.mock_db.items[item_id]
+        self.assertEqual(updated_item['analysis'], {"overview": "Forced Analysis", "action": "add_event"})
 
 if __name__ == "__main__":
     unittest.main()
