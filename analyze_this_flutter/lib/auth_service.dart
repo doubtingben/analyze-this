@@ -1,12 +1,16 @@
 import 'dart:async';
 import 'package:google_sign_in/google_sign_in.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
 class AuthService {
   // Web Client ID for backend verification (serverClientId)
   static const String _serverClientId = "106064975526-5cirithftrku0j78rs8h9l34p7lf84kk.apps.googleusercontent.com";
+  // iOS Client ID for native Google Sign-In configuration.
+  static const String _iosClientId = "106064975526-e5hbqil9s5dd02vt8lld9mrh0snpajuv.apps.googleusercontent.com";
   
   final GoogleSignIn _googleSignIn = GoogleSignIn(
+    clientId: defaultTargetPlatform == TargetPlatform.iOS ? _iosClientId : null,
     serverClientId: _serverClientId,
   );
   
