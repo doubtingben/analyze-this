@@ -1,6 +1,5 @@
 <!DOCTYPE html>
 <html>
-
 <head>
   <style>
     body {
@@ -8,24 +7,20 @@
       font-family: sans-serif;
       padding: 10px;
     }
-
     h2 {
       margin-top: 0;
     }
-
     button {
       width: 100%;
       padding: 8px;
       margin-top: 10px;
       cursor: pointer;
     }
-
     #status {
       margin-top: 10px;
       color: green;
       font-size: 12px;
     }
-
     #error {
       margin-top: 10px;
       color: red;
@@ -33,25 +28,19 @@
     }
   </style>
 </head>
-
 <body>
   <h2>Analyze This</h2>
-
   <div id="content-area">
     <label>Title</label>
     <input type="text" id="title" style="width: 100%; margin-bottom: 5px;" />
-
-    <label>Content (URL or Text)</label>
-    <textarea id="content" rows="4" style="width: 100%;"></textarea>
-
+    <p style="font-size: 11px; color: #666; margin-bottom: 10px;">
+        Clicking send will capture and analyze the current page screenshot.
+    </p>
     <button id="send-btn">Send for Analysis</button>
   </div>
-
   <div id="status"></div>
   <div id="error"></div>
-
   <script src="config.js"></script>
   <script src="popup.js"></script>
 </body>
-
 </html>
