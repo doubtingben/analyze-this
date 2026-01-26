@@ -137,6 +137,58 @@ web-run: ## Start web version
 	cd mobile && npm run web
 
 # ================================
+# Mobile - Flutter
+# ================================
+
+.PHONY: flutter-install
+flutter-install: ## Install Flutter dependencies
+	cd analyze_this_flutter && flutter pub get
+
+.PHONY: flutter-clean
+flutter-clean: ## Clean Flutter build
+	cd analyze_this_flutter && flutter clean
+
+.PHONY: flutter-run
+flutter-run: ## Run Flutter app
+	cd analyze_this_flutter && flutter run
+
+.PHONY: flutter-run-android
+flutter-run-android: ## Run Flutter app on Android
+	cd analyze_this_flutter && flutter run -d android
+
+.PHONY: flutter-run-ios
+flutter-run-ios: ## Run Flutter app on iOS
+	cd analyze_this_flutter && flutter run -d ios
+
+.PHONY: flutter-build-apk
+flutter-build-apk: ## Build Android APK (Release)
+	cd analyze_this_flutter && flutter build apk --release
+
+.PHONY: flutter-build-appbundle
+flutter-build-appbundle: ## Build Android App Bundle (Release)
+	cd analyze_this_flutter && flutter build appbundle --release
+
+.PHONY: flutter-build-ios
+flutter-build-ios: ## Build iOS app .app (Release, no codesign)
+	cd analyze_this_flutter && flutter build ios --release --no-codesign
+
+.PHONY: flutter-build-ipa
+flutter-build-ipa: ## Build iOS app .ipa (Release, requires signing)
+	cd analyze_this_flutter && flutter build ipa --release
+
+.PHONY: flutter-test
+flutter-test: ## Run Flutter tests
+	cd analyze_this_flutter && flutter test
+
+.PHONY: flutter-lint
+flutter-lint: ## Run Flutter analyzer
+	cd analyze_this_flutter && flutter analyze
+
+.PHONY: flutter-format
+flutter-format: ## Format Flutter code
+	cd analyze_this_flutter && dart format .
+
+# ================================
 # Worker Analysis
 # ================================
 
