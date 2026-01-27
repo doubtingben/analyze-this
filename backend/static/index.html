@@ -11,11 +11,68 @@
     <div class="container">
         <header class="header">
             <h1>Analyze This</h1>
-            <div class="user-info" id="user-info">
-                <span id="user-name"></span>
-                <a href="/logout" class="logout-link">Logout</a>
+            <div class="header-actions">
+                <button id="new-item-btn" class="new-item-btn" style="display: none;">+ New Item</button>
+                <div class="user-info" id="user-info">
+                    <span id="user-name"></span>
+                    <a href="/logout" class="logout-link">Logout</a>
+                </div>
             </div>
         </header>
+
+        <!-- Create Item Modal -->
+        <div id="create-modal" class="modal" style="display: none;">
+            <div class="modal-backdrop"></div>
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h2>Create New Item</h2>
+                    <button class="modal-close" id="modal-close">&times;</button>
+                </div>
+                <form id="create-form" class="create-form">
+                    <div class="form-group">
+                        <label for="item-type">Type</label>
+                        <select id="item-type" name="type" required>
+                            <option value="">Select type...</option>
+                            <option value="text">Text</option>
+                            <option value="web_url">Web URL</option>
+                            <option value="image">Image</option>
+                            <option value="video">Video</option>
+                            <option value="audio">Audio</option>
+                            <option value="file">File</option>
+                        </select>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="item-title">Title (optional)</label>
+                        <input type="text" id="item-title" name="title" placeholder="Enter a title...">
+                    </div>
+
+                    <!-- Text content field -->
+                    <div class="form-group type-field" data-types="text">
+                        <label for="item-text">Content</label>
+                        <textarea id="item-text" name="text-content" rows="4" placeholder="Enter text content..."></textarea>
+                    </div>
+
+                    <!-- URL field -->
+                    <div class="form-group type-field" data-types="web_url">
+                        <label for="item-url">URL</label>
+                        <input type="url" id="item-url" name="url-content" placeholder="https://example.com">
+                    </div>
+
+                    <!-- File upload field -->
+                    <div class="form-group type-field" data-types="image,video,audio,file">
+                        <label for="item-file">Upload File</label>
+                        <input type="file" id="item-file" name="file">
+                        <p class="form-hint" id="file-hint">Select a file to upload</p>
+                    </div>
+
+                    <div class="form-actions">
+                        <button type="button" class="btn-cancel" id="cancel-create">Cancel</button>
+                        <button type="submit" class="btn-submit" id="submit-create">Create</button>
+                    </div>
+                </form>
+            </div>
+        </div>
 
         <main>
             <div id="login-state" class="login-state" style="display: none;">
