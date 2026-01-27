@@ -18,7 +18,7 @@ backend-install: ## Install backend dependencies
 
 .PHONY: backend-run
 backend-run: ## Run the backend server locally
-	cd backend && uvicorn src.main:app --reload --host 0.0.0.0 --port 8000
+	cd backend && uvicorn main:app --reload --host 0.0.0.0 --port 8000
 
 .PHONY: backend-test
 backend-test: ## Run backend tests

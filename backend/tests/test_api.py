@@ -8,7 +8,7 @@ from unittest.mock import patch
 from fastapi.testclient import TestClient
 
 # Add backend directory to path
-BACKEND_DIR = os.path.dirname(os.path.dirname(__file__))
+BACKEND_DIR = os.path.abspath(os.path.dirname(os.path.dirname(__file__)))
 sys.path.append(BACKEND_DIR)
 os.chdir(BACKEND_DIR)
 
