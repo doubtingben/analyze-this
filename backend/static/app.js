@@ -7,6 +7,12 @@ const userInfoEl = document.getElementById('user-info');
 const loginStateEl = document.getElementById('login-state');
 const filtersEl = document.getElementById('filters');
 const typeFilterEl = document.getElementById('type-filter');
+const newItemBtn = document.getElementById('new-item-btn');
+const createModal = document.getElementById('create-modal');
+const createForm = document.getElementById('create-form');
+const itemTypeSelect = document.getElementById('item-type');
+const modalCloseBtn = document.getElementById('modal-close');
+const cancelCreateBtn = document.getElementById('cancel-create');
 
 // State
 let allItems = [];
@@ -23,14 +29,141 @@ async function init() {
         }
         userNameEl.textContent = `Welcome, ${user.name || user.email}`;
 
+        // Show new item button for logged in users
+        newItemBtn.style.display = 'block';
+
         // Setup filter controls
         setupFilters();
+
+        // Setup create modal
+        setupCreateModal();
 
         allItems = await fetchItems();
         renderFilteredItems();
     } catch (error) {
         console.error('Initialization error:', error);
         showLoginState();
+    }
+}
+
+// Setup create modal event listeners
+function setupCreateModal() {
+    // Open modal
+    newItemBtn.addEventListener('click', () => {
+        createModal.style.display = 'flex';
+        createForm.reset();
+        updateTypeFields();
+    });
+
+    // Close modal
+    modalCloseBtn.addEventListener('click', closeModal);
+    cancelCreateBtn.addEventListener('click', closeModal);
+    createModal.querySelector('.modal-backdrop').addEventListener('click', closeModal);
+
+    // Type selection changes visible fields
+    itemTypeSelect.addEventListener('change', updateTypeFields);
+
+    // Form submission
+    createForm.addEventListener('submit', handleCreateSubmit);
+
+    // Update file hint based on type
+    itemTypeSelect.addEventListener('change', () => {
+        const fileHint = document.getElementById('file-hint');
+        const type = itemTypeSelect.value;
+        const hints = {
+            image: 'Select an image file (PNG, JPG, GIF, etc.)',
+            video: 'Select a video file (MP4, MOV, etc.)',
+            audio: 'Select an audio file (MP3, WAV, etc.)',
+            file: 'Select any file to upload'
+        };
+        fileHint.textContent = hints[type] || 'Select a file to upload';
+    });
+}
+
+function closeModal() {
+    createModal.style.display = 'none';
+    createForm.reset();
+    updateTypeFields();
+}
+
+function updateTypeFields() {
+    const selectedType = itemTypeSelect.value;
+    document.querySelectorAll('.type-field').forEach(field => {
+        const types = field.dataset.types.split(',');
+        if (types.includes(selectedType)) {
+            field.classList.add('visible');
+        } else {
+            field.classList.remove('visible');
+        }
+    });
+}
+
+async function handleCreateSubmit(e) {
+    e.preventDefault();
+
+    const submitBtn = document.getElementById('submit-create');
+    const originalText = submitBtn.textContent;
+    submitBtn.disabled = true;
+    submitBtn.textContent = 'Creating...';
+
+    try {
+        const type = itemTypeSelect.value;
+        const title = document.getElementById('item-title').value;
+
+        const formData = new FormData();
+        formData.append('type', type);
+        if (title) formData.append('title', title);
+
+        // Add content based on type
+        if (type === 'text') {
+            const content = document.getElementById('item-text').value;
+            if (!content) {
+                alert('Please enter text content');
+                return;
+            }
+            formData.append('content', content);
+        } else if (type === 'web_url') {
+            const url = document.getElementById('item-url').value;
+            if (!url) {
+                alert('Please enter a URL');
+                return;
+            }
+            formData.append('content', url);
+        } else {
+            // File types
+            const fileInput = document.getElementById('item-file');
+            const file = fileInput.files[0];
+            if (!file) {
+                alert('Please select a file');
+                return;
+            }
+            formData.append('file', file);
+            formData.append('file_name', file.name);
+            formData.append('mime_type', file.type);
+            formData.append('file_size', file.size);
+        }
+
+        const response = await fetch('/api/share', {
+            method: 'POST',
+            body: formData
+        });
+
+        if (!response.ok) {
+            const error = await response.text();
+            throw new Error(error || 'Failed to create item');
+        }
+
+        // Refresh items and close modal
+        allItems = await fetchItems();
+        renderFilteredItems();
+        closeModal();
+
+    } catch (error) {
+        console.error('Create error:', error);
+        alert('Failed to create item: ' + error.message);
+    } finally {
+        submitBtn.disabled = false;
+        submitBtn.textContent = originalText;
     }
 }
 
