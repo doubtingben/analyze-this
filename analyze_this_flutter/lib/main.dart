@@ -1,13 +1,16 @@
 import 'dart:async';
-import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:receive_sharing_intent/receive_sharing_intent.dart';
 import 'package:google_sign_in/google_sign_in.dart';
-import 'package:intl/intl.dart';
 
 import 'auth_service.dart';
 import 'services/api_service.dart';
 import 'models/history_item.dart';
+import 'theme/app_theme.dart';
+import 'theme/app_colors.dart';
+import 'theme/app_spacing.dart';
+import 'widgets/history_card.dart';
+import 'screens/item_detail_screen.dart';
 
 void main() {
   runApp(const MyApp());
@@ -20,11 +23,8 @@ class MyApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return MaterialApp(
       title: 'Analyze This',
-      theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(seedColor: Colors.blueAccent),
-        useMaterial3: true,
-      ),
-      home: const MyHomePage(title: 'Analyze This - Shared Items'),
+      theme: AppTheme.light,
+      home: const MyHomePage(title: 'Analyze This'),
     );
   }
 }
@@ -47,6 +47,7 @@ class _MyHomePageState extends State<MyHomePage> {
   List<HistoryItem> _history = [];
   bool _isLoading = false;
   GoogleSignInAccount? _currentUser;
+  String? _authToken;
 
   @override
   void initState() {
@@ -79,11 +80,12 @@ class _MyHomePageState extends State<MyHomePage> {
 
     try {
       final authHeaders = await _currentUser!.authentication;
-      final token = authHeaders.accessToken; 
+      final token = authHeaders.accessToken;
       if (token != null) {
         final items = await _apiService.fetchHistory(token);
         setState(() {
           _history = items;
+          _authToken = token;
         });
       }
     } catch (e) {
@@ -224,101 +226,190 @@ class _MyHomePageState extends State<MyHomePage> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        backgroundColor: Theme.of(context).colorScheme.inversePrimary,
         title: Text(widget.title),
         actions: [
           if (_currentUser != null)
-             IconButton(
-               icon: const Icon(Icons.refresh),
-               onPressed: _loadHistory,
-             ),
+            IconButton(
+              icon: const Icon(Icons.refresh),
+              onPressed: _loadHistory,
+              tooltip: 'Refresh',
+            ),
           if (_currentUser != null)
-             IconButton(
-               icon: const Icon(Icons.logout),
-               onPressed: _handleSignOut,
-               tooltip: 'Logout',
-             ),
+            IconButton(
+              icon: const Icon(Icons.logout),
+              onPressed: _handleSignOut,
+              tooltip: 'Logout',
+            ),
         ],
       ),
-      body: Center(
-        child: _currentUser == null
-            ? Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  const Text('Please sign in to view your history'),
-                  const SizedBox(height: 20),
-                  ElevatedButton(
-                    onPressed: _handleSignIn,
-                    child: const Text('Sign in with Google'),
-                  ),
-                ],
-              )
-            : Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: <Widget>[
-                  Padding(
-                    padding: const EdgeInsets.all(8.0),
-                    child: Column(
-                      children: [
-                        if (_currentUser!.photoUrl != null)
-                          CircleAvatar(backgroundImage: NetworkImage(_currentUser!.photoUrl!)),
-                        Text('Welcome, ${_currentUser!.displayName ?? "User"}'),
-                      ],
-                    ),
-                  ),
-                  const Divider(),
-                  Expanded(
-                    child: _isLoading 
-                        ? const Center(child: CircularProgressIndicator())
-                        : _history.isEmpty 
-                            ? const Center(child: Text('No history items found'))
-                            : ListView.builder(
-                                itemCount: _history.length,
-                                itemBuilder: (context, index) {
-                                  final item = _history[index];
-                                  return ListTile(
-                                    leading: _buildLeadingIcon(item.type),
-                                    title: Text(item.title ?? item.value),
-                                    subtitle: Text(DateFormat.yMMMd().format(DateTime.fromMillisecondsSinceEpoch(item.timestamp))),
-                                    trailing: IconButton(
-                                        icon: const Icon(Icons.delete),
-                                        onPressed: () async {
-                                            // Optimistic update could be done here, but simple await for now
-                                            try {
-                                                final authHeaders = await _currentUser!.authentication;
-                                                final token = authHeaders.accessToken;
-                                                if (token != null) {
-                                                    await _apiService.deleteItem(token, item.id);
-                                                    _loadHistory();
-                                                }
-                                            } catch (e) {
-                                                ScaffoldMessenger.of(context).showSnackBar(
-                                                    SnackBar(content: Text('Failed to delete: $e')),
-                                                );
-                                            }
-                                        },
-                                    ),
-                                    onTap: () {
-                                        // TODO: Open detail view
-                                        // For web_url, launchUrl
-                                    },
-                                  );
-                                },
-                              ),
-                  ),
-                ],
+      body: _currentUser == null ? _buildSignInView() : _buildMainView(),
+    );
+  }
+
+  Widget _buildSignInView() {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(AppSpacing.xl),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(
+              Icons.share_outlined,
+              size: 64,
+              color: AppColors.primary,
+            ),
+            const SizedBox(height: AppSpacing.xl),
+            Text(
+              'Analyze This',
+              style: Theme.of(context).textTheme.titleLarge,
+            ),
+            const SizedBox(height: AppSpacing.sm),
+            Text(
+              'Sign in to view and manage your shared items',
+              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                color: AppColors.textSecondary,
               ),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: AppSpacing.xxl),
+            ElevatedButton.icon(
+              onPressed: _handleSignIn,
+              icon: const Icon(Icons.login),
+              label: const Text('Sign in with Google'),
+            ),
+          ],
+        ),
       ),
     );
   }
-  
-  Widget _buildLeadingIcon(String type) {
-      switch (type) {
-          case 'image': return const Icon(Icons.image);
-          case 'video': return const Icon(Icons.videocam);
-          case 'web_url': return const Icon(Icons.link);
-          case 'file': return const Icon(Icons.insert_drive_file);
-          default: return const Icon(Icons.text_fields);
+
+  Widget _buildMainView() {
+    return Column(
+      children: [
+        // User header
+        Container(
+          padding: const EdgeInsets.all(AppSpacing.lg),
+          color: AppColors.surface,
+          child: Row(
+            children: [
+              if (_currentUser!.photoUrl != null)
+                CircleAvatar(
+                  radius: 20,
+                  backgroundImage: NetworkImage(_currentUser!.photoUrl!),
+                ),
+              const SizedBox(width: AppSpacing.md),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Welcome back,',
+                      style: Theme.of(context).textTheme.bodySmall,
+                    ),
+                    Text(
+                      _currentUser!.displayName ?? 'User',
+                      style: Theme.of(context).textTheme.titleMedium,
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+        const Divider(height: 1),
+
+        // Content
+        Expanded(
+          child: _isLoading
+              ? Center(
+                  child: CircularProgressIndicator(
+                    color: AppColors.primary,
+                  ),
+                )
+              : _history.isEmpty
+                  ? _buildEmptyState()
+                  : _buildHistoryList(),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildEmptyState() {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(AppSpacing.xl),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(
+              Icons.inbox_outlined,
+              size: 48,
+              color: AppColors.textSecondary,
+            ),
+            const SizedBox(height: AppSpacing.lg),
+            Text(
+              'No items yet',
+              style: Theme.of(context).textTheme.titleMedium,
+            ),
+            const SizedBox(height: AppSpacing.sm),
+            Text(
+              'Share content from other apps to see it here',
+              style: Theme.of(context).textTheme.bodySmall,
+              textAlign: TextAlign.center,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildHistoryList() {
+    return ListView.builder(
+      padding: const EdgeInsets.all(AppSpacing.lg),
+      itemCount: _history.length,
+      itemBuilder: (context, index) {
+        final item = _history[index];
+        return Padding(
+          padding: EdgeInsets.only(
+            bottom: index < _history.length - 1 ? AppSpacing.md : 0,
+          ),
+          child: HistoryCard(
+            item: item,
+            authToken: _authToken,
+            onTap: () => _openDetail(index),
+            onDelete: () => _deleteItem(item),
+          ),
+        );
+      },
+    );
+  }
+
+  void _openDetail(int index) {
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (context) => ItemDetailScreen(
+          items: _history,
+          initialIndex: index,
+          authToken: _authToken,
+        ),
+      ),
+    );
+  }
+
+  Future<void> _deleteItem(HistoryItem item) async {
+    try {
+      final authHeaders = await _currentUser!.authentication;
+      final token = authHeaders.accessToken;
+      if (token != null) {
+        await _apiService.deleteItem(token, item.id);
+        _loadHistory();
       }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to delete: $e')),
+        );
+      }
+    }
   }
 }
