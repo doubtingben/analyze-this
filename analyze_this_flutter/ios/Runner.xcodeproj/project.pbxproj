@@ -7,10 +7,11 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-		29CA7DC4652B4A4CA2670D17 /* GoogleService-Info.plist in Resources */ = {isa = PBXBuildFile; fileRef = 529D92068D1A412283BB6ECD /* GoogleService-Info.plist */; };
 		1498D2341E8E89220040F4C2 /* GeneratedPluginRegistrant.m in Sources */ = {isa = PBXBuildFile; fileRef = 1498D2331E8E89220040F4C2 /* GeneratedPluginRegistrant.m */; };
 		15BADC9F85A794535D9B1152 /* Pods_RunnerTests.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 81F098840BBA930B1422027E /* Pods_RunnerTests.framework */; };
-		185F80032F2798E1005D24D0 /* Analyze This Share Extension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 185F7FF92F2798E1005D24D0 /* Analyze This Share Extension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		18EE03432F290B1100E5BD70 /* GoogleService-Info.plist in Resources */ = {isa = PBXBuildFile; fileRef = 529D92068D1A412283BB6ECD /* GoogleService-Info.plist */; };
+		18EE03442F290B1100E5BD70 /* GoogleService-Info.plist in Resources */ = {isa = PBXBuildFile; fileRef = 529D92068D1A412283BB6ECD /* GoogleService-Info.plist */; };
+		18EE03852F292F4800E5BD70 /* ShareExtension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 18EE037B2F292F4800E5BD70 /* ShareExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		331C808B294A63AB00263BE5 /* RunnerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 331C807B294A618700263BE5 /* RunnerTests.swift */; };
 		3B3967161E833CAA004F5970 /* AppFrameworkInfo.plist in Resources */ = {isa = PBXBuildFile; fileRef = 3B3967151E833CAA004F5970 /* AppFrameworkInfo.plist */; };
 		74858FAF1ED2DC5600515810 /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 74858FAE1ED2DC5600515810 /* AppDelegate.swift */; };
@@ -21,12 +22,12 @@
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
-		185F80012F2798E1005D24D0 /* PBXContainerItemProxy */ = {
+		18EE03832F292F4800E5BD70 /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
 			containerPortal = 97C146E61CF9000F007C117D /* Project object */;
 			proxyType = 1;
-			remoteGlobalIDString = 185F7FF82F2798E1005D24D0;
-			remoteInfo = "Analyze This Share Extension";
+			remoteGlobalIDString = 18EE037A2F292F4800E5BD70;
+			remoteInfo = ShareExtension;
 		};
 		331C8085294A63A400263BE5 /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
@@ -44,7 +45,7 @@
 			dstPath = "";
 			dstSubfolderSpec = 13;
 			files = (
-				185F80032F2798E1005D24D0 /* Analyze This Share Extension.appex in Embed Foundation Extensions */,
+				18EE03852F292F4800E5BD70 /* ShareExtension.appex in Embed Foundation Extensions */,
 			);
 			name = "Embed Foundation Extensions";
 			runOnlyForDeploymentPostprocessing = 0;
@@ -62,21 +63,20 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
-		529D92068D1A412283BB6ECD /* GoogleService-Info.plist */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.plist.xml; path = "GoogleService-Info.plist"; sourceTree = "<group>"; };
 		020AAB43694C902299075581 /* Pods-Runner.debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-Runner.debug.xcconfig"; path = "Target Support Files/Pods-Runner/Pods-Runner.debug.xcconfig"; sourceTree = "<group>"; };
 		1498D2321E8E86230040F4C2 /* GeneratedPluginRegistrant.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = GeneratedPluginRegistrant.h; sourceTree = "<group>"; };
 		1498D2331E8E89220040F4C2 /* GeneratedPluginRegistrant.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = GeneratedPluginRegistrant.m; sourceTree = "<group>"; };
-		185F7FF92F2798E1005D24D0 /* Analyze This Share Extension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = "Analyze This Share Extension.appex"; sourceTree = BUILT_PRODUCTS_DIR; };
 		185F800A2F27994A005D24D0 /* Runner.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = Runner.entitlements; sourceTree = "<group>"; };
+		18EE037B2F292F4800E5BD70 /* ShareExtension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = ShareExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		331C807B294A618700263BE5 /* RunnerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RunnerTests.swift; sourceTree = "<group>"; };
 		331C8081294A63A400263BE5 /* RunnerTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = RunnerTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		3B3967151E833CAA004F5970 /* AppFrameworkInfo.plist */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.plist.xml; name = AppFrameworkInfo.plist; path = Flutter/AppFrameworkInfo.plist; sourceTree = "<group>"; };
+		529D92068D1A412283BB6ECD /* GoogleService-Info.plist */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.plist.xml; path = "GoogleService-Info.plist"; sourceTree = "<group>"; };
 		534D1EEDC9688A839CA27A05 /* Pods-RunnerTests.release.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-RunnerTests.release.xcconfig"; path = "Target Support Files/Pods-RunnerTests/Pods-RunnerTests.release.xcconfig"; sourceTree = "<group>"; };
 		66DF32409637457D752BB489 /* Pods-Runner.profile.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-Runner.profile.xcconfig"; path = "Target Support Files/Pods-Runner/Pods-Runner.profile.xcconfig"; sourceTree = "<group>"; };
 		74858FAD1ED2DC5600515810 /* Runner-Bridging-Header.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = "Runner-Bridging-Header.h"; sourceTree = "<group>"; };
 		74858FAE1ED2DC5600515810 /* AppDelegate.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
 		7AFA3C8E1D35360C0083082E /* Release.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; name = Release.xcconfig; path = Flutter/Release.xcconfig; sourceTree = "<group>"; };
-		A1B2C3D4E5F60718293A4B5C /* Profile.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; name = Profile.xcconfig; path = Flutter/Profile.xcconfig; sourceTree = "<group>"; };
 		81F098840BBA930B1422027E /* Pods_RunnerTests.framework */ = {isa = PBXFileReference; explicitFileType = wrapper.framework; includeInIndex = 0; path = Pods_RunnerTests.framework; sourceTree = BUILT_PRODUCTS_DIR; };
 		9740EEB21CF90195004384FC /* Debug.xcconfig */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.xcconfig; name = Debug.xcconfig; path = Flutter/Debug.xcconfig; sourceTree = "<group>"; };
 		9740EEB31CF90195004384FC /* Generated.xcconfig */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.xcconfig; name = Generated.xcconfig; path = Flutter/Generated.xcconfig; sourceTree = "<group>"; };
@@ -86,38 +86,39 @@
 		97C147001CF9000F007C117D /* Base */ = {isa = PBXFileReference; lastKnownFileType = file.storyboard; name = Base; path = Base.lproj/LaunchScreen.storyboard; sourceTree = "<group>"; };
 		97C147021CF9000F007C117D /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		9A3C5B24175819AF061AB65D /* Pods-RunnerTests.profile.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-RunnerTests.profile.xcconfig"; path = "Target Support Files/Pods-RunnerTests/Pods-RunnerTests.profile.xcconfig"; sourceTree = "<group>"; };
+		A1B2C3D4E5F60718293A4B5C /* Profile.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; name = Profile.xcconfig; path = Flutter/Profile.xcconfig; sourceTree = "<group>"; };
 		A9A5CF876C668C8EAE727A3E /* Pods_Runner.framework */ = {isa = PBXFileReference; explicitFileType = wrapper.framework; includeInIndex = 0; path = Pods_Runner.framework; sourceTree = BUILT_PRODUCTS_DIR; };
 		F5B492609EA32E37A33ECF6B /* Pods-Runner.release.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-Runner.release.xcconfig"; path = "Target Support Files/Pods-Runner/Pods-Runner.release.xcconfig"; sourceTree = "<group>"; };
 		FA8D0BC2E3588E4AED5B29CE /* Pods-RunnerTests.debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-RunnerTests.debug.xcconfig"; path = "Target Support Files/Pods-RunnerTests/Pods-RunnerTests.debug.xcconfig"; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
-		185F80082F2798E1005D24D0 /* Exceptions for "Analyze This Share Extension" folder in "Analyze This Share Extension" target */ = {
+		18EE03862F292F4800E5BD70 /* Exceptions for "ShareExtension" folder in "ShareExtension" target */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
 				Info.plist,
 			);
-			target = 185F7FF82F2798E1005D24D0 /* Analyze This Share Extension */;
+			target = 18EE037A2F292F4800E5BD70 /* ShareExtension */;
 		};
 /* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
-		185F7FFA2F2798E1005D24D0 /* Analyze This Share Extension */ = {
+		18EE037C2F292F4800E5BD70 /* ShareExtension */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			exceptions = (
-				185F80082F2798E1005D24D0 /* Exceptions for "Analyze This Share Extension" folder in "Analyze This Share Extension" target */,
+				18EE03862F292F4800E5BD70 /* Exceptions for "ShareExtension" folder in "ShareExtension" target */,
 			);
 			explicitFileTypes = {
 			};
 			explicitFolders = (
 			);
-			path = "Analyze This Share Extension";
+			path = ShareExtension;
 			sourceTree = "<group>";
 		};
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
-		185F7FF62F2798E1005D24D0 /* Frameworks */ = {
+		18EE03782F292F4800E5BD70 /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -153,7 +154,6 @@
 				534D1EEDC9688A839CA27A05 /* Pods-RunnerTests.release.xcconfig */,
 				9A3C5B24175819AF061AB65D /* Pods-RunnerTests.profile.xcconfig */,
 			);
-			name = Pods;
 			path = Pods;
 			sourceTree = "<group>";
 		};
@@ -191,7 +191,7 @@
 			children = (
 				9740EEB11CF90186004384FC /* Flutter */,
 				97C146F01CF9000F007C117D /* Runner */,
-				185F7FFA2F2798E1005D24D0 /* Analyze This Share Extension */,
+				18EE037C2F292F4800E5BD70 /* ShareExtension */,
 				97C146EF1CF9000F007C117D /* Products */,
 				331C8082294A63A400263BE5 /* RunnerTests */,
 				09A61795C1A5665608C6640F /* Pods */,
@@ -204,7 +204,7 @@
 			children = (
 				97C146EE1CF9000F007C117D /* Runner.app */,
 				331C8081294A63A400263BE5 /* RunnerTests.xctest */,
-				185F7FF92F2798E1005D24D0 /* Analyze This Share Extension.appex */,
+				18EE037B2F292F4800E5BD70 /* ShareExtension.appex */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -221,32 +221,32 @@
 				1498D2331E8E89220040F4C2 /* GeneratedPluginRegistrant.m */,
 				74858FAE1ED2DC5600515810 /* AppDelegate.swift */,
 				74858FAD1ED2DC5600515810 /* Runner-Bridging-Header.h */,
-			
-				529D92068D1A412283BB6ECD /* GoogleService-Info.plist */,);
+				529D92068D1A412283BB6ECD /* GoogleService-Info.plist */,
+			);
 			path = Runner;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
-		185F7FF82F2798E1005D24D0 /* Analyze This Share Extension */ = {
+		18EE037A2F292F4800E5BD70 /* ShareExtension */ = {
 			isa = PBXNativeTarget;
-			buildConfigurationList = 185F80092F2798E1005D24D0 /* Build configuration list for PBXNativeTarget "Analyze This Share Extension" */;
+			buildConfigurationList = 18EE03872F292F4800E5BD70 /* Build configuration list for PBXNativeTarget "ShareExtension" */;
 			buildPhases = (
-				185F7FF52F2798E1005D24D0 /* Sources */,
-				185F7FF62F2798E1005D24D0 /* Frameworks */,
-				185F7FF72F2798E1005D24D0 /* Resources */,
+				18EE03772F292F4800E5BD70 /* Sources */,
+				18EE03782F292F4800E5BD70 /* Frameworks */,
+				18EE03792F292F4800E5BD70 /* Resources */,
 			);
 			buildRules = (
 			);
 			dependencies = (
 			);
 			fileSystemSynchronizedGroups = (
-				185F7FFA2F2798E1005D24D0 /* Analyze This Share Extension */,
+				18EE037C2F292F4800E5BD70 /* ShareExtension */,
 			);
-			name = "Analyze This Share Extension";
-			productName = "Analyze This Share Extension";
-			productReference = 185F7FF92F2798E1005D24D0 /* Analyze This Share Extension.appex */;
+			name = ShareExtension;
+			productName = ShareExtension;
+			productReference = 18EE037B2F292F4800E5BD70 /* ShareExtension.appex */;
 			productType = "com.apple.product-type.app-extension";
 		};
 		331C8080294A63A400263BE5 /* RunnerTests */ = {
@@ -286,7 +286,7 @@
 			buildRules = (
 			);
 			dependencies = (
-				185F80022F2798E1005D24D0 /* PBXTargetDependency */,
+				18EE03842F292F4800E5BD70 /* PBXTargetDependency */,
 			);
 			name = Runner;
 			productName = Runner;
@@ -304,7 +304,7 @@
 				LastUpgradeCheck = 1510;
 				ORGANIZATIONNAME = "";
 				TargetAttributes = {
-					185F7FF82F2798E1005D24D0 = {
+					18EE037A2F292F4800E5BD70 = {
 						CreatedOnToolsVersion = 26.2;
 					};
 					331C8080294A63A400263BE5 = {
@@ -332,26 +332,25 @@
 			targets = (
 				97C146ED1CF9000F007C117D /* Runner */,
 				331C8080294A63A400263BE5 /* RunnerTests */,
-				185F7FF82F2798E1005D24D0 /* Analyze This Share Extension */,
+				18EE037A2F292F4800E5BD70 /* ShareExtension */,
 			);
 		};
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
-		185F7FF72F2798E1005D24D0 /* Resources */ = {
+		18EE03792F292F4800E5BD70 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-			
-				29CA7DC4652B4A4CA2670D17 /* GoogleService-Info.plist in Resources */,);
+			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 		331C807F294A63A400263BE5 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-			
-				29CA7DC4652B4A4CA2670D17 /* GoogleService-Info.plist in Resources */,);
+				18EE03442F290B1100E5BD70 /* GoogleService-Info.plist in Resources */,
+			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 		97C146EC1CF9000F007C117D /* Resources */ = {
@@ -362,8 +361,8 @@
 				3B3967161E833CAA004F5970 /* AppFrameworkInfo.plist in Resources */,
 				97C146FE1CF9000F007C117D /* Assets.xcassets in Resources */,
 				97C146FC1CF9000F007C117D /* Main.storyboard in Resources */,
-			
-				29CA7DC4652B4A4CA2670D17 /* GoogleService-Info.plist in Resources */,);
+				18EE03432F290B1100E5BD70 /* GoogleService-Info.plist in Resources */,
+			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXResourcesBuildPhase section */
@@ -481,7 +480,7 @@
 /* End PBXShellScriptBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
-		185F7FF52F2798E1005D24D0 /* Sources */ = {
+		18EE03772F292F4800E5BD70 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -508,10 +507,10 @@
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
-		185F80022F2798E1005D24D0 /* PBXTargetDependency */ = {
+		18EE03842F292F4800E5BD70 /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
-			target = 185F7FF82F2798E1005D24D0 /* Analyze This Share Extension */;
-			targetProxy = 185F80012F2798E1005D24D0 /* PBXContainerItemProxy */;
+			target = 18EE037A2F292F4800E5BD70 /* ShareExtension */;
+			targetProxy = 18EE03832F292F4800E5BD70 /* PBXContainerItemProxy */;
 		};
 		331C8086294A63A400263BE5 /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
@@ -540,7 +539,7 @@
 /* End PBXVariantGroup section */
 
 /* Begin XCBuildConfiguration section */
-		185F80052F2798E1005D24D0 /* Debug */ = {
+		18EE03882F292F4800E5BD70 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
@@ -549,17 +548,17 @@
 				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
 				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
 				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
-				CODE_SIGN_ENTITLEMENTS = "Analyze This Share Extension/Analyze This Share Extension.entitlements";
+				CODE_SIGN_ENTITLEMENTS = ShareExtension/ShareExtension.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 2;
+				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = 6622WP4BLP;
 				ENABLE_USER_SCRIPT_SANDBOXING = YES;
 				GCC_C_LANGUAGE_STANDARD = gnu17;
 				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_FILE = "Analyze This Share Extension/Info.plist";
-				INFOPLIST_KEY_CFBundleDisplayName = "Analyze This Share Extension";
+				INFOPLIST_FILE = ShareExtension/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = ShareExtension;
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
-				IPHONEOS_DEPLOYMENT_TARGET = 13.0;
+				IPHONEOS_DEPLOYMENT_TARGET = 15.6;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -569,7 +568,7 @@
 				MARKETING_VERSION = 1.0;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
-				PRODUCT_BUNDLE_IDENTIFIER = "com.analyzethis.mobile.Analyze-This-Share-Extension";
+				PRODUCT_BUNDLE_IDENTIFIER = com.analyzethis.mobile.ShareExtension;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SKIP_INSTALL = YES;
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
@@ -583,7 +582,7 @@
 			};
 			name = Debug;
 		};
-		185F80062F2798E1005D24D0 /* Release */ = {
+		18EE03892F292F4800E5BD70 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
@@ -592,17 +591,17 @@
 				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
 				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
 				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
-				CODE_SIGN_ENTITLEMENTS = "Analyze This Share Extension/Analyze This Share Extension.entitlements";
+				CODE_SIGN_ENTITLEMENTS = ShareExtension/ShareExtension.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 2;
+				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = 6622WP4BLP;
 				ENABLE_USER_SCRIPT_SANDBOXING = YES;
 				GCC_C_LANGUAGE_STANDARD = gnu17;
 				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_FILE = "Analyze This Share Extension/Info.plist";
-				INFOPLIST_KEY_CFBundleDisplayName = "Analyze This Share Extension";
+				INFOPLIST_FILE = ShareExtension/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = ShareExtension;
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
-				IPHONEOS_DEPLOYMENT_TARGET = 13.0;
+				IPHONEOS_DEPLOYMENT_TARGET = 15.6;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -611,7 +610,7 @@
 				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
 				MARKETING_VERSION = 1.0;
 				MTL_FAST_MATH = YES;
-				PRODUCT_BUNDLE_IDENTIFIER = "com.analyzethis.mobile.Analyze-This-Share-Extension";
+				PRODUCT_BUNDLE_IDENTIFIER = com.analyzethis.mobile.ShareExtension;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SKIP_INSTALL = YES;
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
@@ -623,7 +622,7 @@
 			};
 			name = Release;
 		};
-		185F80072F2798E1005D24D0 /* Profile */ = {
+		18EE038A2F292F4800E5BD70 /* Profile */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
@@ -632,17 +631,17 @@
 				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
 				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
 				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
-				CODE_SIGN_ENTITLEMENTS = "Analyze This Share Extension/Analyze This Share Extension.entitlements";
+				CODE_SIGN_ENTITLEMENTS = ShareExtension/ShareExtension.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 2;
+				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = 6622WP4BLP;
 				ENABLE_USER_SCRIPT_SANDBOXING = YES;
 				GCC_C_LANGUAGE_STANDARD = gnu17;
 				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_FILE = "Analyze This Share Extension/Info.plist";
-				INFOPLIST_KEY_CFBundleDisplayName = "Analyze This Share Extension";
+				INFOPLIST_FILE = ShareExtension/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = ShareExtension;
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
-				IPHONEOS_DEPLOYMENT_TARGET = 13.0;
+				IPHONEOS_DEPLOYMENT_TARGET = 15.6;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -651,7 +650,7 @@
 				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
 				MARKETING_VERSION = 1.0;
 				MTL_FAST_MATH = YES;
-				PRODUCT_BUNDLE_IDENTIFIER = "com.analyzethis.mobile.Analyze-This-Share-Extension";
+				PRODUCT_BUNDLE_IDENTIFIER = com.analyzethis.mobile.ShareExtension;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SKIP_INSTALL = YES;
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
@@ -949,12 +948,12 @@
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
-		185F80092F2798E1005D24D0 /* Build configuration list for PBXNativeTarget "Analyze This Share Extension" */ = {
+		18EE03872F292F4800E5BD70 /* Build configuration list for PBXNativeTarget "ShareExtension" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
-				185F80052F2798E1005D24D0 /* Debug */,
-				185F80062F2798E1005D24D0 /* Release */,
-				185F80072F2798E1005D24D0 /* Profile */,
+				18EE03882F292F4800E5BD70 /* Debug */,
+				18EE03892F292F4800E5BD70 /* Release */,
+				18EE038A2F292F4800E5BD70 /* Profile */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
