@@ -6,6 +6,11 @@ on:
       - main
   workflow_dispatch:
     inputs:
+      ref:
+        description: 'Branch, tag or commit SHA to deploy'
+        required: false
+        default: ''
+        type: string
       deploy_backend:
         description: 'Deploy Backend'
         required: true
@@ -25,6 +30,8 @@ jobs:
       mobile: ${{ steps.filter.outputs.mobile }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
       - uses: dorny/paths-filter@v3
         id: filter
         with:
@@ -46,6 +53,8 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
 
       - id: 'auth'
         uses: 'google-github-actions/auth@v2'
@@ -70,6 +79,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
 
       - name: Setup Node
         uses: actions/setup-node@v4
