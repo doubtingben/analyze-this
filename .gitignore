@@ -42,3 +42,8 @@ venv/
 *.egg-info/
 backend/version.txt
 mobile/dist/
+
+# Database
+*.db
+*.sqlite
+backend/*.db
