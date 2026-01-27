@@ -40,6 +40,10 @@ backend-docker-run: ## Run backend Docker container locally
 backend-deploy: ## Deploy backend to Google Cloud Run
 	./backend/scripts/deploy.sh
 
+.PHONY: worker-deploy
+worker-deploy: ## Deploy worker to Google Cloud Run Jobs
+	./backend/scripts/deploy-worker.sh
+
 # ================================
 # Mobile - General
 # ================================
