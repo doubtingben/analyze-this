@@ -37,7 +37,18 @@ class ApiService {
     }
   }
 
-  Future<void> uploadShare(String token, ShareItemType type, String value, String userEmail, {List<SharedMediaFile>? files}) async {
+  Future<void> uploadShare(
+    String token,
+    ShareItemType type,
+    String value,
+    String userEmail, {
+    List<SharedMediaFile>? files,
+    String? fileName,
+    int? fileSize,
+    int? width,
+    int? height,
+    double? duration,
+  }) async {
     final uri = Uri.parse('${Config.apiUrl}/api/share');
     final request = http.MultipartRequest('POST', uri);
     
@@ -47,7 +58,7 @@ class ApiService {
     request.fields['type'] = _mapShareTypeToString(type);
     request.fields['content'] = value;
     request.fields['user_email'] = userEmail;
-    request.fields['title'] = _generateFallbackTitle(type, value);
+    request.fields['title'] = _generateFallbackTitle(type, value, fileName: fileName);
 
     // Handle File Upload
     if (files != null && files.isNotEmpty) {
@@ -65,9 +76,11 @@ class ApiService {
       // Add standard metadata fields expected by backend
       request.fields['mime_type'] = mimeTypeStr;
       
-      // Note: Other metadata fields (width, height, duration) would require 
-      // Platform specific code or additional packages to extract in Flutter.
-      // We skip them for now or rely on backend extraction.
+      if (fileName != null) request.fields['file_name'] = fileName;
+      if (fileSize != null) request.fields['file_size'] = fileSize.toString();
+      if (width != null) request.fields['width'] = width.toString();
+      if (height != null) request.fields['height'] = height.toString();
+      if (duration != null) request.fields['duration'] = duration.toString();
     } else {
       // If no file, ensure we treat it as JSON/Text request if preferred, 
       // but MultipartRequest works for fields too.
@@ -88,36 +101,7 @@ class ApiService {
           'Content-Type': 'application/json',
         },
         body: jsonEncode({
-          'title': _generateFallbackTitle(type, value),
-          'content': value,
-          'type': _mapShareTypeToString(type),
-          'user_email': userEmail,
-        }),
-      );
-       if (jsonResponse.statusCode != 200 && jsonResponse.statusCode != 201) {
-          throw Exception('Failed to share item: ${jsonResponse.statusCode} ${jsonResponse.body}');
-       }
-       return;
-    }
-
-    final response = await request.send();
-    if (response.statusCode != 200 && response.statusCode != 201) {
-      final respStr = await response.stream.bytesToString();
-      throw Exception('Failed to share item: ${response.statusCode} $respStr');
-    }
-  }
-
-  // Helpers
-  String _mapShareTypeToString(ShareItemType type) {
-    if (type == ShareItemType.text) return 'text';
-    if (type == ShareItemType.web_url) return 'web_url';
-    if (type == ShareItemType.image) return 'image';
-    if (type == ShareItemType.video) return 'video';
-    if (type == ShareItemType.file) return 'file';
-    return 'text';
-  }
-  
-  String _generateFallbackTitle(ShareItemType type, String value) {
+  String _generateFallbackTitle(ShareItemType type, String value, {String? fileName}) {
       switch (type) {
         case ShareItemType.web_url:
             try {
@@ -130,6 +114,10 @@ class ApiService {
             final preview = value.trim().length > 40 ? '${value.trim().substring(0, 40)}...' : value.trim();
             return preview.isEmpty ? 'Shared Text' : preview;
         case ShareItemType.image:
+            if ((fileName != null && fileName.toLowerCase().contains('screenshot')) || 
+                value.toLowerCase().contains('screenshot')) {
+                return 'Shared Screenshot';
+            }
             return 'Shared Image';
         case ShareItemType.video:
             return 'Shared Video';
