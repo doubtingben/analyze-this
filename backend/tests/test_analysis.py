@@ -5,7 +5,7 @@ import os
 import json
 
 # Add backend directory to path to import analysis
-sys.path.append(os.path.dirname(os.path.dirname(__file__)))
+sys.path.append(os.path.abspath(os.path.dirname(os.path.dirname(__file__))))
 
 from analysis import analyze_content, get_image_data_url
 

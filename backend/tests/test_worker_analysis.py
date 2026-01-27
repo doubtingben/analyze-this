@@ -5,7 +5,7 @@ import asyncio
 from unittest.mock import patch, AsyncMock, MagicMock
 
 # Add backend directory to path
-sys.path.append(os.path.dirname(os.path.dirname(__file__)))
+sys.path.append(os.path.abspath(os.path.dirname(os.path.dirname(__file__))))
 
 import worker_analysis
 
