@@ -1,4 +1,4 @@
-package com.example.analyze_this_flutter
+package com.analyzethis.mobile
 
 import io.flutter.embedding.android.FlutterActivity
 
