@@ -101,6 +101,35 @@ class ApiService {
           'Content-Type': 'application/json',
         },
         body: jsonEncode({
+          'title': _generateFallbackTitle(type, value, fileName: fileName),
+          'content': value,
+          'type': _mapShareTypeToString(type),
+          'user_email': userEmail,
+        }),
+      );
+       if (jsonResponse.statusCode != 200 && jsonResponse.statusCode != 201) {
+          throw Exception('Failed to share item: ${jsonResponse.statusCode} ${jsonResponse.body}');
+       }
+       return;
+    }
+
+    final response = await request.send();
+    if (response.statusCode != 200 && response.statusCode != 201) {
+      final respStr = await response.stream.bytesToString();
+      throw Exception('Failed to share item: ${response.statusCode} $respStr');
+    }
+  }
+
+  // Helpers
+  String _mapShareTypeToString(ShareItemType type) {
+    if (type == ShareItemType.text) return 'text';
+    if (type == ShareItemType.web_url) return 'web_url';
+    if (type == ShareItemType.image) return 'image';
+    if (type == ShareItemType.video) return 'video';
+    if (type == ShareItemType.file) return 'file';
+    return 'text';
+  }
+  
   String _generateFallbackTitle(ShareItemType type, String value, {String? fileName}) {
       switch (type) {
         case ShareItemType.web_url:
