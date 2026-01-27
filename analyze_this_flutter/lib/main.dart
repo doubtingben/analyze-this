@@ -402,6 +402,9 @@ class _MyHomePageState extends State<MyHomePage> {
         ),
         const Divider(height: 1),
 
+        // Filter controls
+        _buildFilterControls(),
+
         // Content
         Expanded(
           child: _isLoading
@@ -415,6 +418,61 @@ class _MyHomePageState extends State<MyHomePage> {
                   : _buildHistoryList(),
         ),
       ],
+    );
+  }
+
+  Widget _buildFilterControls() {
+    return Container(
+      padding: const EdgeInsets.symmetric(
+        horizontal: AppSpacing.lg,
+        vertical: AppSpacing.md,
+      ),
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        border: Border(
+          bottom: BorderSide(color: Colors.grey.shade200),
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // View mode segmented button
+          SegmentedButton<ViewMode>(
+            segments: const [
+              ButtonSegment(value: ViewMode.all, label: Text('All')),
+              ButtonSegment(value: ViewMode.timeline, label: Text('Timeline')),
+              ButtonSegment(value: ViewMode.followUp, label: Text('Follow-up')),
+            ],
+            selected: {_currentView},
+            onSelectionChanged: (Set<ViewMode> selection) {
+              setState(() {
+                _currentView = selection.first;
+              });
+            },
+          ),
+          const SizedBox(height: AppSpacing.sm),
+          // Type filter dropdown
+          DropdownMenu<String?>(
+            initialSelection: _currentTypeFilter,
+            hintText: 'All Types',
+            onSelected: (String? value) {
+              setState(() {
+                _currentTypeFilter = value;
+              });
+            },
+            dropdownMenuEntries: const [
+              DropdownMenuEntry(value: null, label: 'All Types'),
+              DropdownMenuEntry(value: 'image', label: 'Image'),
+              DropdownMenuEntry(value: 'video', label: 'Video'),
+              DropdownMenuEntry(value: 'audio', label: 'Audio'),
+              DropdownMenuEntry(value: 'file', label: 'File'),
+              DropdownMenuEntry(value: 'screenshot', label: 'Screenshot'),
+              DropdownMenuEntry(value: 'text', label: 'Text'),
+              DropdownMenuEntry(value: 'web_url', label: 'Web URL'),
+            ],
+          ),
+        ],
+      ),
     );
   }
 
