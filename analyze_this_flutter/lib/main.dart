@@ -12,6 +12,8 @@ import 'theme/app_spacing.dart';
 import 'widgets/history_card.dart';
 import 'screens/item_detail_screen.dart';
 
+import 'services/sharing_service.dart' as custom_sharing;
+
 void main() {
   runApp(const MyApp());
 }
@@ -100,7 +102,7 @@ class _MyHomePageState extends State<MyHomePage> {
     }
   }
   
-  Future<void> _handleShare(List<SharedMediaFile> files, {String? text}) async {
+  Future<void> _handleShare(List<SharedMediaFile> files, {String? text, String? fileName, int? fileSize, int? width, int? height, double? duration}) async {
     if (_currentUser == null) {
         // TODO: Prompt login or handle offline share
         return;
@@ -109,7 +111,9 @@ class _MyHomePageState extends State<MyHomePage> {
     try {
         final authHeaders = await _currentUser!.authentication;
         final token = authHeaders.accessToken;
-        if (token == null) return;
+        if (token == null) {
+            return;
+        }
         
         setState(() {
             _isLoading = true;
@@ -119,11 +123,23 @@ class _MyHomePageState extends State<MyHomePage> {
             // Handle file share (image/video/file)
             // Determine type based on first file
             final file = files.first;
+            
             ShareItemType type = ShareItemType.file;
             if (file.type == SharedMediaType.image) type = ShareItemType.image;
             if (file.type == SharedMediaType.video) type = ShareItemType.video;
             
-            await _apiService.uploadShare(token, type, file.path, _currentUser!.email, files: files);
+            await _apiService.uploadShare(
+                token, 
+                type, 
+                file.path, 
+                _currentUser!.email, 
+                files: files,
+                fileName: fileName,
+                fileSize: fileSize,
+                width: width,
+                height: height,
+                duration: duration,
+            );
         } else if (text != null) {
             // Handle text/link share
             ShareItemType type = ShareItemType.text;
@@ -158,6 +174,62 @@ class _MyHomePageState extends State<MyHomePage> {
   }
 
   void _initSharingListeners() {
+    // Initialize custom sharing service (iOS Share Extension)
+    custom_sharing.SharingService().initialize();
+    custom_sharing.SharingService().sharedContentStream.listen((items) {
+      if (!mounted) return;
+      print("Custom Shared content received: ${items.length}");
+      
+      // Filter for media items
+      final mediaItems = items.where((i) => 
+          i.type == custom_sharing.SharedMediaType.image || 
+          i.type == custom_sharing.SharedMediaType.video || 
+          i.type == custom_sharing.SharedMediaType.file
+      ).toList();
+
+      if (mediaItems.isNotEmpty) {
+          // Prioritize Media: Use the first item for metadata, but pass all files?
+          // Existing logic handles list of files but singular metadata.
+          // Let's pass all files.
+          
+          List<SharedMediaFile> files = [];
+          for (var item in mediaItems) {
+              SharedMediaType type = SharedMediaType.file;
+              if (item.type == custom_sharing.SharedMediaType.image) type = SharedMediaType.image;
+              if (item.type == custom_sharing.SharedMediaType.video) type = SharedMediaType.video;
+              
+              files.add(SharedMediaFile(
+                  path: item.value,
+                  type: type,
+                  thumbnail: item.thumbnail,
+                  duration: item.duration?.toInt(),
+              ));
+          }
+          
+          // Use metadata from the first item
+          final mainItem = mediaItems.first;
+          
+          _handleShare(
+              files, 
+              fileName: mainItem.fileName,
+              fileSize: mainItem.fileSize,
+              width: mainItem.width,
+              height: mainItem.height,
+              duration: mainItem.duration,
+          );
+      } else {
+          // Fallback to Text/URL
+          final textItem = items.where((i) => 
+              i.type == custom_sharing.SharedMediaType.text || 
+              i.type == custom_sharing.SharedMediaType.weburl
+          ).firstOrNull;
+          
+          if (textItem != null) {
+              _handleShare([], text: textItem.value);
+          }
+      }
+    });
+
     // For sharing images, text, and files coming from outside the app while the app is in the memory
     _intentDataStreamSubscription = ReceiveSharingIntent.instance.getMediaStream().listen((List<SharedMediaFile> value) {
       if (!mounted) return;
