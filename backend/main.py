@@ -483,6 +483,20 @@ async def share_item(
         file,
         item_data.get('item_metadata')
     )
+
+    # Security Validation: Prevent IDOR/Traversal on image content paths
+    # If the backend is going to read this file (images/screenshots), ensure it belongs to the user.
+    content_val = item_data.get('content')
+    if content_val and normalized_type in (ShareType.image, ShareType.screenshot):
+        is_url = content_val.lower().startswith(('http://', 'https://', 'data:'))
+        if not is_url:
+            # It implies a storage path that the backend might try to read
+            if ".." in content_val or content_val.startswith("/") or "\\" in content_val:
+                raise HTTPException(status_code=403, detail="Invalid content path: Traversal detected")
+
+            expected_prefix = f"uploads/{user_email}/"
+            if not content_val.startswith(expected_prefix):
+                raise HTTPException(status_code=403, detail="Invalid content path: Prefix mismatch")
          
     new_item = SharedItem(
         title=item_data.get('title'),

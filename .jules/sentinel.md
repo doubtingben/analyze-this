@@ -7,3 +7,8 @@
 **Vulnerability:** XSS in dashboard due to `jinja2.Template()` defaulting to `autoescape=False`.
 **Learning:** Unlike `jinja2.Environment` (which often defaults to autoescape for .html extensions), using `Template()` directly on a string does not enable auto-escaping by default. Manual escaping via string replacement (`replace("'", "\\'")`) is insufficient for HTML attribute contexts.
 **Prevention:** Always use `Template(source, autoescape=True)` when rendering user input. Prefer `data-*` attributes for passing data to JavaScript event handlers over inline string interpolation.
+
+## 2026-01-27 - IDOR in AI Analysis Workflow
+**Vulnerability:** IDOR/SSRF in `share_item` endpoint allowing users to analyze arbitrary files in storage by manipulating the `content` path in the JSON payload.
+**Learning:** Background workers (like AI analysis) often run with elevated privileges (service accounts). If the input to these workers (e.g. file path) is not validated at the entry point (API), the worker becomes a confused deputy. Blindly trusting `content` field from client, even for file uploads, is dangerous if the client can specify the path directly (via API) instead of the server generating it.
+**Prevention:** Enforce strict ownership validation on all file paths referenced in API requests. If the server generates the path (e.g. upload), ensure the client cannot override it with a custom value. For `image` types where the backend reads the file, validate the path prefix.
