@@ -1,7 +1,9 @@
 import 'dart:async';
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:receive_sharing_intent/receive_sharing_intent.dart';
 import 'package:google_sign_in/google_sign_in.dart';
+import 'package:mime/mime.dart';
 
 import 'auth_service.dart';
 import 'services/api_service.dart';
@@ -13,6 +15,8 @@ import 'widgets/history_card.dart';
 import 'screens/item_detail_screen.dart';
 
 import 'services/sharing_service.dart' as custom_sharing;
+
+enum ViewMode { all, timeline, followUp }
 
 void main() {
   runApp(const MyApp());
@@ -50,6 +54,8 @@ class _MyHomePageState extends State<MyHomePage> {
   bool _isLoading = false;
   GoogleSignInAccount? _currentUser;
   String? _authToken;
+  ViewMode _currentView = ViewMode.all;
+  String? _currentTypeFilter;
 
   @override
   void initState() {
@@ -104,7 +110,12 @@ class _MyHomePageState extends State<MyHomePage> {
   
   Future<void> _handleShare(List<SharedMediaFile> files, {String? text, String? fileName, int? fileSize, int? width, int? height, double? duration}) async {
     if (_currentUser == null) {
-        // TODO: Prompt login or handle offline share
+        // Require authentication - no offline support
+        if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text('Please sign in to share items')),
+            );
+        }
         return;
     }
 
@@ -114,25 +125,24 @@ class _MyHomePageState extends State<MyHomePage> {
         if (token == null) {
             return;
         }
-        
+
         setState(() {
             _isLoading = true;
         });
 
         if (files.isNotEmpty) {
-            // Handle file share (image/video/file)
-            // Determine type based on first file
+            // Handle file share (image/video/audio/file)
             final file = files.first;
-            
+
             ShareItemType type = ShareItemType.file;
             if (file.type == SharedMediaType.image) type = ShareItemType.image;
             if (file.type == SharedMediaType.video) type = ShareItemType.video;
-            
+
             await _apiService.uploadShare(
-                token, 
-                type, 
-                file.path, 
-                _currentUser!.email, 
+                token,
+                type,
+                file.path,
+                _currentUser!.email,
                 files: files,
                 fileName: fileName,
                 fileSize: fileSize,
@@ -143,14 +153,16 @@ class _MyHomePageState extends State<MyHomePage> {
         } else if (text != null) {
             // Handle text/link share
             ShareItemType type = ShareItemType.text;
-            if (text.startsWith('http')) type = ShareItemType.web_url;
-            
+            if (text.startsWith('http://') || text.startsWith('https://')) {
+                type = ShareItemType.web_url;
+            }
+
             await _apiService.uploadShare(token, type, text, _currentUser!.email);
         }
-        
+
         // Refresh history
         await _loadHistory();
-        
+
         if (mounted) {
             ScaffoldMessenger.of(context).showSnackBar(
                 const SnackBar(content: Text('Item shared successfully!')),
