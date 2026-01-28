@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:receive_sharing_intent/receive_sharing_intent.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 import 'package:mime/mime.dart';
+import 'package:intl/intl.dart';
 
 import 'auth_service.dart';
 import 'services/api_service.dart';
@@ -578,6 +579,134 @@ class _MyHomePageState extends State<MyHomePage> {
             authToken: _authToken,
             onTap: () => _openDetailFiltered(items, index),
             onDelete: () => _deleteItem(item),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildNowDivider() {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: AppSpacing.sm),
+      child: Row(
+        children: [
+          Expanded(
+            child: Container(
+              height: 2,
+              decoration: const BoxDecoration(
+                gradient: LinearGradient(
+                  colors: [Color(0xFF3b82f6), Color(0xFF8b5cf6)],
+                ),
+              ),
+            ),
+          ),
+          Container(
+            margin: const EdgeInsets.symmetric(horizontal: AppSpacing.md),
+            padding: const EdgeInsets.symmetric(
+              horizontal: AppSpacing.lg,
+              vertical: AppSpacing.xs,
+            ),
+            decoration: BoxDecoration(
+              gradient: const LinearGradient(
+                colors: [Color(0xFF3b82f6), Color(0xFF8b5cf6)],
+              ),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: const Text(
+              'NOW',
+              style: TextStyle(
+                color: Colors.white,
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+                letterSpacing: 0.5,
+              ),
+            ),
+          ),
+          Expanded(
+            child: Container(
+              height: 2,
+              decoration: const BoxDecoration(
+                gradient: LinearGradient(
+                  colors: [Color(0xFF8b5cf6), Color(0xFF3b82f6)],
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildEventDateBadge(DateTime eventDate) {
+    final dateStr = DateFormat('E, MMM d, h:mm a').format(eventDate);
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(
+        horizontal: AppSpacing.md,
+        vertical: AppSpacing.sm,
+      ),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [Colors.blue.shade50, Colors.purple.shade50],
+        ),
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(12)),
+      ),
+      child: Text(
+        dateStr,
+        style: TextStyle(
+          color: Colors.indigo.shade600,
+          fontSize: 12,
+          fontWeight: FontWeight.w500,
+        ),
+      ),
+    );
+  }
+
+  Widget _buildTimelineList(List<HistoryItem> items) {
+    final now = DateTime.now();
+    int nowIndex = items.length; // Default: Now at end
+
+    // Find where to insert Now divider
+    for (int i = 0; i < items.length; i++) {
+      final eventDate = _getEventDateTime(items[i]);
+      if (eventDate != null && eventDate.isAfter(now)) {
+        nowIndex = i;
+        break;
+      }
+    }
+
+    // Total items = items + 1 for Now divider
+    final totalCount = items.length + 1;
+
+    return ListView.builder(
+      padding: const EdgeInsets.all(AppSpacing.lg),
+      itemCount: totalCount,
+      itemBuilder: (context, index) {
+        // Insert Now divider at the right position
+        if (index == nowIndex) {
+          return _buildNowDivider();
+        }
+
+        // Adjust item index based on Now divider position
+        final itemIndex = index > nowIndex ? index - 1 : index;
+        final item = items[itemIndex];
+        final eventDate = _getEventDateTime(item);
+
+        return Padding(
+          padding: EdgeInsets.only(
+            bottom: index < totalCount - 1 ? AppSpacing.md : 0,
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              if (eventDate != null) _buildEventDateBadge(eventDate),
+              HistoryCard(
+                item: item,
+                authToken: _authToken,
+                onTap: () => _openDetailFiltered(items, itemIndex),
+                onDelete: () => _deleteItem(item),
+              ),
+            ],
           ),
         );
       },
