@@ -5,28 +5,30 @@ set -e
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 BACKEND_DIR="$(dirname "$SCRIPT_DIR")"
 
-# Ensure we are in the backend directory
-cd "$BACKEND_DIR"
-
+# Configuration
 PROJECT_ID="analyze-this-2026"
-SA_EMAIL="backend-deploy-sa@${PROJECT_ID}.iam.gserviceaccount.com"
+SERVICE_ACCOUNT_NAME="worker-analysis-sa"
+SERVICE_ACCOUNT_EMAIL="${SERVICE_ACCOUNT_NAME}@${PROJECT_ID}.iam.gserviceaccount.com"
 
-# 1. Secret Access (Required for the new deployment script)
-gcloud projects add-iam-policy-binding $PROJECT_ID \
-    --member="serviceAccount:${SA_EMAIL}" \
-    --role="roles/secretmanager.secretAccessor"
+echo "Setting up Service Account for project: $PROJECT_ID"
 
-# 2. Firestore Access (Required for database operations)
-gcloud projects add-iam-policy-binding $PROJECT_ID \
-    --member="serviceAccount:${SA_EMAIL}" \
-    --role="roles/datastore.user"
+# 1. Create Service Account
+echo "Checking for service account $SERVICE_ACCOUNT_EMAIL..."
+if ! gcloud iam service-accounts describe "$SERVICE_ACCOUNT_EMAIL" --project "$PROJECT_ID" > /dev/null 2>&1; then
+    echo "Creating service account $SERVICE_ACCOUNT_NAME..."
+    gcloud iam service-accounts create "$SERVICE_ACCOUNT_NAME" \
+        --display-name "Worker Analysis Service Account" \
+        --project "$PROJECT_ID"
+else
+    echo "Service account $SERVICE_ACCOUNT_EMAIL already exists."
+fi
 
-# 3. Storage Access (Required for file uploads/downloads)
-gcloud projects add-iam-policy-binding $PROJECT_ID \
-    --member="serviceAccount:${SA_EMAIL}" \
-    --role="roles/storage.objectAdmin"
+# 2. Grant Permissions
+echo "Granting Secret Manager Secret Accessor role..."
+# Note: This binding is project-wide. 
+gcloud projects add-iam-policy-binding "$PROJECT_ID" \
+    --member "serviceAccount:$SERVICE_ACCOUNT_EMAIL" \
+    --role "roles/secretmanager.secretAccessor" \
+    --condition None > /dev/null
 
-# 4. (Optional) Log Writer (Usually enabled by default, but good to be explicit)
-gcloud projects add-iam-policy-binding $PROJECT_ID \
-    --member="serviceAccount:${SA_EMAIL}" \
-    --role="roles/logging.logWriter"
+echo "Service Account setup complete."
