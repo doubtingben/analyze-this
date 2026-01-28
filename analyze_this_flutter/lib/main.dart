@@ -44,9 +44,8 @@ class MyHomePage extends StatefulWidget {
 }
 
 class _MyHomePageState extends State<MyHomePage> {
-  late StreamSubscription _intentDataStreamSubscription;
+  StreamSubscription? _intentDataStreamSubscription;
   final List<SharedMediaFile> _sharedFiles = [];
-  String? _sharedText;
   final AuthService _authService = AuthService();
   final ApiService _apiService = ApiService();
   List<HistoryItem> _history = [];
@@ -97,9 +96,11 @@ class _MyHomePageState extends State<MyHomePage> {
       }
     } catch (e) {
       print('Error loading history: $e');
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Failed to load history: $e')),
-      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to load history: $e')),
+        );
+      }
     } finally {
       setState(() {
         _isLoading = false;
@@ -109,7 +110,12 @@ class _MyHomePageState extends State<MyHomePage> {
   
   Future<void> _handleShare(List<SharedMediaFile> files, {String? text, String? fileName, int? fileSize, int? width, int? height, double? duration}) async {
     if (_currentUser == null) {
-        // TODO: Prompt login or handle offline share
+        // Require authentication - no offline support
+        if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text('Please sign in to share items')),
+            );
+        }
         return;
     }
 
@@ -119,25 +125,24 @@ class _MyHomePageState extends State<MyHomePage> {
         if (token == null) {
             return;
         }
-        
+
         setState(() {
             _isLoading = true;
         });
 
         if (files.isNotEmpty) {
-            // Handle file share (image/video/file)
-            // Determine type based on first file
+            // Handle file share (image/video/audio/file)
             final file = files.first;
-            
+
             ShareItemType type = ShareItemType.file;
             if (file.type == SharedMediaType.image) type = ShareItemType.image;
             if (file.type == SharedMediaType.video) type = ShareItemType.video;
-            
+
             await _apiService.uploadShare(
-                token, 
-                type, 
-                file.path, 
-                _currentUser!.email, 
+                token,
+                type,
+                file.path,
+                _currentUser!.email,
                 files: files,
                 fileName: fileName,
                 fileSize: fileSize,
@@ -148,14 +153,16 @@ class _MyHomePageState extends State<MyHomePage> {
         } else if (text != null) {
             // Handle text/link share
             ShareItemType type = ShareItemType.text;
-            if (text.startsWith('http')) type = ShareItemType.web_url;
-            
+            if (text.startsWith('http://') || text.startsWith('https://')) {
+                type = ShareItemType.webUrl;
+            }
+
             await _apiService.uploadShare(token, type, text, _currentUser!.email);
         }
-        
+
         // Refresh history
         await _loadHistory();
-        
+
         if (mounted) {
             ScaffoldMessenger.of(context).showSnackBar(
                 const SnackBar(content: Text('Item shared successfully!')),
@@ -173,7 +180,6 @@ class _MyHomePageState extends State<MyHomePage> {
         setState(() {
             _isLoading = false;
             _sharedFiles.clear();
-            _sharedText = null;
         });
     }
   }
@@ -414,6 +420,112 @@ class _MyHomePageState extends State<MyHomePage> {
     );
   }
 
+  Widget _buildFilterControls() {
+    return Container(
+      padding: const EdgeInsets.symmetric(
+        horizontal: AppSpacing.lg,
+        vertical: AppSpacing.md,
+      ),
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        border: Border(
+          bottom: BorderSide(color: Colors.grey.shade200),
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // View mode segmented button
+          SegmentedButton<ViewMode>(
+            segments: const [
+              ButtonSegment(value: ViewMode.all, label: Text('All')),
+              ButtonSegment(value: ViewMode.timeline, label: Text('Timeline')),
+              ButtonSegment(value: ViewMode.followUp, label: Text('Follow-up')),
+            ],
+            selected: {_currentView},
+            onSelectionChanged: (Set<ViewMode> selection) {
+              setState(() {
+                _currentView = selection.first;
+              });
+            },
+          ),
+          const SizedBox(height: AppSpacing.sm),
+          // Type filter dropdown
+          DropdownMenu<String?>(
+            initialSelection: _currentTypeFilter,
+            hintText: 'All Types',
+            onSelected: (String? value) {
+              setState(() {
+                _currentTypeFilter = value;
+              });
+            },
+            dropdownMenuEntries: const [
+              DropdownMenuEntry(value: null, label: 'All Types'),
+              DropdownMenuEntry(value: 'image', label: 'Image'),
+              DropdownMenuEntry(value: 'video', label: 'Video'),
+              DropdownMenuEntry(value: 'audio', label: 'Audio'),
+              DropdownMenuEntry(value: 'file', label: 'File'),
+              DropdownMenuEntry(value: 'screenshot', label: 'Screenshot'),
+              DropdownMenuEntry(value: 'text', label: 'Text'),
+              DropdownMenuEntry(value: 'web_url', label: 'Web URL'),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  DateTime? _getEventDateTime(HistoryItem item) {
+    if (item.analysis == null) return null;
+    final details = item.analysis!['details'] as Map<String, dynamic>?;
+    if (details == null) return null;
+
+    final dateTimeStr = details['date_time'] ??
+                        details['dateTime'] ??
+                        details['date'] ??
+                        details['event_date'] ??
+                        details['eventDate'] ??
+                        details['start_date'];
+
+    if (dateTimeStr == null) return null;
+
+    try {
+      return DateTime.parse(dateTimeStr.toString());
+    } catch (e) {
+      return null;
+    }
+  }
+
+  List<HistoryItem> _getFilteredItems() {
+    List<HistoryItem> items = List.from(_history);
+
+    // Apply type filter
+    if (_currentTypeFilter != null) {
+      items = items.where((item) => item.type == _currentTypeFilter).toList();
+    }
+
+    // Apply view-specific filtering and sorting
+    switch (_currentView) {
+      case ViewMode.timeline:
+        items = items.where((item) => _getEventDateTime(item) != null).toList();
+        items.sort((a, b) {
+          final dateA = _getEventDateTime(a)!;
+          final dateB = _getEventDateTime(b)!;
+          return dateA.compareTo(dateB);
+        });
+        break;
+      case ViewMode.followUp:
+        items = items.where((item) => item.status == 'follow_up').toList();
+        items.sort((a, b) => b.timestamp.compareTo(a.timestamp));
+        break;
+      case ViewMode.all:
+        items.sort((a, b) => b.timestamp.compareTo(a.timestamp));
+        break;
+    }
+
+    return items;
+  }
+
   Widget _buildEmptyState() {
     String message;
     IconData icon;
@@ -492,11 +604,139 @@ class _MyHomePageState extends State<MyHomePage> {
     );
   }
 
-  void _openDetail(int index) {
+  Widget _buildNowDivider() {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: AppSpacing.sm),
+      child: Row(
+        children: [
+          Expanded(
+            child: Container(
+              height: 2,
+              decoration: const BoxDecoration(
+                gradient: LinearGradient(
+                  colors: [Color(0xFF3b82f6), Color(0xFF8b5cf6)],
+                ),
+              ),
+            ),
+          ),
+          Container(
+            margin: const EdgeInsets.symmetric(horizontal: AppSpacing.md),
+            padding: const EdgeInsets.symmetric(
+              horizontal: AppSpacing.lg,
+              vertical: AppSpacing.xs,
+            ),
+            decoration: BoxDecoration(
+              gradient: const LinearGradient(
+                colors: [Color(0xFF3b82f6), Color(0xFF8b5cf6)],
+              ),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: const Text(
+              'NOW',
+              style: TextStyle(
+                color: Colors.white,
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+                letterSpacing: 0.5,
+              ),
+            ),
+          ),
+          Expanded(
+            child: Container(
+              height: 2,
+              decoration: const BoxDecoration(
+                gradient: LinearGradient(
+                  colors: [Color(0xFF8b5cf6), Color(0xFF3b82f6)],
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildEventDateBadge(DateTime eventDate) {
+    final dateStr = DateFormat('E, MMM d, h:mm a').format(eventDate);
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(
+        horizontal: AppSpacing.md,
+        vertical: AppSpacing.sm,
+      ),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [Colors.blue.shade50, Colors.purple.shade50],
+        ),
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(12)),
+      ),
+      child: Text(
+        dateStr,
+        style: TextStyle(
+          color: Colors.indigo.shade600,
+          fontSize: 12,
+          fontWeight: FontWeight.w500,
+        ),
+      ),
+    );
+  }
+
+  Widget _buildTimelineList(List<HistoryItem> items) {
+    final now = DateTime.now();
+    int nowIndex = items.length; // Default: Now at end
+
+    // Find where to insert Now divider
+    for (int i = 0; i < items.length; i++) {
+      final eventDate = _getEventDateTime(items[i]);
+      if (eventDate != null && eventDate.isAfter(now)) {
+        nowIndex = i;
+        break;
+      }
+    }
+
+    // Total items = items + 1 for Now divider
+    final totalCount = items.length + 1;
+
+    return ListView.builder(
+      padding: const EdgeInsets.all(AppSpacing.lg),
+      itemCount: totalCount,
+      itemBuilder: (context, index) {
+        // Insert Now divider at the right position
+        if (index == nowIndex) {
+          return _buildNowDivider();
+        }
+
+        // Adjust item index based on Now divider position
+        final itemIndex = index > nowIndex ? index - 1 : index;
+        final item = items[itemIndex];
+        final eventDate = _getEventDateTime(item);
+
+        return Padding(
+          padding: EdgeInsets.only(
+            bottom: index < totalCount - 1 ? AppSpacing.md : 0,
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              if (eventDate != null) _buildEventDateBadge(eventDate),
+              HistoryCard(
+                item: item,
+                authToken: _authToken,
+                onTap: () => _openDetailFiltered(items, itemIndex),
+                onDelete: () => _deleteItem(item),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  void _openDetailFiltered(List<HistoryItem> items, int index) {
     Navigator.of(context).push(
       MaterialPageRoute(
         builder: (context) => ItemDetailScreen(
-          items: _history,
+          items: items,
           initialIndex: index,
           authToken: _authToken,
         ),

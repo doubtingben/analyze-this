@@ -13,6 +13,14 @@ JOB_NAME="worker-analysis"
 REGION="us-central1"
 PROJECT_ID="analyze-this-2026"
 
+# Service Account Configuration
+SERVICE_ACCOUNT_NAME="worker-analysis-sa"
+SERVICE_ACCOUNT_EMAIL="${SERVICE_ACCOUNT_NAME}@${PROJECT_ID}.iam.gserviceaccount.com"
+
+echo "Using Service Account: $SERVICE_ACCOUNT_EMAIL"
+echo "Note: Ensure this service account is created and has 'Secret Manager Secret Accessor' role."
+echo "Run './backend/scripts/setup-sa.sh' to configure it if needed."
+
 echo "Deploying $JOB_NAME to Google Cloud Run Jobs..."
 
 # Helper function to check if secret exists
@@ -40,7 +48,8 @@ gcloud run jobs deploy $JOB_NAME \
   --region $REGION \
   --project $PROJECT_ID \
   --command python \
-  --args backend/worker_analysis.py \
+  --args worker_analysis.py \
+  --service-account "$SERVICE_ACCOUNT_EMAIL" \
   --set-env-vars "APP_ENV=production" \
   --set-secrets "FIREBASE_STORAGE_BUCKET=FIREBASE_STORAGE_BUCKET:latest" \
   --set-secrets "OPENROUTER_API_KEY=OPENROUTER_API_KEY:latest" \

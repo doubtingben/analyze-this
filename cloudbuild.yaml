@@ -1,0 +1,98 @@
+steps:
+  # ==============================================================================
+  # 1. Backend Deployment
+  # ==============================================================================
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk:slim'
+    id: 'Deploy Backend'
+    entrypoint: 'bash'
+    args:
+      - '-c'
+      - |
+        if [ "${_DEPLOY_BACKEND}" == "true" ]; then
+          echo "Starting Backend Deployment..."
+          make backend-deploy
+        else
+          echo "Skipping Backend Deployment"
+        fi
+    env:
+      - 'PROJECT_ID=$PROJECT_ID'
+      - 'RUNTIME_SERVICE_ACCOUNT=backend-runtime-sa@$PROJECT_ID.iam.gserviceaccount.com'
+
+  # ==============================================================================
+  # 2. Android Flutter Build
+  # ==============================================================================
+  - name: 'us-docker.pkg.dev/web-framework-tools/flutter-build-image/flutter-build-image:latest'
+    id: 'Build Android'
+    entrypoint: 'bash'
+    args:
+      - '-c'
+      - |
+        if [ "${_DEPLOY_MOBILE}" == "true" ]; then
+          echo "Starting Flutter Android Build..."
+          cd analyze_this_flutter
+          
+          # Setup Keystore
+          # 1. Decode keystore file
+          echo "$$ANDROID_KEYSTORE_B64" | base64 -d > android/app/upload-keystore.jks
+          
+          # 2. Create key.properties
+          # Note: We hardcode values here based on your repo's key.properties, 
+          # but you could/should also move passwords to secrets if you prefer.
+          # For now, we match your existing key.properties structure.
+          cat <<EOF > android/key.properties
+          storePassword=password
+          keyPassword=password
+          keyAlias=upload
+          storeFile=../app/upload-keystore.jks
+          EOF
+          
+          # Install dependencies
+          flutter pub get
+          
+          # Build App Bundle
+          flutter build appbundle --release
+          
+          echo "Build complete. Artifact located at analyze_this_flutter/build/app/outputs/bundle/release/app-release.aab"
+        else
+          echo "Skipping Mobile Build"
+        fi
+    secretEnv: ['ANDROID_KEYSTORE_B64']
+
+  # ==============================================================================
+  # 3. iOS Build Check
+  # ==============================================================================
+  - name: 'gcr.io/cloud-builders/gcloud'
+    id: 'Check iOS'
+    entrypoint: 'bash'
+    args:
+      - '-c'
+      - |
+        echo "NOTE: iOS builds require macOS environments which are not standard in Cloud Build."
+        echo "Please continue using GitHub Actions for iOS, or configure a private worker pool."
+        echo "Skipping iOS build in this pipeline."
+
+# ==============================================================================
+# Secrets Configuration
+# ==============================================================================
+availableSecrets:
+  secretManager:
+  - versionName: projects/$PROJECT_ID/secrets/android-keystore/versions/latest
+    env: 'ANDROID_KEYSTORE_B64'
+
+# ==============================================================================
+# Substitutions (Default Values)
+# ==============================================================================
+substitutions:
+  _DEPLOY_BACKEND: 'true'
+  _DEPLOY_MOBILE: 'true'
+
+# ==============================================================================
+# Artifacts
+# ==============================================================================
+artifacts:
+  objects:
+    location: 'gs://$PROJECT_ID-build-artifacts/mobile'
+    paths: ['analyze_this_flutter/build/app/outputs/bundle/release/app-release.aab']
+
+options:
+  logging: CLOUD_LOGGING_ONLY

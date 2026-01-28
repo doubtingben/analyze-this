@@ -16,7 +16,7 @@ const cancelCreateBtn = document.getElementById('cancel-create');
 
 // State
 let allItems = [];
-let currentView = 'all'; // 'all' or 'timeline'
+let currentView = 'all'; // 'all', 'timeline', or 'follow_up'
 let currentTypeFilter = ''; // '' for all, or specific type
 
 // Initialize the app
