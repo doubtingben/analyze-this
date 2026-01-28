@@ -476,6 +476,58 @@ class _MyHomePageState extends State<MyHomePage> {
     );
   }
 
+  DateTime? _getEventDateTime(HistoryItem item) {
+    if (item.analysis == null) return null;
+    final details = item.analysis!['details'] as Map<String, dynamic>?;
+    if (details == null) return null;
+
+    final dateTimeStr = details['date_time'] ??
+                        details['dateTime'] ??
+                        details['date'] ??
+                        details['event_date'] ??
+                        details['eventDate'] ??
+                        details['start_date'];
+
+    if (dateTimeStr == null) return null;
+
+    try {
+      return DateTime.parse(dateTimeStr.toString());
+    } catch (e) {
+      return null;
+    }
+  }
+
+  List<HistoryItem> _getFilteredItems() {
+    List<HistoryItem> items = List.from(_history);
+
+    // Apply type filter
+    if (_currentTypeFilter != null) {
+      items = items.where((item) => item.type == _currentTypeFilter).toList();
+    }
+
+    // Apply view-specific filtering and sorting
+    switch (_currentView) {
+      case ViewMode.timeline:
+        items = items.where((item) => _getEventDateTime(item) != null).toList();
+        items.sort((a, b) {
+          final dateA = _getEventDateTime(a)!;
+          final dateB = _getEventDateTime(b)!;
+          return dateA.compareTo(dateB);
+        });
+        break;
+      case ViewMode.followUp:
+        items = items.where((item) => item.status == 'follow_up').toList();
+        items.sort((a, b) => b.timestamp.compareTo(a.timestamp));
+        break;
+      case ViewMode.all:
+      default:
+        items.sort((a, b) => b.timestamp.compareTo(a.timestamp));
+        break;
+    }
+
+    return items;
+  }
+
   Widget _buildEmptyState() {
     return Center(
       child: Padding(
@@ -506,19 +558,25 @@ class _MyHomePageState extends State<MyHomePage> {
   }
 
   Widget _buildHistoryList() {
+    final items = _getFilteredItems();
+
+    if (_currentView == ViewMode.timeline) {
+      return _buildTimelineList(items);
+    }
+
     return ListView.builder(
       padding: const EdgeInsets.all(AppSpacing.lg),
-      itemCount: _history.length,
+      itemCount: items.length,
       itemBuilder: (context, index) {
-        final item = _history[index];
+        final item = items[index];
         return Padding(
           padding: EdgeInsets.only(
-            bottom: index < _history.length - 1 ? AppSpacing.md : 0,
+            bottom: index < items.length - 1 ? AppSpacing.md : 0,
           ),
           child: HistoryCard(
             item: item,
             authToken: _authToken,
-            onTap: () => _openDetail(index),
+            onTap: () => _openDetailFiltered(items, index),
             onDelete: () => _deleteItem(item),
           ),
         );
@@ -531,6 +589,18 @@ class _MyHomePageState extends State<MyHomePage> {
       MaterialPageRoute(
         builder: (context) => ItemDetailScreen(
           items: _history,
+          initialIndex: index,
+          authToken: _authToken,
+        ),
+      ),
+    );
+  }
+
+  void _openDetailFiltered(List<HistoryItem> items, int index) {
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (context) => ItemDetailScreen(
+          items: items,
           initialIndex: index,
           authToken: _authToken,
         ),
