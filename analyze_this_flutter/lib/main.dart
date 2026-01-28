@@ -41,9 +41,8 @@ class MyHomePage extends StatefulWidget {
 }
 
 class _MyHomePageState extends State<MyHomePage> {
-  late StreamSubscription _intentDataStreamSubscription;
+  StreamSubscription? _intentDataStreamSubscription;
   final List<SharedMediaFile> _sharedFiles = [];
-  String? _sharedText;
   final AuthService _authService = AuthService();
   final ApiService _apiService = ApiService();
   List<HistoryItem> _history = [];
@@ -92,9 +91,11 @@ class _MyHomePageState extends State<MyHomePage> {
       }
     } catch (e) {
       print('Error loading history: $e');
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Failed to load history: $e')),
-      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to load history: $e')),
+        );
+      }
     } finally {
       setState(() {
         _isLoading = false;
@@ -143,7 +144,7 @@ class _MyHomePageState extends State<MyHomePage> {
         } else if (text != null) {
             // Handle text/link share
             ShareItemType type = ShareItemType.text;
-            if (text.startsWith('http')) type = ShareItemType.web_url;
+            if (text.startsWith('http')) type = ShareItemType.webUrl;
             
             await _apiService.uploadShare(token, type, text, _currentUser!.email);
         }
@@ -168,7 +169,6 @@ class _MyHomePageState extends State<MyHomePage> {
         setState(() {
             _isLoading = false;
             _sharedFiles.clear();
-            _sharedText = null;
         });
     }
   }
