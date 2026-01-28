@@ -56,7 +56,8 @@ gcloud run deploy $SERVICE_NAME \
   --set-secrets "GOOGLE_CLIENT_ID=GOOGLE_CLIENT_ID:latest" \
   --set-secrets "GOOGLE_CLIENT_SECRET=GOOGLE_CLIENT_SECRET:latest" \
   --set-secrets "FIREBASE_STORAGE_BUCKET=FIREBASE_STORAGE_BUCKET:latest" \
-  --set-secrets "GOOGLE_EXTENSION_CLIENT_ID=GOOGLE_EXTENSION_CLIENT_ID:latest"
+  --set-secrets "GOOGLE_EXTENSION_CLIENT_ID=GOOGLE_EXTENSION_CLIENT_ID:latest" \
+  ${RUNTIME_SERVICE_ACCOUNT:+--service-account "$RUNTIME_SERVICE_ACCOUNT"}
 
 # Cleanup
 rm version.txt
