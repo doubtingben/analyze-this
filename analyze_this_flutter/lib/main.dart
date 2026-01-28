@@ -432,28 +432,30 @@ class _MyHomePageState extends State<MyHomePage> {
           bottom: BorderSide(color: Colors.grey.shade200),
         ),
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+      child: Row(
         children: [
           // View mode segmented button
-          SegmentedButton<ViewMode>(
-            segments: const [
-              ButtonSegment(value: ViewMode.all, label: Text('All')),
-              ButtonSegment(value: ViewMode.timeline, label: Text('Timeline')),
-              ButtonSegment(value: ViewMode.followUp, label: Text('Follow-up')),
-            ],
-            selected: {_currentView},
-            onSelectionChanged: (Set<ViewMode> selection) {
-              setState(() {
-                _currentView = selection.first;
-              });
-            },
+          Flexible(
+            child: SegmentedButton<ViewMode>(
+              segments: const [
+                ButtonSegment(value: ViewMode.all, label: Text('All')),
+                ButtonSegment(value: ViewMode.timeline, label: Text('Timeline')),
+                ButtonSegment(value: ViewMode.followUp, label: Text('Follow-up')),
+              ],
+              selected: {_currentView},
+              onSelectionChanged: (Set<ViewMode> selection) {
+                setState(() {
+                  _currentView = selection.first;
+                });
+              },
+            ),
           ),
-          const SizedBox(height: AppSpacing.sm),
+          const SizedBox(width: AppSpacing.sm),
           // Type filter dropdown
           DropdownMenu<String?>(
             initialSelection: _currentTypeFilter,
             hintText: 'All Types',
+            width: 120,
             onSelected: (String? value) {
               setState(() {
                 _currentTypeFilter = value;
