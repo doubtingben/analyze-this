@@ -77,9 +77,6 @@ jobs:
     needs: changes
     if: ${{ needs.changes.outputs.mobile == 'true' || inputs.deploy_mobile == true }}
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        platform: [ios, android]
     steps:
       - uses: actions/checkout@v4
         with:
@@ -90,15 +87,6 @@ jobs:
         with:
           node-version: 20
 
-      - name: Cache node modules
-        id: cache-npm
-        uses: actions/cache@v4
-        with:
-          path: mobile/node_modules
-          key: ${{ runner.os }}-mobile-node_modules-${{ hashFiles('mobile/package.json') }}
-          restore-keys: |
-            ${{ runner.os }}-mobile-node_modules-
-
       - name: Setup EAS
         uses: expo/expo-github-action@v8
         with:
@@ -108,5 +96,8 @@ jobs:
       - name: Install dependencies
         run: make mobile-install
 
-      - name: Build and Submit ${{ matrix.platform }}
-        run: cd mobile && npx eas-cli build --platform ${{ matrix.platform }} --profile preview --auto-submit --non-interactive
+      - name: Build and Submit iOS to TestFlight
+        run: cd mobile && npx eas-cli build --platform ios --profile preview --auto-submit --non-interactive
+
+      - name: Build and Submit Android to Google Play
+        run: cd mobile && npx eas-cli build --platform android --profile preview --auto-submit --non-interactive

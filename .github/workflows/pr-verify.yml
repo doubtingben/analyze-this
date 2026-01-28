@@ -52,12 +52,24 @@ jobs:
   mobile-build:
     needs: changes
     if: ${{ needs.changes.outputs.mobile == 'true' }}
-    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [android, ios]
+        include:
+          - target: android
+            os: ubuntu-latest
+            build_cmd: make flutter-build-apk
+          - target: ios
+            os: macos-latest
+            build_cmd: make flutter-build-ios
+    runs-on: ${{ matrix.os }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
       - name: Set up Java
+        if: matrix.target == 'android'
         uses: actions/setup-java@v4
         with:
           distribution: 'zulu'
@@ -67,15 +79,26 @@ jobs:
         uses: subosito/flutter-action@v2
         with:
           channel: 'stable'
+          cache: true
+
+      - name: Cache pub dependencies
+        uses: actions/cache@v4
+        with:
+          path: ~/.pub-cache
+          key: ${{ runner.os }}-pub-cache-${{ hashFiles('analyze_this_flutter/pubspec.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-pub-cache-
 
       - name: Install mobile dependencies
         run: make flutter-install
 
       - name: Run mobile lint
+        if: matrix.target == 'android'
         run: make flutter-lint
 
       - name: Run mobile tests
+        if: matrix.target == 'android'
         run: make flutter-test
 
-      - name: Build mobile apps
-        run: make flutter-build-apk
+      - name: Build ${{ matrix.target }}
+        run: ${{ matrix.build_cmd }}
