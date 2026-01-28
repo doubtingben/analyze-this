@@ -180,9 +180,13 @@ class SharedItem {
         // type enum: 0=image, 1=video, 2=file
         final typeInt = json['type'] as int?;
         SharedMediaType type = SharedMediaType.file;
-        if (typeInt == 0) type = SharedMediaType.image;
-        else if (typeInt == 1) type = SharedMediaType.video;
-        else if (typeInt == 2) type = SharedMediaType.file;
+        if (typeInt == 0) {
+          type = SharedMediaType.image;
+        } else if (typeInt == 1) {
+          type = SharedMediaType.video;
+        } else if (typeInt == 2) {
+          type = SharedMediaType.file;
+        }
         
         String path = json['path'];
         if (path.startsWith('file://')) {
