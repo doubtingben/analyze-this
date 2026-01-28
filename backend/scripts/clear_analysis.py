@@ -15,7 +15,7 @@ from sqlalchemy.future import select
 load_dotenv()
 
 async def clear_item(db, item_id, reset_status=False):
-    updates = {'analysis': None}
+    updates = {'analysis': None, 'next_step': None}
     if reset_status:
         updates['status'] = 'new'
     
@@ -47,7 +47,7 @@ async def clear_item(db, item_id, reset_status=False):
         return False
 
 async def clear_all_items(db, reset_status=False):
-    updates = {'analysis': None}
+    updates = {'analysis': None, 'next_step': None}
     if reset_status:
         updates['status'] = 'new'
 
@@ -100,7 +100,7 @@ async def main():
     if app_env == "development":
         db = SQLiteDatabase()
         # Initialize DB if needed (usually handled by app but good to ensure)
-        # await db.init_db() 
+        await db.init_db() 
     else:
         db = FirestoreDatabase()
         

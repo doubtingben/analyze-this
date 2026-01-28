@@ -168,12 +168,16 @@ def normalize_analysis(raw_response: dict) -> dict:
     # Ensure overview exists - generate from other fields if missing
     if "overview" not in raw_response or not raw_response["overview"]:
         # Try to generate overview from available fields
-        if "step" in raw_response:
-            raw_response["overview"] = f"Suggested action: {raw_response['step']}"
-            raw_response["action"] = raw_response.pop("step")  # Normalize field name
+        if "timeline" in raw_response:
+            raw_response["overview"] = f"Timeline event identified: {raw_response['timeline'].get('principal', 'Unknown')} at {raw_response['timeline'].get('location', 'Unknown location')}"
+        elif "follow_up" in raw_response:
+            raw_response["overview"] = f"Follow up required: {raw_response['follow_up']}"
+        elif "step" in raw_response:
+             raw_response["overview"] = f"Suggested action: {raw_response['step']}"
+             # Legacy support cleanup if needed, but 'action' is removed from model so maybe just leave it in dict for now or ignore.
         elif "details" in raw_response:
-            raw_response["overview"] = str(raw_response["details"])[:200]
+             raw_response["overview"] = str(raw_response["details"])[:200]
         else:
-            raw_response["overview"] = "Content analyzed - no specific action identified"
+             raw_response["overview"] = "Content analyzed - no specific action identified"
 
     return raw_response

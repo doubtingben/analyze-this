@@ -479,6 +479,27 @@ class _MyHomePageState extends State<MyHomePage> {
 
   DateTime? _getEventDateTime(HistoryItem item) {
     if (item.analysis == null) return null;
+
+    // Check for new 'timeline' structure
+    final timeline = item.analysis!['timeline'] as Map<String, dynamic>?;
+    if (timeline != null) {
+      final dateStr = timeline['date'];
+      final timeStr = timeline['time'];
+      
+      if (dateStr != null) {
+        try {
+          if (timeStr != null) {
+            // Attempt to combine date and time
+            return DateTime.parse("$dateStr $timeStr");
+          }
+          return DateTime.parse(dateStr);
+        } catch (_) {
+          // Fall through to other checks if parsing fails
+        }
+      }
+    }
+
+    // Fallback to old 'details' structure
     final details = item.analysis!['details'] as Map<String, dynamic>?;
     if (details == null) return null;
 
