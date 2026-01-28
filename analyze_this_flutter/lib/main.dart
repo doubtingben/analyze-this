@@ -412,7 +412,7 @@ class _MyHomePageState extends State<MyHomePage> {
                     color: AppColors.primary,
                   ),
                 )
-              : _history.isEmpty
+              : _getFilteredItems().isEmpty
                   ? _buildEmptyState()
                   : _buildHistoryList(),
         ),
