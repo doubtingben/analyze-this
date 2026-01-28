@@ -188,12 +188,33 @@ function setupFilters() {
 
 // Get event date from analysis details
 function getEventDateTime(item) {
-    if (!item.analysis?.details) return null;
+    if (!item.analysis) return null;
+
+    // Check for new 'timeline' structure
+    if (item.analysis.timeline) {
+        const timeline = item.analysis.timeline;
+        if (timeline.date) {
+            try {
+                let dateStr = timeline.date;
+                if (timeline.time) {
+                    dateStr += ` ${timeline.time}`;
+                }
+                const date = new Date(dateStr);
+                if (!isNaN(date.getTime())) {
+                    return date;
+                }
+            } catch (e) {
+                // fall through
+            }
+        }
+    }
+
+    if (!item.analysis.details) return null;
 
     const details = item.analysis.details;
     // Look for date_time in various possible field names
     const dateTimeStr = details.date_time || details.dateTime || details.date ||
-                        details.event_date || details.eventDate || details.start_date;
+        details.event_date || details.eventDate || details.start_date;
 
     if (!dateTimeStr) return null;
 

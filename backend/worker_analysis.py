@@ -83,11 +83,18 @@ async def process_items_async(limit: int = 10, item_id: str = None, force: bool 
             analysis_result = await loop.run_in_executor(None, analyze_content, content, item_type)
             
             if analysis_result:
+                # Determine status based on analysis result content
+                new_status = 'analyzed'  # Default fallback
+                if analysis_result.get('timeline'):
+                    new_status = 'timeline'
+                elif analysis_result.get('follow_up'):
+                    new_status = 'follow_up'
+                
                 # Update DB
                 await db.update_shared_item(doc_id, {
                     'analysis': analysis_result,
-                    'status': 'analyzed',
-                    'next_step': 'timeline'
+                    'status': new_status,
+                    'next_step': new_status
                 })
                 logger.info(f"Successfully analyzed item {doc_id}.")
             else:

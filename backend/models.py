@@ -24,10 +24,17 @@ class ItemStatus(str, Enum):
     processed = 'processed'
     soft_deleted = 'soft_deleted'
 
+class TimelineEvent(BaseModel):
+    date: Optional[str] = None
+    time: Optional[str] = None
+    duration: Optional[str] = None
+    location: Optional[str] = None
+    principal: Optional[str] = None
+
 class AnalysisResult(BaseModel):
     overview: str  # Required - human-readable summary for UI
-    action: Optional[str] = None  # e.g., "add_event", "follow_up", "save_image"
-    details: Optional[dict] = None  # Action-specific data
+    timeline: Optional[TimelineEvent] = None
+    follow_up: Optional[str] = None
     tags: Optional[list[str]] = None  # Optional categorization
 
 class User(BaseModel):
