@@ -1,5 +1,4 @@
 import 'dart:convert';
-import 'dart:io';
 import 'package:http/http.dart' as http;
 import 'package:http_parser/http_parser.dart';
 import 'package:mime/mime.dart';
@@ -123,7 +122,7 @@ class ApiService {
   // Helpers
   String _mapShareTypeToString(ShareItemType type) {
     if (type == ShareItemType.text) return 'text';
-    if (type == ShareItemType.web_url) return 'web_url';
+    if (type == ShareItemType.webUrl) return 'web_url';
     if (type == ShareItemType.image) return 'image';
     if (type == ShareItemType.video) return 'video';
     if (type == ShareItemType.file) return 'file';
@@ -132,7 +131,7 @@ class ApiService {
   
   String _generateFallbackTitle(ShareItemType type, String value, {String? fileName}) {
       switch (type) {
-        case ShareItemType.web_url:
+        case ShareItemType.webUrl:
             try {
                 final uri = Uri.parse(value);
                 return uri.host.replaceFirst('www.', '');
@@ -159,7 +158,7 @@ class ApiService {
 // Enum mapping to match the usage in main.dart/ShareMediaFile
 enum ShareItemType {
   text,
-  web_url,
+  webUrl,
   image,
   video,
   file,

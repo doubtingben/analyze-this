@@ -21,7 +21,7 @@ jobs:
               - 'Makefile'
               - '.github/workflows/pr-verify.yml'
             mobile:
-              - 'mobile/**'
+              - 'analyze_this_flutter/**'
               - 'Makefile'
               - '.github/workflows/pr-verify.yml'
 
@@ -57,16 +57,25 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Set up Node
-        uses: actions/setup-node@v4
+      - name: Set up Java
+        uses: actions/setup-java@v4
         with:
-          node-version: '20'
+          distribution: 'zulu'
+          java-version: '17'
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: 'stable'
 
       - name: Install mobile dependencies
-        run: make mobile-install
+        run: make flutter-install
 
       - name: Run mobile lint
-        run: make mobile-lint
+        run: make flutter-lint
+
+      - name: Run mobile tests
+        run: make flutter-test
 
       - name: Build mobile apps
-        run: make mobile-build
+        run: make flutter-build-apk
