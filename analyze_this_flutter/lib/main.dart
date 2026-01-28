@@ -1,9 +1,7 @@
 import 'dart:async';
-import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:receive_sharing_intent/receive_sharing_intent.dart';
 import 'package:google_sign_in/google_sign_in.dart';
-import 'package:mime/mime.dart';
 import 'package:intl/intl.dart';
 
 import 'auth_service.dart';
@@ -156,7 +154,7 @@ class _MyHomePageState extends State<MyHomePage> {
             // Handle text/link share
             ShareItemType type = ShareItemType.text;
             if (text.startsWith('http://') || text.startsWith('https://')) {
-                type = ShareItemType.web_url;
+                type = ShareItemType.webUrl;
             }
 
             await _apiService.uploadShare(token, type, text, _currentUser!.email);
@@ -521,7 +519,6 @@ class _MyHomePageState extends State<MyHomePage> {
         items.sort((a, b) => b.timestamp.compareTo(a.timestamp));
         break;
       case ViewMode.all:
-      default:
         items.sort((a, b) => b.timestamp.compareTo(a.timestamp));
         break;
     }
@@ -735,18 +732,6 @@ class _MyHomePageState extends State<MyHomePage> {
           ),
         );
       },
-    );
-  }
-
-  void _openDetail(int index) {
-    Navigator.of(context).push(
-      MaterialPageRoute(
-        builder: (context) => ItemDetailScreen(
-          items: _history,
-          initialIndex: index,
-          authToken: _authToken,
-        ),
-      ),
     );
   }
 
