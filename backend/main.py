@@ -400,6 +400,12 @@ async def share_item(
     if not user_email:
         raise HTTPException(status_code=401, detail="Unauthorized")
 
+    # Input Validation
+    if title and len(title) > 255:
+        raise HTTPException(status_code=400, detail="Title too long")
+    if content and len(content) > 10000:
+        raise HTTPException(status_code=400, detail="Content too long")
+
     # Determine Input Type
     content_type = request.headers.get('content-type', '')
     
@@ -460,11 +466,14 @@ async def share_item(
                     # Prod: Firebase Storage
                     bucket = storage.bucket()
                     blob = bucket.blob(blob_name_relative)
-                    file_content = await file.read()
+
+                    # Stream upload to avoid reading into memory
+                    # file.file is a SpooledTemporaryFile (file-like object)
+                    await file.seek(0)
                     loop = asyncio.get_running_loop()
                     await loop.run_in_executor(
                         None,
-                        functools.partial(blob.upload_from_string, file_content, content_type=file.content_type)
+                        functools.partial(blob.upload_from_file, file.file, content_type=file.content_type)
                     )
                     item_data['content'] = blob_name_relative
                 
