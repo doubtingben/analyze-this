@@ -530,6 +530,29 @@ class _MyHomePageState extends State<MyHomePage> {
   }
 
   Widget _buildEmptyState() {
+    String message;
+    IconData icon;
+
+    switch (_currentView) {
+      case ViewMode.timeline:
+        message = 'No items with event dates found';
+        icon = Icons.event_outlined;
+        break;
+      case ViewMode.followUp:
+        message = 'No items need follow-up';
+        icon = Icons.check_circle_outline;
+        break;
+      case ViewMode.all:
+        if (_currentTypeFilter != null) {
+          message = 'No $_currentTypeFilter items found';
+          icon = Icons.filter_list_off;
+        } else {
+          message = 'No items yet';
+          icon = Icons.inbox_outlined;
+        }
+        break;
+    }
+
     return Center(
       child: Padding(
         padding: const EdgeInsets.all(AppSpacing.xl),
@@ -537,18 +560,20 @@ class _MyHomePageState extends State<MyHomePage> {
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
             Icon(
-              Icons.inbox_outlined,
+              icon,
               size: 48,
               color: AppColors.textSecondary,
             ),
             const SizedBox(height: AppSpacing.lg),
             Text(
-              'No items yet',
+              message,
               style: Theme.of(context).textTheme.titleMedium,
             ),
             const SizedBox(height: AppSpacing.sm),
             Text(
-              'Share content from other apps to see it here',
+              _currentView == ViewMode.all && _currentTypeFilter == null
+                  ? 'Share content from other apps to see it here'
+                  : 'Try changing your filters',
               style: Theme.of(context).textTheme.bodySmall,
               textAlign: TextAlign.center,
             ),
