@@ -16,7 +16,7 @@ const cancelCreateBtn = document.getElementById('cancel-create');
 
 // State
 let allItems = [];
-let currentView = 'all'; // 'all' or 'timeline'
+let currentView = 'all'; // 'all', 'timeline', or 'follow_up'
 let currentTypeFilter = ''; // '' for all, or specific type
 
 // Initialize the app
@@ -235,6 +235,16 @@ function getFilteredItems() {
             const dateB = getEventDateTime(b);
             return dateA - dateB;
         });
+    } else if (currentView === 'follow_up') {
+        // Filter to only items with follow_up status
+        items = items.filter(item => item.status === 'follow_up');
+
+        // Sort by created_at descending (newest first)
+        items.sort((a, b) => {
+            const dateA = new Date(a.created_at || 0);
+            const dateB = new Date(b.created_at || 0);
+            return dateB - dateA;
+        });
     } else {
         // Default: sort by created_at descending (newest first)
         items.sort((a, b) => {
@@ -294,6 +304,8 @@ function renderItems(items) {
         emptyStateEl.style.display = 'block';
         if (currentView === 'timeline') {
             emptyStateEl.querySelector('p').textContent = 'No items with event dates found.';
+        } else if (currentView === 'follow_up') {
+            emptyStateEl.querySelector('p').textContent = 'No items need follow-up.';
         } else if (currentTypeFilter) {
             emptyStateEl.querySelector('p').textContent = `No ${formatType(currentTypeFilter)} items found.`;
         } else {
