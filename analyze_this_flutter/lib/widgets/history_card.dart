@@ -13,6 +13,7 @@ class HistoryCard extends StatelessWidget {
   final VoidCallback? onToggleHidden;
   final String? authToken;
   final bool isHidden;
+  final bool showImage;
 
   const HistoryCard({
     super.key,
@@ -22,6 +23,7 @@ class HistoryCard extends StatelessWidget {
     this.onToggleHidden,
     this.authToken,
     this.isHidden = false,
+    this.showImage = true,
   });
 
   bool get _hasAnalysis => item.analysis != null && item.analysis!.isNotEmpty;
@@ -46,7 +48,7 @@ class HistoryCard extends StatelessWidget {
           mainAxisSize: MainAxisSize.min,
           children: [
             // Image thumbnail (if applicable)
-            if (_isImageType && item.value.isNotEmpty)
+            if (showImage && _isImageType && item.value.isNotEmpty)
               _buildImageThumbnail(),
 
             // Card content

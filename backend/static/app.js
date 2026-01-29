@@ -264,11 +264,11 @@ function getFilteredItems() {
         // Filter to only items with derived date/time
         items = items.filter(item => getEventDateTime(item) !== null);
 
-        // Sort by event date/time (ascending - oldest first)
+        // Sort by event date/time (descending - newest first)
         items.sort((a, b) => {
             const dateA = getEventDateTime(a);
             const dateB = getEventDateTime(b);
-            return dateA - dateB;
+            return dateB - dateA;
         });
     } else if (currentView === 'follow_up') {
         // Filter to only items with follow_up status
@@ -374,8 +374,8 @@ function renderTimelineItems(items) {
     items.forEach(item => {
         const eventDate = getEventDateTime(item);
 
-        // Insert "Now" divider before the first future item
-        if (!nowDividerInserted && eventDate > now) {
+        // Insert "Now" divider before the first past item
+        if (!nowDividerInserted && eventDate < now) {
             nowDividerEl = document.createElement('div');
             nowDividerEl.className = 'now-divider';
             nowDividerEl.id = 'now-divider';
@@ -385,6 +385,9 @@ function renderTimelineItems(items) {
         }
 
         const card = renderItem(item);
+        if (eventDate < now) {
+            card.classList.add('timeline-past');
+        }
 
         // Add event date badge for timeline view
         const eventDateBadge = document.createElement('div');
@@ -395,7 +398,7 @@ function renderTimelineItems(items) {
         itemsContainerEl.appendChild(card);
     });
 
-    // If all items are in the past, add Now divider at the end
+    // If all items are in the future, add Now divider at the end
     if (!nowDividerInserted && items.length > 0) {
         nowDividerEl = document.createElement('div');
         nowDividerEl.className = 'now-divider';
@@ -574,6 +577,9 @@ function renderItem(item) {
 
 // Render media item (image)
 function renderMediaItem(item, container) {
+    if (currentView === 'timeline') {
+        return;
+    }
     const img = document.createElement('img');
     img.className = 'item-image';
     img.src = item.content;

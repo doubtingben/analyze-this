@@ -306,6 +306,13 @@ body {
     margin-bottom: 12px;
 }
 
+.timeline-past {
+    filter: grayscale(100%);
+    opacity: 0.7;
+    transform: scale(0.98);
+    transform-origin: top center;
+}
+
 .item-image {
     max-width: 100%;
     max-height: 250px;
