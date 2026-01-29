@@ -2,10 +2,14 @@ import os
 import shutil
 import asyncio
 import functools
+import datetime
+import json
+import tempfile
+import zipfile
 from pathlib import Path
 from contextlib import asynccontextmanager
 from typing import Optional
-from fastapi import FastAPI, Request, Depends, HTTPException, status, File, UploadFile, Form
+from fastapi import FastAPI, Request, Depends, HTTPException, status, File, UploadFile, Form, BackgroundTasks
 from fastapi.responses import HTMLResponse, RedirectResponse, FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
@@ -651,6 +655,53 @@ async def get_current_user(request: Request):
         raise HTTPException(status_code=401, detail="Not authenticated")
     return {"email": user.get('email'), "name": user.get('name'), "picture": user.get('picture')}
 
+def _serialize_value(value):
+    if isinstance(value, datetime.datetime):
+        return value.isoformat()
+    if isinstance(value, datetime.date):
+        return value.isoformat()
+    if isinstance(value, dict):
+        return {key: _serialize_value(val) for key, val in value.items()}
+    if isinstance(value, list):
+        return [_serialize_value(val) for val in value]
+    if hasattr(value, "isoformat"):
+        try:
+            return value.isoformat()
+        except Exception:
+            pass
+    return value
+
+def _is_safe_user_blob_path(blob_path: str, user_email: str) -> bool:
+    if not blob_path:
+        return False
+    if ".." in blob_path or blob_path.startswith("/") or "\\" in blob_path:
+        return False
+    expected_prefix = f"uploads/{user_email}/"
+    return blob_path.startswith(expected_prefix)
+
+async def _read_user_blob(blob_path: str, user_email: str) -> Optional[bytes]:
+    if not _is_safe_user_blob_path(blob_path, user_email):
+        return None
+
+    if APP_ENV == "development":
+        base_dir = Path("static").resolve()
+        requested_path = (base_dir / blob_path).resolve()
+        user_upload_dir = (base_dir / "uploads" / user_email).resolve()
+
+        if not str(requested_path).startswith(str(user_upload_dir)):
+            return None
+        if not requested_path.exists():
+            return None
+        return requested_path.read_bytes()
+
+    try:
+        bucket = storage.bucket()
+        blob = bucket.blob(blob_path)
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(None, blob.download_as_bytes)
+    except Exception:
+        return None
+
 async def get_authenticated_email(request: Request) -> str:
     auth_header = request.headers.get('Authorization')
     user_email = None
@@ -667,6 +718,72 @@ async def get_authenticated_email(request: Request) -> str:
         raise HTTPException(status_code=401, detail="Unauthorized")
 
     return user_email
+
+@app.get("/api/export")
+async def export_user_data(request: Request, background_tasks: BackgroundTasks):
+    user_email = await get_authenticated_email(request)
+    items = await db.get_shared_items(user_email)
+
+    export_items = []
+    exported_files = []
+    content_types = ('media', 'screenshot', 'image', 'video', 'audio', 'file')
+
+    for item in items:
+        item_copy = _serialize_value(item)
+        export_file = None
+
+        item_type = item_copy.get("type")
+        content_path = item_copy.get("content")
+        if item_type in content_types and isinstance(content_path, str) and _is_safe_user_blob_path(content_path, user_email):
+            file_bytes = await _read_user_blob(content_path, user_email)
+            if file_bytes is not None:
+                item_id = item_copy.get("firestore_id") or item_copy.get("id") or "item"
+                base_name = os.path.basename(content_path)
+                export_file = f"files/{item_id}_{base_name}"
+                exported_files.append({
+                    "item_id": item_id,
+                    "content_path": content_path,
+                    "export_path": export_file,
+                    "size": len(file_bytes),
+                })
+                item_copy["export_file"] = export_file
+                item_copy["_export_bytes"] = file_bytes
+            else:
+                item_copy["export_file"] = None
+                item_copy["export_error"] = "missing_file"
+
+        export_items.append(item_copy)
+
+    exported_at = datetime.datetime.now(datetime.timezone.utc).isoformat()
+    manifest = {
+        "exported_at": exported_at,
+        "user": {"email": user_email},
+        "item_count": len(export_items),
+        "files": exported_files,
+    }
+
+    tmp_file = tempfile.NamedTemporaryFile(prefix="analyze-this-export-", suffix=".zip", delete=False)
+    tmp_file.close()
+    zip_path = tmp_file.name
+
+    with zipfile.ZipFile(zip_path, "w", compression=zipfile.ZIP_DEFLATED) as zipf:
+        for item in export_items:
+            file_bytes = item.pop("_export_bytes", None)
+            export_path = item.get("export_file")
+            if file_bytes is not None and export_path:
+                zipf.writestr(export_path, file_bytes)
+
+        zipf.writestr("items.json", json.dumps(export_items, indent=2))
+        zipf.writestr("export_manifest.json", json.dumps(manifest, indent=2))
+
+    background_tasks.add_task(os.unlink, zip_path)
+    filename = f"analyze-this-export-{exported_at.replace(':', '').replace('.', '')}.zip"
+    return FileResponse(
+        zip_path,
+        media_type="application/zip",
+        filename=filename,
+        background=background_tasks,
+    )
 
 async def set_item_hidden_status(item_id: str, request: Request, hidden: bool):
     user_email = await get_authenticated_email(request)

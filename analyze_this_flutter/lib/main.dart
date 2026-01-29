@@ -1,8 +1,10 @@
 import 'dart:async';
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:receive_sharing_intent/receive_sharing_intent.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 import 'package:intl/intl.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import 'auth_service.dart';
 import 'services/api_service.dart';
@@ -380,6 +382,98 @@ class _MyHomePageState extends State<MyHomePage> {
     });
   }
 
+  Future<void> _handleExport() async {
+    if (_currentUser == null) return;
+
+    try {
+      final authHeaders = await _currentUser!.authentication;
+      final token = authHeaders.accessToken;
+      if (token == null) return;
+
+      final bytes = await _apiService.exportData(token);
+      final timestamp = DateFormat('yyyyMMdd_HHmmss').format(DateTime.now());
+      final file = File(
+        '${Directory.systemTemp.path}/analyze-this-export-$timestamp.zip',
+      );
+      await file.writeAsBytes(bytes, flush: true);
+
+      final uri = Uri.file(file.path);
+      if (await canLaunchUrl(uri)) {
+        await launchUrl(uri, mode: LaunchMode.externalApplication);
+      } else if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Export saved to ${file.path}')),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Export failed: $e')),
+        );
+      }
+    }
+  }
+
+  void _showUserMenu() {
+    if (_currentUser == null) return;
+
+    showModalBottomSheet(
+      context: context,
+      showDragHandle: true,
+      builder: (context) {
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.all(AppSpacing.lg),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: _currentUser!.photoUrl != null
+                      ? CircleAvatar(
+                          backgroundImage: NetworkImage(_currentUser!.photoUrl!),
+                        )
+                      : const CircleAvatar(child: Icon(Icons.person)),
+                  title: Text(_currentUser!.displayName ?? 'User'),
+                  subtitle: Text(_currentUser!.email),
+                ),
+                SwitchListTile(
+                  contentPadding: EdgeInsets.zero,
+                  title: const Text('Show Archive'),
+                  value: _showHidden,
+                  onChanged: (value) {
+                    setState(() {
+                      _showHidden = value;
+                    });
+                    Navigator.pop(context);
+                  },
+                ),
+                ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: const Icon(Icons.download),
+                  title: const Text('Export'),
+                  onTap: () {
+                    Navigator.pop(context);
+                    _handleExport();
+                  },
+                ),
+                ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: const Icon(Icons.logout),
+                  title: const Text('Logout'),
+                  onTap: () {
+                    Navigator.pop(context);
+                    _handleSignOut();
+                  },
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -391,30 +485,6 @@ class _MyHomePageState extends State<MyHomePage> {
               icon: const Icon(Icons.refresh),
               onPressed: _loadHistory,
               tooltip: 'Refresh',
-            ),
-          if (_currentUser != null)
-            IconButton(
-              icon: _showHidden
-                  ? const Icon(Icons.archive_outlined)
-                  : Stack(
-                      alignment: Alignment.center,
-                      children: const [
-                        Icon(Icons.archive_outlined),
-                        Icon(Icons.block, size: 18),
-                      ],
-                    ),
-              onPressed: () {
-                setState(() {
-                  _showHidden = !_showHidden;
-                });
-              },
-              tooltip: _showHidden ? 'Hide hidden' : 'Show hidden',
-            ),
-          if (_currentUser != null)
-            IconButton(
-              icon: const Icon(Icons.logout),
-              onPressed: _handleSignOut,
-              tooltip: 'Logout',
             ),
         ],
       ),
@@ -468,25 +538,55 @@ class _MyHomePageState extends State<MyHomePage> {
           color: AppColors.surface,
           child: Row(
             children: [
-              if (_currentUser!.photoUrl != null)
-                CircleAvatar(
-                  radius: 20,
-                  backgroundImage: NetworkImage(_currentUser!.photoUrl!),
-                ),
-              const SizedBox(width: AppSpacing.md),
               Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'Welcome back,',
-                      style: Theme.of(context).textTheme.bodySmall,
+                child: Material(
+                  color: Colors.transparent,
+                  child: InkWell(
+                    onTap: _showUserMenu,
+                    borderRadius: BorderRadius.circular(12),
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(
+                        vertical: AppSpacing.sm,
+                        horizontal: AppSpacing.xs,
+                      ),
+                      child: Row(
+                        children: [
+                          if (_currentUser!.photoUrl != null)
+                            CircleAvatar(
+                              radius: 20,
+                              backgroundImage: NetworkImage(_currentUser!.photoUrl!),
+                            )
+                          else
+                            const CircleAvatar(
+                              radius: 20,
+                              child: Icon(Icons.person),
+                            ),
+                          const SizedBox(width: AppSpacing.md),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  'Welcome back,',
+                                  style: Theme.of(context).textTheme.bodySmall,
+                                ),
+                                Text(
+                                  _currentUser!.displayName ?? 'User',
+                                  style: Theme.of(context).textTheme.titleMedium,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ],
+                            ),
+                          ),
+                          Icon(
+                            Icons.expand_more,
+                            color: AppColors.textSecondary,
+                          ),
+                        ],
+                      ),
                     ),
-                    Text(
-                      _currentUser!.displayName ?? 'User',
-                      style: Theme.of(context).textTheme.titleMedium,
-                    ),
-                  ],
+                  ),
                 ),
               ),
               // Type filter dropdown
@@ -690,7 +790,7 @@ class _MyHomePageState extends State<MyHomePage> {
             const SizedBox(height: AppSpacing.sm),
           Text(
               (!_showHidden && _history.any((item) => item.isHidden))
-                  ? 'Enable "Show hidden" to view archived items'
+                  ? 'Enable "Show Archive" to view archived items'
                   : _currentView == ViewMode.all && _currentTypeFilter == null
                       ? 'Share content from other apps to see it here'
                       : 'Try changing your filters',

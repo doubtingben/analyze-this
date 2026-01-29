@@ -14,8 +14,18 @@
             <div class="header-actions">
                 <button id="new-item-btn" class="new-item-btn" style="display: none;">+ New Item</button>
                 <div class="user-info" id="user-info">
-                    <span id="user-name"></span>
-                    <a href="/logout" class="logout-link">Logout</a>
+                    <button class="user-menu-trigger" id="user-menu-trigger" type="button">
+                        <span id="user-name"></span>
+                        <span class="user-menu-caret">▾</span>
+                    </button>
+                    <div class="user-menu" id="user-menu" aria-hidden="true">
+                        <label class="user-menu-toggle">
+                            <span>Show Archive</span>
+                            <input type="checkbox" id="show-archive" />
+                        </label>
+                        <button class="user-menu-item" id="export-btn" type="button">Export</button>
+                        <a href="/logout" class="user-menu-item">Logout</a>
+                    </div>
                 </div>
             </div>
         </header>
@@ -103,10 +113,6 @@
                         <option value="file">File</option>
                     </select>
                 </div>
-                <label class="hide-toggle">
-                    <input type="checkbox" id="show-hidden" />
-                    Show hidden
-                </label>
             </div>
 
             <div id="empty-state" class="empty-state" style="display: none;">
