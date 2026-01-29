@@ -16,7 +16,7 @@ from google.cloud.firestore_v1.base_query import FieldFilter
 # SQLAlchemy imports
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
 from sqlalchemy.orm import sessionmaker, declarative_base
-from sqlalchemy import Column, String, DateTime, JSON, Boolean, inspect, text
+from sqlalchemy import Column, String, DateTime, JSON, Boolean, inspect, text, func
 from sqlalchemy.future import select
 
 # --- Interface ---
@@ -234,7 +234,7 @@ class DBSharedItem(Base):
 class DBItemNote(Base):
     __tablename__ = 'item_notes'
     id = Column(String, primary_key=True)
-    item_id = Column(String, nullable=False)
+    item_id = Column(String, nullable=False, index=True)
     user_email = Column(String, nullable=False)
     text = Column(String, nullable=True)
     image_path = Column(String, nullable=True)
@@ -261,6 +261,25 @@ class SQLiteDatabase(DatabaseInterface):
                     sync_conn.execute(text("ALTER TABLE shared_items ADD COLUMN hidden BOOLEAN DEFAULT 0"))
 
             await conn.run_sync(ensure_hidden_column)
+
+            def ensure_item_notes_table(sync_conn):
+                inspector = inspect(sync_conn)
+                if 'item_notes' not in inspector.get_table_names():
+                    # Create the item_notes table for existing databases
+                    sync_conn.execute(text("""
+                        CREATE TABLE item_notes (
+                            id VARCHAR PRIMARY KEY,
+                            item_id VARCHAR NOT NULL,
+                            user_email VARCHAR NOT NULL,
+                            text VARCHAR,
+                            image_path VARCHAR,
+                            created_at DATETIME,
+                            updated_at DATETIME
+                        )
+                    """))
+                    sync_conn.execute(text("CREATE INDEX ix_item_notes_item_id ON item_notes (item_id)"))
+
+            await conn.run_sync(ensure_item_notes_table)
 
     async def get_user(self, email: str) -> Optional[User]:
         async with self.SessionLocal() as session:
@@ -529,8 +548,6 @@ class SQLiteDatabase(DatabaseInterface):
 
     async def get_item_note_count(self, item_ids: List[str]) -> Dict[str, int]:
         async with self.SessionLocal() as session:
-            from sqlalchemy import func
-
             if not item_ids:
                 return {}
 
