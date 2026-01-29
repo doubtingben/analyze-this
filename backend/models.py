@@ -57,3 +57,12 @@ class SharedItem(BaseModel):
     next_step: Optional[str] = Field(default=None)
     is_normalized: bool = Field(default=False)
     hidden: bool = Field(default=False)
+
+class ItemNote(BaseModel):
+    id: str = Field(default_factory=lambda: str(uuid4()))
+    item_id: str
+    user_email: str
+    text: Optional[str] = None
+    image_path: Optional[str] = None
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: datetime = Field(default_factory=datetime.utcnow)

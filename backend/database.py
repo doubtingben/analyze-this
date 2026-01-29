@@ -5,7 +5,7 @@ from abc import ABC, abstractmethod
 from typing import List, Optional, Dict, Any
 import logging
 
-from models import User, SharedItem
+from models import User, SharedItem, ItemNote
 
 # Firestore imports
 import firebase_admin
@@ -56,6 +56,26 @@ class DatabaseInterface(ABC):
 
     @abstractmethod
     async def get_unnormalized_items(self, limit: int = 10) -> List[dict]:
+        pass
+
+    @abstractmethod
+    async def create_item_note(self, note: ItemNote) -> ItemNote:
+        pass
+
+    @abstractmethod
+    async def get_item_notes(self, item_id: str) -> List[dict]:
+        pass
+
+    @abstractmethod
+    async def update_item_note(self, note_id: str, updates: dict) -> bool:
+        pass
+
+    @abstractmethod
+    async def delete_item_note(self, note_id: str, user_email: str) -> bool:
+        pass
+
+    @abstractmethod
+    async def get_item_note_count(self, item_ids: List[str]) -> Dict[str, int]:
         pass
 
 
@@ -169,6 +189,21 @@ class FirestoreDatabase(DatabaseInterface):
         loop = asyncio.get_running_loop()
         return await loop.run_in_executor(None, get_docs)
 
+    async def create_item_note(self, note: ItemNote) -> ItemNote:
+        raise NotImplementedError("Firestore ItemNote not implemented")
+
+    async def get_item_notes(self, item_id: str) -> List[dict]:
+        raise NotImplementedError("Firestore ItemNote not implemented")
+
+    async def update_item_note(self, note_id: str, updates: dict) -> bool:
+        raise NotImplementedError("Firestore ItemNote not implemented")
+
+    async def delete_item_note(self, note_id: str, user_email: str) -> bool:
+        raise NotImplementedError("Firestore ItemNote not implemented")
+
+    async def get_item_note_count(self, item_ids: List[str]) -> Dict[str, int]:
+        raise NotImplementedError("Firestore ItemNote not implemented")
+
 
 # --- SQLite Implementation ---
 
@@ -195,6 +230,16 @@ class DBSharedItem(Base):
     next_step = Column(String, nullable=True)
     is_normalized = Column(Boolean, default=False)
     hidden = Column(Boolean, default=False)
+
+class DBItemNote(Base):
+    __tablename__ = 'item_notes'
+    id = Column(String, primary_key=True)
+    item_id = Column(String, nullable=False)
+    user_email = Column(String, nullable=False)
+    text = Column(String, nullable=True)
+    image_path = Column(String, nullable=True)
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.datetime.utcnow)
 
 class SQLiteDatabase(DatabaseInterface):
     def __init__(self, db_url: str = "sqlite+aiosqlite:///./development.db"):
@@ -392,7 +437,7 @@ class SQLiteDatabase(DatabaseInterface):
                 .limit(limit)
             )
             items = result.scalars().all()
-            
+
             return [
                 {
                     'firestore_id': item.id,
@@ -410,3 +455,95 @@ class SQLiteDatabase(DatabaseInterface):
                 }
                 for item in items
             ]
+
+    async def create_item_note(self, note: ItemNote) -> ItemNote:
+        async with self.SessionLocal() as session:
+            db_note = DBItemNote(
+                id=str(note.id),
+                item_id=note.item_id,
+                user_email=note.user_email,
+                text=note.text,
+                image_path=note.image_path,
+                created_at=note.created_at or datetime.datetime.utcnow(),
+                updated_at=note.updated_at or datetime.datetime.utcnow()
+            )
+            session.add(db_note)
+            await session.commit()
+            return note
+
+    async def get_item_notes(self, item_id: str) -> List[dict]:
+        async with self.SessionLocal() as session:
+            result = await session.execute(
+                select(DBItemNote)
+                .where(DBItemNote.item_id == item_id)
+                .order_by(DBItemNote.created_at.asc())
+            )
+            notes = result.scalars().all()
+
+            return [
+                {
+                    'id': note.id,
+                    'item_id': note.item_id,
+                    'user_email': note.user_email,
+                    'text': note.text,
+                    'image_path': note.image_path,
+                    'created_at': note.created_at,
+                    'updated_at': note.updated_at
+                }
+                for note in notes
+            ]
+
+    async def update_item_note(self, note_id: str, updates: dict) -> bool:
+        async with self.SessionLocal() as session:
+            result = await session.execute(
+                select(DBItemNote).where(DBItemNote.id == note_id)
+            )
+            note = result.scalar_one_or_none()
+            if not note:
+                return False
+
+            for key, value in updates.items():
+                if hasattr(note, key):
+                    setattr(note, key, value)
+
+            note.updated_at = datetime.datetime.utcnow()
+            await session.commit()
+            return True
+
+    async def delete_item_note(self, note_id: str, user_email: str) -> bool:
+        async with self.SessionLocal() as session:
+            result = await session.execute(
+                select(DBItemNote).where(DBItemNote.id == note_id)
+            )
+            note = result.scalar_one_or_none()
+
+            if not note:
+                return False
+
+            if note.user_email != user_email:
+                raise ValueError("Forbidden")
+
+            await session.delete(note)
+            await session.commit()
+            return True
+
+    async def get_item_note_count(self, item_ids: List[str]) -> Dict[str, int]:
+        async with self.SessionLocal() as session:
+            from sqlalchemy import func
+
+            if not item_ids:
+                return {}
+
+            result = await session.execute(
+                select(DBItemNote.item_id, func.count(DBItemNote.id))
+                .where(DBItemNote.item_id.in_(item_ids))
+                .group_by(DBItemNote.item_id)
+            )
+            rows = result.all()
+
+            # Initialize all requested item_ids with 0, then update with actual counts
+            counts = {item_id: 0 for item_id in item_ids}
+            for item_id, count in rows:
+                counts[item_id] = count
+
+            return counts
