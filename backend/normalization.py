@@ -37,8 +37,8 @@ def get_normalization_prompt():
         with open(prompt_path, 'r') as f:
             return f.read()
     except Exception as e:
-        logger.error(f"Error reading prompt file: {e}")
-        return "You are a user agent tasked with normalizing media snippets shared by users."
+        logger.critical(f"FATAL: Error reading prompt file: {e}")
+        raise e
 
 def normalize_item_title(content: str, item_type: str = 'text', current_title: str = None) -> str | None:
     """
@@ -49,6 +49,7 @@ def normalize_item_title(content: str, item_type: str = 'text', current_title: s
         logger.warning("OpenRouter client not initialized. Skipping normalization.")
         return None
 
+    # This will raise if the prompt file is missing/unreadable, propagating the error up.
     prompt_text = get_normalization_prompt()
     
     # Construct the user message

@@ -70,12 +70,10 @@ async def process_normalization_async(limit: int = 10, item_id: str = None, forc
             logger.info(f"Successfully updated processing for item {doc_id}.")
                 
         except Exception as e:
-            logger.error(f"Failed to normalize item {doc_id}: {e}")
-            # If it fails, maybe we shouldn't mark as normalized? Or maybe we should?
-            # For now, leave it unnormalized so it retries, but maybe log error field?
-            # Creating an infinite retry loop is bad.
-            # But transient errors should be retried.
-            pass
+            logger.critical(f"FATAL: Failed to normalize item {doc_id}. internal error: {e}")
+            # Identify if this is a prompt loading error or other critical failure not handled within normalize_item_title
+            # We raise here to halt the worker as requested.
+            raise e
 
 def main():
     parser = argparse.ArgumentParser(description="Worker to normalize titles of shared items.")
