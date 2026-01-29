@@ -18,6 +18,7 @@ logger = logging.getLogger(__name__)
 load_dotenv()
 APP_ENV = os.getenv("APP_ENV", "production")
 
+
 async def get_db() -> DatabaseInterface:
     if APP_ENV == "development":
         logger.info("Using SQLiteDatabase")
@@ -29,12 +30,13 @@ async def get_db() -> DatabaseInterface:
         logger.info("Using FirestoreDatabase")
         return FirestoreDatabase()
 
+
 async def process_items_async(limit: int = 10, item_id: str = None, force: bool = False):
     """
     Processes unanalyzed items using DatabaseInterface.
     """
     db = await get_db()
-    
+
     docs_to_process = []
 
     if item_id:
@@ -57,31 +59,31 @@ async def process_items_async(limit: int = 10, item_id: str = None, force: bool 
     for data in docs_to_process:
         doc_id = data.get('firestore_id')
         logger.info(f"Processing item {doc_id} ({data.get('type')})...")
-        
+
         # 1. Mark as Analyzing
         try:
              await db.update_shared_item(doc_id, {'status': 'analyzing'})
         except Exception as e:
              logger.error(f"Failed to update status to analyzing for {doc_id}: {e}")
-        
+
         content = data.get('content')
         item_type = data.get('type', 'text')
-        
+
         if not content:
             logger.warning(f"Item {doc_id} has no content. Skipping.")
             await db.update_shared_item(doc_id, {'status': 'processed', 'next_step': 'no_content'})
             continue
-            
+
         try:
             # Note: analyze_content is synchronous or async? from analysis.py
             # assuming sync for now based on original valid code
             # But we are in async function.
             # Ideally analysis should be async or run in executor.
-            
+
             loop = asyncio.get_running_loop()
             # If analyze_content is CPU bound blocking:
             analysis_result = await loop.run_in_executor(None, analyze_content, content, item_type)
-            
+
             if analysis_result:
                 # Determine status based on analysis result content
                 new_status = 'analyzed'  # Default fallback
@@ -89,7 +91,7 @@ async def process_items_async(limit: int = 10, item_id: str = None, force: bool 
                     new_status = 'timeline'
                 elif analysis_result.get('follow_up'):
                     new_status = 'follow_up'
-                
+
                 # Update DB
                 await db.update_shared_item(doc_id, {
                     'analysis': analysis_result,
@@ -100,20 +102,22 @@ async def process_items_async(limit: int = 10, item_id: str = None, force: bool 
             else:
                 logger.warning(f"Analysis returned None for item {doc_id}.")
                 await db.update_shared_item(doc_id, {'status': 'processed', 'next_step': 'failed_analysis'})
-                
+
         except Exception as e:
             logger.error(f"Failed to analyze item {doc_id}: {e}")
             await db.update_shared_item(doc_id, {'status': 'processed', 'next_step': 'error'})
+
 
 def main():
     parser = argparse.ArgumentParser(description="Worker to process unanalyzed shared items.")
     parser.add_argument("--limit", type=int, default=10, help="Number of items to process (default: 10)")
     parser.add_argument("--id", type=str, help="Specific Item ID to process")
     parser.add_argument("--force", action="store_true", help="Force re-analysis if ID is provided")
-    
+
     args = parser.parse_args()
-    
+
     asyncio.run(process_items_async(limit=args.limit, item_id=args.id, force=args.force))
+
 
 if __name__ == "__main__":
     main()

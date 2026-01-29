@@ -11,6 +11,7 @@ from models import User, SharedItem
 import firebase_admin
 from firebase_admin import credentials, firestore
 from google.cloud.firestore import Client as FirestoreClient
+from google.cloud.firestore_v1.base_query import FieldFilter
 
 # SQLAlchemy imports
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
@@ -40,7 +41,7 @@ class DatabaseInterface(ABC):
     @abstractmethod
     async def delete_shared_item(self, item_id: str, user_email: str) -> bool:
         pass
-    
+
     @abstractmethod
     async def get_shared_item(self, item_id: str) -> Optional[dict]:
         pass
@@ -85,7 +86,9 @@ class FirestoreDatabase(DatabaseInterface):
 
     async def get_shared_items(self, user_email: str) -> List[dict]:
         items_ref = self.db.collection('shared_items')
-        query = items_ref.where(field_path='user_email', op_string='==', value=user_email).order_by('created_at', direction=firestore.Query.DESCENDING)
+        query = items_ref.where(
+            filter=FieldFilter('user_email', '==', user_email)
+        ).order_by('created_at', direction=firestore.Query.DESCENDING)
 
         def get_docs():
             items = []
@@ -103,11 +106,11 @@ class FirestoreDatabase(DatabaseInterface):
         doc = item_ref.get()
         if not doc.exists:
             return False
-        
+
         item_data = doc.to_dict()
         if item_data.get('user_email') != user_email:
             raise ValueError("Forbidden")
-            
+
         item_ref.delete()
         return True
 
@@ -130,7 +133,9 @@ class FirestoreDatabase(DatabaseInterface):
 
     async def get_items_by_status(self, status: str, limit: int = 10) -> List[dict]:
         items_ref = self.db.collection('shared_items')
-        query = items_ref.where(field_path='status', op_string='==', value=status).limit(limit)
+        query = items_ref.where(
+            filter=FieldFilter('status', '==', status)
+        ).limit(limit)
 
         def get_docs():
             items = []
@@ -198,7 +203,7 @@ class SQLiteDatabase(DatabaseInterface):
         async with self.SessionLocal() as session:
             result = await session.execute(select(DBUser).where(DBUser.email == user.email))
             db_user = result.scalar_one_or_none()
-            
+
             if db_user:
                 db_user.name = user.name
                 db_user.picture = user.picture
@@ -211,7 +216,7 @@ class SQLiteDatabase(DatabaseInterface):
                     created_at=user.created_at or datetime.datetime.utcnow()
                 )
                 session.add(db_user)
-            
+
             await session.commit()
             return user
 
@@ -251,7 +256,7 @@ class SQLiteDatabase(DatabaseInterface):
                 .order_by(DBSharedItem.created_at.desc())
             )
             items = result.scalars().all()
-            
+
             # Convert to dict format matching Firestore output
             return [
                 {
@@ -273,13 +278,13 @@ class SQLiteDatabase(DatabaseInterface):
         async with self.SessionLocal() as session:
             result = await session.execute(select(DBSharedItem).where(DBSharedItem.id == item_id))
             item = result.scalar_one_or_none()
-            
+
             if not item:
                 return False
-                
+
             if item.user_email != user_email:
                 raise ValueError("Forbidden")
-                
+
             await session.delete(item)
             await session.commit()
             return True
@@ -308,11 +313,11 @@ class SQLiteDatabase(DatabaseInterface):
             item = result.scalar_one_or_none()
             if not item:
                 return False
-            
+
             for key, value in updates.items():
                 if hasattr(item, key):
                      setattr(item, key, value)
-            
+
             await session.commit()
             return True
 
@@ -324,7 +329,7 @@ class SQLiteDatabase(DatabaseInterface):
                 .limit(limit)
             )
             items = result.scalars().all()
-            
+
             return [
                 {
                     'firestore_id': item.id,
