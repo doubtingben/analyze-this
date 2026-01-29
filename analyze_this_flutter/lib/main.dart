@@ -54,6 +54,7 @@ class _MyHomePageState extends State<MyHomePage> {
   String? _authToken;
   ViewMode _currentView = ViewMode.all;
   String? _currentTypeFilter;
+  bool _showHidden = false;
 
   // Timeline scroll state
   final ScrollController _timelineScrollController = ScrollController();
@@ -393,6 +394,24 @@ class _MyHomePageState extends State<MyHomePage> {
             ),
           if (_currentUser != null)
             IconButton(
+              icon: _showHidden
+                  ? const Icon(Icons.archive_outlined)
+                  : Stack(
+                      alignment: Alignment.center,
+                      children: const [
+                        Icon(Icons.archive_outlined),
+                        Icon(Icons.block, size: 18),
+                      ],
+                    ),
+              onPressed: () {
+                setState(() {
+                  _showHidden = !_showHidden;
+                });
+              },
+              tooltip: _showHidden ? 'Hide hidden' : 'Show hidden',
+            ),
+          if (_currentUser != null)
+            IconButton(
               icon: const Icon(Icons.logout),
               onPressed: _handleSignOut,
               tooltip: 'Logout',
@@ -592,6 +611,10 @@ class _MyHomePageState extends State<MyHomePage> {
   List<HistoryItem> _getFilteredItems() {
     List<HistoryItem> items = List.from(_history);
 
+    if (!_showHidden) {
+      items = items.where((item) => !item.isHidden).toList();
+    }
+
     // Apply type filter
     if (_currentTypeFilter != null) {
       items = items.where((item) => item.type == _currentTypeFilter).toList();
@@ -623,6 +646,10 @@ class _MyHomePageState extends State<MyHomePage> {
     String message;
     IconData icon;
 
+    if (!_showHidden && _history.any((item) => item.isHidden)) {
+      message = 'No visible items';
+      icon = Icons.visibility_off_outlined;
+    } else {
     switch (_currentView) {
       case ViewMode.timeline:
         message = 'No items with event dates found';
@@ -642,6 +669,7 @@ class _MyHomePageState extends State<MyHomePage> {
         }
         break;
     }
+    }
 
     return Center(
       child: Padding(
@@ -660,10 +688,12 @@ class _MyHomePageState extends State<MyHomePage> {
               style: Theme.of(context).textTheme.titleMedium,
             ),
             const SizedBox(height: AppSpacing.sm),
-            Text(
-              _currentView == ViewMode.all && _currentTypeFilter == null
-                  ? 'Share content from other apps to see it here'
-                  : 'Try changing your filters',
+          Text(
+              (!_showHidden && _history.any((item) => item.isHidden))
+                  ? 'Enable "Show hidden" to view archived items'
+                  : _currentView == ViewMode.all && _currentTypeFilter == null
+                      ? 'Share content from other apps to see it here'
+                      : 'Try changing your filters',
               style: Theme.of(context).textTheme.bodySmall,
               textAlign: TextAlign.center,
             ),
@@ -692,6 +722,8 @@ class _MyHomePageState extends State<MyHomePage> {
           child: HistoryCard(
             item: item,
             authToken: _authToken,
+            isHidden: item.isHidden,
+            onToggleHidden: () => _setItemHidden(item, !item.isHidden),
             onTap: () => _openDetailFiltered(items, index),
             onDelete: () => _deleteItem(item),
           ),
@@ -845,6 +877,8 @@ class _MyHomePageState extends State<MyHomePage> {
               HistoryCard(
                 item: item,
                 authToken: _authToken,
+                isHidden: item.isHidden,
+                onToggleHidden: () => _setItemHidden(item, !item.isHidden),
                 onTap: () => _openDetailFiltered(items, itemIndex),
                 onDelete: () => _deleteItem(item),
               ),
@@ -939,6 +973,23 @@ class _MyHomePageState extends State<MyHomePage> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Failed to delete: $e')),
+        );
+      }
+    }
+  }
+
+  Future<void> _setItemHidden(HistoryItem item, bool hidden) async {
+    try {
+      final authHeaders = await _currentUser!.authentication;
+      final token = authHeaders.accessToken;
+      if (token != null) {
+        await _apiService.setItemHidden(token, item.id, hidden);
+        _loadHistory();
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to update visibility: $e')),
         );
       }
     }

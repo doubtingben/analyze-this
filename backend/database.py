@@ -16,7 +16,7 @@ from google.cloud.firestore_v1.base_query import FieldFilter
 # SQLAlchemy imports
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
 from sqlalchemy.orm import sessionmaker, declarative_base
-from sqlalchemy import Column, String, DateTime, JSON, inspect
+from sqlalchemy import Column, String, DateTime, JSON, Boolean, inspect, text
 from sqlalchemy.future import select
 
 # --- Interface ---
@@ -172,6 +172,7 @@ class DBSharedItem(Base):
     analysis = Column(JSON, nullable=True)
     status = Column(String, default='new')
     next_step = Column(String, nullable=True)
+    hidden = Column(Boolean, default=False)
 
 class SQLiteDatabase(DatabaseInterface):
     def __init__(self, db_url: str = "sqlite+aiosqlite:///./development.db"):
@@ -185,6 +186,14 @@ class SQLiteDatabase(DatabaseInterface):
     async def init_db(self):
         async with self.engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
+
+            def ensure_hidden_column(sync_conn):
+                inspector = inspect(sync_conn)
+                columns = [col['name'] for col in inspector.get_columns('shared_items')]
+                if 'hidden' not in columns:
+                    sync_conn.execute(text("ALTER TABLE shared_items ADD COLUMN hidden BOOLEAN DEFAULT 0"))
+
+            await conn.run_sync(ensure_hidden_column)
 
     async def get_user(self, email: str) -> Optional[User]:
         async with self.SessionLocal() as session:
@@ -242,7 +251,8 @@ class SQLiteDatabase(DatabaseInterface):
                 item_metadata=item.item_metadata,
                 analysis=analysis_data,
                 status=item.status,
-                next_step=item.next_step
+                next_step=item.next_step,
+                hidden=item.hidden
             )
             session.add(db_item)
             await session.commit()
@@ -269,7 +279,8 @@ class SQLiteDatabase(DatabaseInterface):
                     'item_metadata': item.item_metadata,
                     'analysis': item.analysis,
                     'status': item.status,
-                    'next_step': item.next_step
+                    'next_step': item.next_step,
+                    'hidden': item.hidden
                 }
                 for item in items
             ]
@@ -303,7 +314,8 @@ class SQLiteDatabase(DatabaseInterface):
                     'created_at': item.created_at,
                     'analysis': item.analysis,
                     'status': item.status,
-                    'next_step': item.next_step
+                    'next_step': item.next_step,
+                    'hidden': item.hidden
                 }
             return None
 
@@ -341,7 +353,8 @@ class SQLiteDatabase(DatabaseInterface):
                     'item_metadata': item.item_metadata,
                     'analysis': item.analysis,
                     'status': item.status,
-                    'next_step': item.next_step
+                    'next_step': item.next_step,
+                    'hidden': item.hidden
                 }
                 for item in items
             ]

@@ -651,12 +651,10 @@ async def get_current_user(request: Request):
         raise HTTPException(status_code=401, detail="Not authenticated")
     return {"email": user.get('email'), "name": user.get('name'), "picture": user.get('picture')}
 
-@app.delete("/api/items/{item_id}")
-async def delete_item(item_id: str, request: Request):
-    # Auth Check
+async def get_authenticated_email(request: Request) -> str:
     auth_header = request.headers.get('Authorization')
     user_email = None
-    
+
     if auth_header and auth_header.startswith('Bearer '):
         token = auth_header.split(' ')[1]
         user_info = await verify_google_token(token)
@@ -664,9 +662,39 @@ async def delete_item(item_id: str, request: Request):
             user_email = user_info['email']
     elif 'user' in request.session:
         user_email = request.session['user']['email']
-        
+
     if not user_email:
         raise HTTPException(status_code=401, detail="Unauthorized")
+
+    return user_email
+
+async def set_item_hidden_status(item_id: str, request: Request, hidden: bool):
+    user_email = await get_authenticated_email(request)
+
+    item = await db.get_shared_item(item_id)
+    if not item:
+        raise HTTPException(status_code=404, detail="Item not found")
+
+    if item.get('user_email') != user_email:
+        raise HTTPException(status_code=403, detail="Forbidden: You do not own this item")
+
+    success = await db.update_shared_item(item_id, {"hidden": hidden})
+    if not success:
+        raise HTTPException(status_code=404, detail="Item not found")
+
+    return {"status": "success", "item_id": item_id, "hidden": hidden}
+
+@app.patch("/api/items/{item_id}/hide")
+async def hide_item(item_id: str, request: Request):
+    return await set_item_hidden_status(item_id, request, True)
+
+@app.patch("/api/items/{item_id}/unhide")
+async def unhide_item(item_id: str, request: Request):
+    return await set_item_hidden_status(item_id, request, False)
+
+@app.delete("/api/items/{item_id}")
+async def delete_item(item_id: str, request: Request):
+    user_email = await get_authenticated_email(request)
 
     try:
         success = await db.delete_shared_item(item_id, user_email)
