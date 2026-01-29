@@ -217,6 +217,16 @@ class SQLiteDatabase(DatabaseInterface):
 
     async def create_shared_item(self, item: SharedItem) -> SharedItem:
         async with self.SessionLocal() as session:
+            # Convert Pydantic models to dicts for JSON columns if needed
+            analysis_data = None
+            if item.analysis:
+                if hasattr(item.analysis, 'model_dump'):
+                    analysis_data = item.analysis.model_dump()
+                elif hasattr(item.analysis, 'dict'):
+                    analysis_data = item.analysis.dict()
+                else:
+                    analysis_data = item.analysis
+
             db_item = DBSharedItem(
                 id=str(item.id),
                 user_email=item.user_email,
@@ -225,7 +235,7 @@ class SQLiteDatabase(DatabaseInterface):
                 type=item.type,
                 created_at=item.created_at or datetime.datetime.utcnow(),
                 item_metadata=item.item_metadata,
-                analysis=item.analysis,
+                analysis=analysis_data,
                 status=item.status,
                 next_step=item.next_step
             )

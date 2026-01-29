@@ -68,6 +68,35 @@ class TestApi(unittest.TestCase):
         response = self.client.delete("/api/items/does-not-exist", headers=self.headers)
         self.assertEqual(response.status_code, 404)
 
+    def test_list_items_with_analysis_structure(self):
+        # Create item with new analysis structure
+        from models import SharedItem, AnalysisResult, TimelineEvent, ShareType
+
+        analysis = AnalysisResult(
+            overview="Test Overview",
+            timeline=TimelineEvent(date="2023-01-01", principal="Me"),
+            tags=["tag1"]
+        )
+
+        item = SharedItem(
+            user_email="dev@example.com",
+            type=ShareType.text,
+            content="Test content",
+            analysis=analysis,
+            status="timeline"
+        )
+
+        asyncio.run(main.db.create_shared_item(item))
+
+        items_response = self.client.get("/api/items", headers=self.headers)
+        self.assertEqual(items_response.status_code, 200)
+        items = items_response.json()
+
+        # Verify the item with analysis is present
+        self.assertEqual(len(items), 1)
+        self.assertEqual(items[0]["analysis"]["overview"], "Test Overview")
+        self.assertEqual(items[0]["analysis"]["timeline"]["date"], "2023-01-01")
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -35,7 +35,11 @@ class TestWorkerAnalysis(unittest.TestCase):
     def test_process_items_async_success(self, mock_analyze, mock_get_db):
         # Setup
         mock_get_db.return_value = self.mock_db
-        mock_analyze.return_value = {"overview": "Analysis Done", "action": "timeline"}
+        # Updated to match new model: timeline object instead of action string
+        mock_analyze.return_value = {
+            "overview": "Analysis Done",
+            "timeline": {"date": "2023-10-27", "principal": "Test"}
+        }
         
         # Data
         item_id = "item-1"
@@ -51,8 +55,12 @@ class TestWorkerAnalysis(unittest.TestCase):
         
         # Verify
         updated_item = self.mock_db.items[item_id]
-        self.assertEqual(updated_item['status'], 'analyzed')
-        self.assertEqual(updated_item['analysis'], {"overview": "Analysis Done", "action": "timeline"})
+        # worker_analysis sets status based on presence of timeline key
+        self.assertEqual(updated_item['status'], 'timeline')
+        self.assertEqual(updated_item['analysis'], {
+            "overview": "Analysis Done",
+            "timeline": {"date": "2023-10-27", "principal": "Test"}
+        })
         self.assertEqual(updated_item['next_step'], 'timeline')
         
     @patch('worker_analysis.get_db', new_callable=AsyncMock)
@@ -84,7 +92,7 @@ class TestWorkerAnalysis(unittest.TestCase):
     def test_process_items_async_specific_id(self, mock_analyze, mock_get_db):
         # Setup
         mock_get_db.return_value = self.mock_db
-        mock_analyze.return_value = {"overview": "Forced Analysis", "action": "add_event"}
+        mock_analyze.return_value = {"overview": "Forced Analysis", "timeline": {"date": "2024-01-01"}}
         
         # Data
         item_id = "item-3"
@@ -101,7 +109,7 @@ class TestWorkerAnalysis(unittest.TestCase):
         
         # Verify
         updated_item = self.mock_db.items[item_id]
-        self.assertEqual(updated_item['analysis'], {"overview": "Forced Analysis", "action": "add_event"})
+        self.assertEqual(updated_item['analysis'], {"overview": "Forced Analysis", "timeline": {"date": "2024-01-01"}})
 
 if __name__ == "__main__":
     unittest.main()
