@@ -10,7 +10,7 @@ from pathlib import Path
 from contextlib import asynccontextmanager
 from typing import Optional
 from fastapi import FastAPI, Request, Depends, HTTPException, status, File, UploadFile, Form, BackgroundTasks
-from fastapi.responses import HTMLResponse, RedirectResponse, FileResponse, Response
+from fastapi.responses import HTMLResponse, RedirectResponse, FileResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.sessions import SessionMiddleware
@@ -632,15 +632,17 @@ async def get_content(blob_path: str, request: Request):
             bucket = storage.bucket()
             blob = bucket.blob(blob_path)
             
-            # Streaming response
-            # We need to install 'requests' or use google-cloud-storage transfer
-            # simpler: read into memory or use a generator
-            
-            # Since GCS client is synchronous by default, we'll read as bytes.
-            # For large files, this isn't ideal, but for images it's fine.
             loop = asyncio.get_running_loop()
-            content = await loop.run_in_executor(None, blob.download_as_bytes)
-            return Response(content, media_type=blob.content_type)
+            # Fetch metadata to get content_type and ensure file exists
+            await loop.run_in_executor(None, blob.reload)
+
+            def iterfile():
+                # Stream file from GCS in chunks to avoid memory exhaustion
+                with blob.open("rb") as f:
+                    while chunk := f.read(64 * 1024):  # 64KB chunks
+                        yield chunk
+
+            return StreamingResponse(iterfile(), media_type=blob.content_type)
             
     except HTTPException:
         raise
