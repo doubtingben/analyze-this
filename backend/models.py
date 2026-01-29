@@ -55,4 +55,5 @@ class SharedItem(BaseModel):
     analysis: Optional[AnalysisResult] = Field(default=None)
     status: ItemStatus = Field(default=ItemStatus.new)
     next_step: Optional[str] = Field(default=None)
+    is_normalized: bool = Field(default=False)
     hidden: bool = Field(default=False)
