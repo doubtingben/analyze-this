@@ -55,6 +55,13 @@ class _MyHomePageState extends State<MyHomePage> {
   ViewMode _currentView = ViewMode.all;
   String? _currentTypeFilter;
 
+  // Timeline scroll state
+  final ScrollController _timelineScrollController = ScrollController();
+  int _nowDividerIndex = 0;
+  bool _hasScrolledToNow = false;
+  bool _isNowAboveViewport = false;
+  bool _isNowBelowViewport = true;
+
   @override
   void initState() {
     super.initState();
@@ -280,7 +287,44 @@ class _MyHomePageState extends State<MyHomePage> {
   @override
   void dispose() {
     _intentDataStreamSubscription?.cancel();
+    _timelineScrollController.dispose();
     super.dispose();
+  }
+
+  void _updateNowVisibility() {
+    if (!_timelineScrollController.hasClients) return;
+
+    // Estimate item height (card ~120px + padding)
+    const estimatedItemHeight = 150.0;
+    final scrollOffset = _timelineScrollController.offset;
+    final viewportHeight = _timelineScrollController.position.viewportDimension;
+
+    final nowOffset = _nowDividerIndex * estimatedItemHeight;
+
+    setState(() {
+      _isNowAboveViewport = nowOffset < scrollOffset;
+      _isNowBelowViewport = nowOffset > scrollOffset + viewportHeight - 100;
+    });
+  }
+
+  void _scrollToNow({bool animate = true}) {
+    if (!_timelineScrollController.hasClients) return;
+
+    // Estimate item height
+    const estimatedItemHeight = 150.0;
+    final targetOffset = (_nowDividerIndex * estimatedItemHeight) - 100; // Offset to show some context above
+    final maxScroll = _timelineScrollController.position.maxScrollExtent;
+    final clampedOffset = targetOffset.clamp(0.0, maxScroll);
+
+    if (animate) {
+      _timelineScrollController.animateTo(
+        clampedOffset,
+        duration: const Duration(milliseconds: 300),
+        curve: Curves.easeInOut,
+      );
+    } else {
+      _timelineScrollController.jumpTo(clampedOffset);
+    }
   }
 
   Future<void> _handleSignIn() async {
@@ -716,10 +760,27 @@ class _MyHomePageState extends State<MyHomePage> {
       }
     }
 
+    // Store nowIndex for scroll calculations
+    _nowDividerIndex = nowIndex;
+
     // Total items = items + 1 for Now divider
     final totalCount = items.length + 1;
 
-    return ListView.builder(
+    // Scroll to Now on first load
+    if (!_hasScrolledToNow && items.isNotEmpty) {
+      _hasScrolledToNow = true;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _scrollToNow(animate: false);
+        _updateNowVisibility();
+      });
+    }
+
+    // Add scroll listener for visibility tracking
+    _timelineScrollController.removeListener(_updateNowVisibility);
+    _timelineScrollController.addListener(_updateNowVisibility);
+
+    final listView = ListView.builder(
+      controller: _timelineScrollController,
       padding: const EdgeInsets.all(AppSpacing.lg),
       itemCount: totalCount,
       itemBuilder: (context, index) {
@@ -751,6 +812,69 @@ class _MyHomePageState extends State<MyHomePage> {
           ),
         );
       },
+    );
+
+    // Show floating Now button when Now is off-screen
+    final showNowButton = _isNowAboveViewport || _isNowBelowViewport;
+
+    return Stack(
+      children: [
+        listView,
+        if (showNowButton)
+          Positioned(
+            left: 0,
+            right: 0,
+            top: _isNowAboveViewport ? AppSpacing.md : null,
+            bottom: _isNowBelowViewport && !_isNowAboveViewport ? AppSpacing.md : null,
+            child: Center(
+              child: _buildNowButton(),
+            ),
+          ),
+      ],
+    );
+  }
+
+  Widget _buildNowButton() {
+    return GestureDetector(
+      onTap: _scrollToNow,
+      child: Container(
+        padding: const EdgeInsets.symmetric(
+          horizontal: AppSpacing.lg,
+          vertical: AppSpacing.sm,
+        ),
+        decoration: BoxDecoration(
+          gradient: const LinearGradient(
+            colors: [Color(0xFF3b82f6), Color(0xFF8b5cf6)],
+          ),
+          borderRadius: BorderRadius.circular(20),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.2),
+              blurRadius: 8,
+              offset: const Offset(0, 2),
+            ),
+          ],
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              _isNowAboveViewport ? Icons.arrow_upward : Icons.arrow_downward,
+              color: Colors.white,
+              size: 16,
+            ),
+            const SizedBox(width: AppSpacing.xs),
+            const Text(
+              'Now',
+              style: TextStyle(
+                color: Colors.white,
+                fontSize: 14,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 
