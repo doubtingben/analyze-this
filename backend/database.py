@@ -274,7 +274,7 @@ class SQLiteDatabase(DatabaseInterface):
                 analysis=analysis_data,
                 status=item.status,
                 next_step=item.next_step,
-                is_normalized=item.is_normalized
+                is_normalized=item.is_normalized,
                 hidden=item.hidden
             )
             session.add(db_item)
@@ -303,7 +303,7 @@ class SQLiteDatabase(DatabaseInterface):
                     'analysis': item.analysis,
                     'status': item.status,
                     'next_step': item.next_step,
-                    'is_normalized': item.is_normalized
+                    'is_normalized': item.is_normalized,
                     'hidden': item.hidden
                 }
                 for item in items
@@ -339,7 +339,7 @@ class SQLiteDatabase(DatabaseInterface):
                     'analysis': item.analysis,
                     'status': item.status,
                     'next_step': item.next_step,
-                    'is_normalized': item.is_normalized
+                    'is_normalized': item.is_normalized,
                     'hidden': item.hidden
                 }
             return None
@@ -405,7 +405,7 @@ class SQLiteDatabase(DatabaseInterface):
                     'analysis': item.analysis,
                     'status': item.status,
                     'next_step': item.next_step,
-                    'is_normalized': item.is_normalized
+                    'is_normalized': item.is_normalized,
                     'hidden': item.hidden
                 }
                 for item in items
