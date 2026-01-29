@@ -58,6 +58,7 @@ class _MyHomePageState extends State<MyHomePage> {
   // Timeline scroll state
   final ScrollController _timelineScrollController = ScrollController();
   final GlobalKey _nowDividerKey = GlobalKey();
+  int _nowListIndex = 0; // Index of Now divider in the list
   bool _hasScrolledToNow = false;
   bool _nowButtonVisible = false;
   bool _nowIsAbove = false; // true = Now is above viewport, false = Now is below
@@ -292,44 +293,51 @@ class _MyHomePageState extends State<MyHomePage> {
   }
 
   void _updateNowVisibility() {
-    if (!_timelineScrollController.hasClients) return;
     if (_nowDividerKey.currentContext == null) return;
 
     final RenderBox? nowBox = _nowDividerKey.currentContext?.findRenderObject() as RenderBox?;
     if (nowBox == null || !nowBox.hasSize) return;
 
-    // Get the Now divider's position relative to the viewport
+    // Get the Now divider's position relative to the screen
     final nowPosition = nowBox.localToGlobal(Offset.zero);
     final screenHeight = MediaQuery.of(context).size.height;
 
-    // Account for app bar and filter controls (roughly 200px from top)
-    const topOffset = 200.0;
+    // Account for app bar and filter controls (roughly 250px from top)
+    const topOffset = 250.0;
     const bottomPadding = 100.0;
 
     final nowY = nowPosition.dy;
     final isVisible = nowY >= topOffset && nowY <= screenHeight - bottomPadding;
     final isAbove = nowY < topOffset;
 
-    setState(() {
-      _nowButtonVisible = !isVisible;
-      _nowIsAbove = isAbove;
-    });
+    if (_nowButtonVisible != !isVisible || _nowIsAbove != isAbove) {
+      setState(() {
+        _nowButtonVisible = !isVisible;
+        _nowIsAbove = isAbove;
+      });
+    }
   }
 
   void _scrollToNow({bool animate = true}) {
     if (!_timelineScrollController.hasClients) return;
-    if (_nowDividerKey.currentContext == null) return;
 
-    // Find the Now divider and scroll to make it visible
-    final RenderBox? nowBox = _nowDividerKey.currentContext?.findRenderObject() as RenderBox?;
-    if (nowBox == null) return;
+    // Try using Scrollable.ensureVisible if context is available
+    if (_nowDividerKey.currentContext != null) {
+      Scrollable.ensureVisible(
+        _nowDividerKey.currentContext!,
+        duration: animate ? const Duration(milliseconds: 300) : Duration.zero,
+        curve: Curves.easeInOut,
+        alignment: 0.3, // Position Now at 30% from top of viewport
+      ).then((_) {
+        if (mounted) _updateNowVisibility();
+      });
+      return;
+    }
 
-    // Get current scroll position and Now divider's position
-    final scrollOffset = _timelineScrollController.offset;
-    final nowPosition = nowBox.localToGlobal(Offset.zero);
-
-    // Calculate target offset to position Now near top with some context
-    final targetOffset = scrollOffset + nowPosition.dy - 250;
+    // Fallback: estimate position based on index
+    // Average item height is roughly 200px (card + padding + date badge)
+    const estimatedItemHeight = 200.0;
+    final targetOffset = _nowListIndex * estimatedItemHeight;
     final maxScroll = _timelineScrollController.position.maxScrollExtent;
     final clampedOffset = targetOffset.clamp(0.0, maxScroll);
 
@@ -338,9 +346,14 @@ class _MyHomePageState extends State<MyHomePage> {
         clampedOffset,
         duration: const Duration(milliseconds: 300),
         curve: Curves.easeInOut,
-      );
+      ).then((_) {
+        if (mounted) _updateNowVisibility();
+      });
     } else {
       _timelineScrollController.jumpTo(clampedOffset);
+      Future.delayed(const Duration(milliseconds: 50), () {
+        if (mounted) _updateNowVisibility();
+      });
     }
   }
 
@@ -778,21 +791,33 @@ class _MyHomePageState extends State<MyHomePage> {
       }
     }
 
+    // Store for scroll calculations
+    _nowListIndex = nowIndex;
+
     // Total items = items + 1 for Now divider
     final totalCount = items.length + 1;
 
-    // Scroll to Now on first load
+    // Scroll to Now on first load (with delay to ensure widget is rendered)
     if (!_hasScrolledToNow && items.isNotEmpty) {
       _hasScrolledToNow = true;
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        _scrollToNow(animate: false);
-        _updateNowVisibility();
+        // Small delay to ensure GlobalKey context is available
+        Future.delayed(const Duration(milliseconds: 100), () {
+          if (mounted) {
+            _scrollToNow(animate: false);
+          }
+        });
       });
     }
 
     // Add scroll listener for visibility tracking
     _timelineScrollController.removeListener(_updateNowVisibility);
     _timelineScrollController.addListener(_updateNowVisibility);
+
+    // Update visibility after build
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _updateNowVisibility();
+    });
 
     final listView = ListView.builder(
       controller: _timelineScrollController,
