@@ -13,6 +13,8 @@ class HistoryCard extends StatelessWidget {
   final VoidCallback? onToggleHidden;
   final String? authToken;
   final bool isHidden;
+  final bool showImage;
+  final bool showDate;
 
   const HistoryCard({
     super.key,
@@ -22,6 +24,8 @@ class HistoryCard extends StatelessWidget {
     this.onToggleHidden,
     this.authToken,
     this.isHidden = false,
+    this.showImage = true,
+    this.showDate = true,
   });
 
   bool get _hasAnalysis => item.analysis != null && item.analysis!.isNotEmpty;
@@ -33,9 +37,11 @@ class HistoryCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final dateStr = DateFormat.yMMMd().add_jm().format(
-      DateTime.fromMillisecondsSinceEpoch(item.timestamp),
-    );
+    final dateStr = showDate
+        ? DateFormat.yMMMd().add_jm().format(
+            DateTime.fromMillisecondsSinceEpoch(item.timestamp),
+          )
+        : null;
 
     return Card(
       child: InkWell(
@@ -46,7 +52,7 @@ class HistoryCard extends StatelessWidget {
           mainAxisSize: MainAxisSize.min,
           children: [
             // Image thumbnail (if applicable)
-            if (_isImageType && item.value.isNotEmpty)
+            if (showImage && _isImageType && item.value.isNotEmpty)
               _buildImageThumbnail(),
 
             // Card content
@@ -102,10 +108,11 @@ class HistoryCard extends StatelessWidget {
                   const SizedBox(height: AppSpacing.sm),
 
                   // Timestamp
-                  Text(
-                    dateStr,
-                    style: theme.textTheme.bodySmall,
-                  ),
+                  if (dateStr != null)
+                    Text(
+                      dateStr,
+                      style: theme.textTheme.bodySmall,
+                    ),
                 ],
               ),
             ),

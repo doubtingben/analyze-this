@@ -627,7 +627,7 @@ class _MyHomePageState extends State<MyHomePage> {
         items.sort((a, b) {
           final dateA = _getEventDateTime(a)!;
           final dateB = _getEventDateTime(b)!;
-          return dateA.compareTo(dateB);
+          return dateB.compareTo(dateA);
         });
         break;
       case ViewMode.followUp:
@@ -817,7 +817,7 @@ class _MyHomePageState extends State<MyHomePage> {
     // Find where to insert Now divider
     for (int i = 0; i < items.length; i++) {
       final eventDate = _getEventDateTime(items[i]);
-      if (eventDate != null && eventDate.isAfter(now)) {
+      if (eventDate != null && eventDate.isBefore(now)) {
         nowIndex = i;
         break;
       }
@@ -866,6 +866,37 @@ class _MyHomePageState extends State<MyHomePage> {
         final item = items[itemIndex];
         final eventDate = _getEventDateTime(item);
 
+        final isPastEvent = eventDate != null && eventDate.isBefore(now);
+        final card = HistoryCard(
+          item: item,
+          authToken: _authToken,
+          isHidden: item.isHidden,
+          showImage: false,
+          showDate: false,
+          onToggleHidden: () => _setItemHidden(item, !item.isHidden),
+          onTap: () => _openDetailFiltered(items, itemIndex),
+          onDelete: () => _deleteItem(item),
+        );
+
+        final styledCard = isPastEvent
+            ? Transform.scale(
+                scale: 0.97,
+                alignment: Alignment.topCenter,
+                child: Opacity(
+                  opacity: 0.7,
+                  child: ColorFiltered(
+                    colorFilter: const ColorFilter.matrix(<double>[
+                      0.2126, 0.7152, 0.0722, 0, 0,
+                      0.2126, 0.7152, 0.0722, 0, 0,
+                      0.2126, 0.7152, 0.0722, 0, 0,
+                      0,      0,      0,      1, 0,
+                    ]),
+                    child: card,
+                  ),
+                ),
+              )
+            : card;
+
         return Padding(
           padding: EdgeInsets.only(
             bottom: index < totalCount - 1 ? AppSpacing.md : 0,
@@ -874,14 +905,7 @@ class _MyHomePageState extends State<MyHomePage> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               if (eventDate != null) _buildEventDateBadge(eventDate),
-              HistoryCard(
-                item: item,
-                authToken: _authToken,
-                isHidden: item.isHidden,
-                onToggleHidden: () => _setItemHidden(item, !item.isHidden),
-                onTap: () => _openDetailFiltered(items, itemIndex),
-                onDelete: () => _deleteItem(item),
-              ),
+              styledCard,
             ],
           ),
         );
