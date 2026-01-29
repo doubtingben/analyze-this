@@ -54,6 +54,15 @@ class _MyHomePageState extends State<MyHomePage> {
   String? _authToken;
   ViewMode _currentView = ViewMode.all;
   String? _currentTypeFilter;
+  bool _showHidden = false;
+
+  // Timeline scroll state
+  final ScrollController _timelineScrollController = ScrollController();
+  final GlobalKey _nowDividerKey = GlobalKey();
+  int _nowListIndex = 0; // Index of Now divider in the list
+  bool _hasScrolledToNow = false;
+  bool _nowButtonVisible = false;
+  bool _nowIsAbove = false; // true = Now is above viewport, false = Now is below
 
   @override
   void initState() {
@@ -280,7 +289,73 @@ class _MyHomePageState extends State<MyHomePage> {
   @override
   void dispose() {
     _intentDataStreamSubscription?.cancel();
+    _timelineScrollController.dispose();
     super.dispose();
+  }
+
+  void _updateNowVisibility() {
+    if (_nowDividerKey.currentContext == null) return;
+
+    final RenderBox? nowBox = _nowDividerKey.currentContext?.findRenderObject() as RenderBox?;
+    if (nowBox == null || !nowBox.hasSize) return;
+
+    // Get the Now divider's position relative to the screen
+    final nowPosition = nowBox.localToGlobal(Offset.zero);
+    final screenHeight = MediaQuery.of(context).size.height;
+
+    // Account for app bar and filter controls (roughly 250px from top)
+    const topOffset = 250.0;
+    const bottomPadding = 100.0;
+
+    final nowY = nowPosition.dy;
+    final isVisible = nowY >= topOffset && nowY <= screenHeight - bottomPadding;
+    final isAbove = nowY < topOffset;
+
+    if (_nowButtonVisible != !isVisible || _nowIsAbove != isAbove) {
+      setState(() {
+        _nowButtonVisible = !isVisible;
+        _nowIsAbove = isAbove;
+      });
+    }
+  }
+
+  void _scrollToNow({bool animate = true}) {
+    if (!_timelineScrollController.hasClients) return;
+
+    // Try using Scrollable.ensureVisible if context is available
+    if (_nowDividerKey.currentContext != null) {
+      Scrollable.ensureVisible(
+        _nowDividerKey.currentContext!,
+        duration: animate ? const Duration(milliseconds: 300) : Duration.zero,
+        curve: Curves.easeInOut,
+        alignment: 0.3, // Position Now at 30% from top of viewport
+      ).then((_) {
+        if (mounted) _updateNowVisibility();
+      });
+      return;
+    }
+
+    // Fallback: estimate position based on index
+    // Average item height is roughly 200px (card + padding + date badge)
+    const estimatedItemHeight = 200.0;
+    final targetOffset = _nowListIndex * estimatedItemHeight;
+    final maxScroll = _timelineScrollController.position.maxScrollExtent;
+    final clampedOffset = targetOffset.clamp(0.0, maxScroll);
+
+    if (animate) {
+      _timelineScrollController.animateTo(
+        clampedOffset,
+        duration: const Duration(milliseconds: 300),
+        curve: Curves.easeInOut,
+      ).then((_) {
+        if (mounted) _updateNowVisibility();
+      });
+    } else {
+      _timelineScrollController.jumpTo(clampedOffset);
+      Future.delayed(const Duration(milliseconds: 50), () {
+        if (mounted) _updateNowVisibility();
+      });
+    }
   }
 
   Future<void> _handleSignIn() async {
@@ -316,6 +391,24 @@ class _MyHomePageState extends State<MyHomePage> {
               icon: const Icon(Icons.refresh),
               onPressed: _loadHistory,
               tooltip: 'Refresh',
+            ),
+          if (_currentUser != null)
+            IconButton(
+              icon: _showHidden
+                  ? const Icon(Icons.archive_outlined)
+                  : Stack(
+                      alignment: Alignment.center,
+                      children: const [
+                        Icon(Icons.archive_outlined),
+                        Icon(Icons.block, size: 18),
+                      ],
+                    ),
+              onPressed: () {
+                setState(() {
+                  _showHidden = !_showHidden;
+                });
+              },
+              tooltip: _showHidden ? 'Hide hidden' : 'Show hidden',
             ),
           if (_currentUser != null)
             IconButton(
@@ -369,7 +462,7 @@ class _MyHomePageState extends State<MyHomePage> {
   Widget _buildMainView() {
     return Column(
       children: [
-        // User header
+        // User header with type filter
         Container(
           padding: const EdgeInsets.all(AppSpacing.lg),
           color: AppColors.surface,
@@ -395,6 +488,28 @@ class _MyHomePageState extends State<MyHomePage> {
                     ),
                   ],
                 ),
+              ),
+              // Type filter dropdown
+              DropdownMenu<String?>(
+                initialSelection: _currentTypeFilter,
+                hintText: 'All Types',
+                width: 130,
+                textStyle: Theme.of(context).textTheme.bodySmall,
+                onSelected: (String? value) {
+                  setState(() {
+                    _currentTypeFilter = value;
+                  });
+                },
+                dropdownMenuEntries: const [
+                  DropdownMenuEntry(value: null, label: 'All Types'),
+                  DropdownMenuEntry(value: 'image', label: 'Image'),
+                  DropdownMenuEntry(value: 'video', label: 'Video'),
+                  DropdownMenuEntry(value: 'audio', label: 'Audio'),
+                  DropdownMenuEntry(value: 'file', label: 'File'),
+                  DropdownMenuEntry(value: 'screenshot', label: 'Screenshot'),
+                  DropdownMenuEntry(value: 'text', label: 'Text'),
+                  DropdownMenuEntry(value: 'web_url', label: 'Web URL'),
+                ],
               ),
             ],
           ),
@@ -432,47 +547,21 @@ class _MyHomePageState extends State<MyHomePage> {
           bottom: BorderSide(color: Colors.grey.shade200),
         ),
       ),
-      child: Row(
-        children: [
-          // View mode segmented button
-          Flexible(
-            child: SegmentedButton<ViewMode>(
-              segments: const [
-                ButtonSegment(value: ViewMode.all, label: Text('All')),
-                ButtonSegment(value: ViewMode.timeline, label: Text('Timeline')),
-                ButtonSegment(value: ViewMode.followUp, label: Text('Follow-up')),
-              ],
-              selected: {_currentView},
-              onSelectionChanged: (Set<ViewMode> selection) {
-                setState(() {
-                  _currentView = selection.first;
-                });
-              },
-            ),
-          ),
-          const SizedBox(width: AppSpacing.sm),
-          // Type filter dropdown
-          DropdownMenu<String?>(
-            initialSelection: _currentTypeFilter,
-            hintText: 'All Types',
-            width: 120,
-            onSelected: (String? value) {
-              setState(() {
-                _currentTypeFilter = value;
-              });
-            },
-            dropdownMenuEntries: const [
-              DropdownMenuEntry(value: null, label: 'All Types'),
-              DropdownMenuEntry(value: 'image', label: 'Image'),
-              DropdownMenuEntry(value: 'video', label: 'Video'),
-              DropdownMenuEntry(value: 'audio', label: 'Audio'),
-              DropdownMenuEntry(value: 'file', label: 'File'),
-              DropdownMenuEntry(value: 'screenshot', label: 'Screenshot'),
-              DropdownMenuEntry(value: 'text', label: 'Text'),
-              DropdownMenuEntry(value: 'web_url', label: 'Web URL'),
-            ],
-          ),
-        ],
+      child: Center(
+        child: SegmentedButton<ViewMode>(
+          showSelectedIcon: false,
+          segments: const [
+            ButtonSegment(value: ViewMode.all, label: Text('All')),
+            ButtonSegment(value: ViewMode.timeline, label: Text('Timeline')),
+            ButtonSegment(value: ViewMode.followUp, label: Text('Follow-up')),
+          ],
+          selected: {_currentView},
+          onSelectionChanged: (Set<ViewMode> selection) {
+            setState(() {
+              _currentView = selection.first;
+            });
+          },
+        ),
       ),
     );
   }
@@ -522,6 +611,10 @@ class _MyHomePageState extends State<MyHomePage> {
   List<HistoryItem> _getFilteredItems() {
     List<HistoryItem> items = List.from(_history);
 
+    if (!_showHidden) {
+      items = items.where((item) => !item.isHidden).toList();
+    }
+
     // Apply type filter
     if (_currentTypeFilter != null) {
       items = items.where((item) => item.type == _currentTypeFilter).toList();
@@ -553,6 +646,10 @@ class _MyHomePageState extends State<MyHomePage> {
     String message;
     IconData icon;
 
+    if (!_showHidden && _history.any((item) => item.isHidden)) {
+      message = 'No visible items';
+      icon = Icons.visibility_off_outlined;
+    } else {
     switch (_currentView) {
       case ViewMode.timeline:
         message = 'No items with event dates found';
@@ -572,6 +669,7 @@ class _MyHomePageState extends State<MyHomePage> {
         }
         break;
     }
+    }
 
     return Center(
       child: Padding(
@@ -590,10 +688,12 @@ class _MyHomePageState extends State<MyHomePage> {
               style: Theme.of(context).textTheme.titleMedium,
             ),
             const SizedBox(height: AppSpacing.sm),
-            Text(
-              _currentView == ViewMode.all && _currentTypeFilter == null
-                  ? 'Share content from other apps to see it here'
-                  : 'Try changing your filters',
+          Text(
+              (!_showHidden && _history.any((item) => item.isHidden))
+                  ? 'Enable "Show hidden" to view archived items'
+                  : _currentView == ViewMode.all && _currentTypeFilter == null
+                      ? 'Share content from other apps to see it here'
+                      : 'Try changing your filters',
               style: Theme.of(context).textTheme.bodySmall,
               textAlign: TextAlign.center,
             ),
@@ -622,6 +722,8 @@ class _MyHomePageState extends State<MyHomePage> {
           child: HistoryCard(
             item: item,
             authToken: _authToken,
+            isHidden: item.isHidden,
+            onToggleHidden: () => _setItemHidden(item, !item.isHidden),
             onTap: () => _openDetailFiltered(items, index),
             onDelete: () => _deleteItem(item),
           ),
@@ -632,6 +734,7 @@ class _MyHomePageState extends State<MyHomePage> {
 
   Widget _buildNowDivider() {
     return Padding(
+      key: _nowDividerKey,
       padding: const EdgeInsets.symmetric(vertical: AppSpacing.sm),
       child: Row(
         children: [
@@ -720,10 +823,36 @@ class _MyHomePageState extends State<MyHomePage> {
       }
     }
 
+    // Store for scroll calculations
+    _nowListIndex = nowIndex;
+
     // Total items = items + 1 for Now divider
     final totalCount = items.length + 1;
 
-    return ListView.builder(
+    // Scroll to Now on first load (with delay to ensure widget is rendered)
+    if (!_hasScrolledToNow && items.isNotEmpty) {
+      _hasScrolledToNow = true;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        // Small delay to ensure GlobalKey context is available
+        Future.delayed(const Duration(milliseconds: 100), () {
+          if (mounted) {
+            _scrollToNow(animate: false);
+          }
+        });
+      });
+    }
+
+    // Add scroll listener for visibility tracking
+    _timelineScrollController.removeListener(_updateNowVisibility);
+    _timelineScrollController.addListener(_updateNowVisibility);
+
+    // Update visibility after build
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _updateNowVisibility();
+    });
+
+    final listView = ListView.builder(
+      controller: _timelineScrollController,
       padding: const EdgeInsets.all(AppSpacing.lg),
       itemCount: totalCount,
       itemBuilder: (context, index) {
@@ -748,6 +877,8 @@ class _MyHomePageState extends State<MyHomePage> {
               HistoryCard(
                 item: item,
                 authToken: _authToken,
+                isHidden: item.isHidden,
+                onToggleHidden: () => _setItemHidden(item, !item.isHidden),
                 onTap: () => _openDetailFiltered(items, itemIndex),
                 onDelete: () => _deleteItem(item),
               ),
@@ -755,6 +886,66 @@ class _MyHomePageState extends State<MyHomePage> {
           ),
         );
       },
+    );
+
+    return Stack(
+      children: [
+        listView,
+        if (_nowButtonVisible)
+          Positioned(
+            left: 0,
+            right: 0,
+            top: _nowIsAbove ? AppSpacing.md : null,
+            bottom: !_nowIsAbove ? AppSpacing.md : null,
+            child: Center(
+              child: _buildNowButton(),
+            ),
+          ),
+      ],
+    );
+  }
+
+  Widget _buildNowButton() {
+    return GestureDetector(
+      onTap: _scrollToNow,
+      child: Container(
+        padding: const EdgeInsets.symmetric(
+          horizontal: AppSpacing.lg,
+          vertical: AppSpacing.sm,
+        ),
+        decoration: BoxDecoration(
+          gradient: const LinearGradient(
+            colors: [Color(0xFF3b82f6), Color(0xFF8b5cf6)],
+          ),
+          borderRadius: BorderRadius.circular(20),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.2),
+              blurRadius: 8,
+              offset: const Offset(0, 2),
+            ),
+          ],
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              _nowIsAbove ? Icons.arrow_upward : Icons.arrow_downward,
+              color: Colors.white,
+              size: 16,
+            ),
+            const SizedBox(width: AppSpacing.xs),
+            const Text(
+              'Now',
+              style: TextStyle(
+                color: Colors.white,
+                fontSize: 14,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 
@@ -782,6 +973,23 @@ class _MyHomePageState extends State<MyHomePage> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Failed to delete: $e')),
+        );
+      }
+    }
+  }
+
+  Future<void> _setItemHidden(HistoryItem item, bool hidden) async {
+    try {
+      final authHeaders = await _currentUser!.authentication;
+      final token = authHeaders.accessToken;
+      if (token != null) {
+        await _apiService.setItemHidden(token, item.id, hidden);
+        _loadHistory();
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to update visibility: $e')),
         );
       }
     }

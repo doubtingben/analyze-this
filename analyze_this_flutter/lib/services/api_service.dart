@@ -36,6 +36,20 @@ class ApiService {
     }
   }
 
+  Future<void> setItemHidden(String token, String id, bool hidden) async {
+    final action = hidden ? 'hide' : 'unhide';
+    final response = await http.patch(
+      Uri.parse('${Config.apiUrl}/api/items/$id/$action'),
+      headers: {
+        'Authorization': 'Bearer $token',
+      },
+    );
+
+    if (response.statusCode != 200 && response.statusCode != 204) {
+      throw Exception('Failed to update item visibility: ${response.statusCode}');
+    }
+  }
+
   Future<void> uploadShare(
     String token,
     ShareItemType type,

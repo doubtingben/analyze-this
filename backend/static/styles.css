@@ -154,6 +154,19 @@ body {
     border-color: #3b82f6;
 }
 
+.hide-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 14px;
+    color: #374151;
+    user-select: none;
+}
+
+.hide-toggle input {
+    accent-color: #3b82f6;
+}
+
 /* Now Divider */
 .now-divider {
     display: flex;
@@ -197,6 +210,11 @@ body {
     display: flex;
     flex-direction: column;
     gap: 16px;
+}
+
+.item-card.is-hidden {
+    opacity: 0.6;
+    border-style: dashed;
 }
 
 .item-card {
@@ -440,6 +458,22 @@ body {
 
 .delete-btn:hover {
     background: #fecaca;
+}
+
+.hide-btn {
+    background: #e5e7eb;
+    color: #374151;
+    border: none;
+    padding: 6px 12px;
+    border-radius: 6px;
+    font-size: 12px;
+    cursor: pointer;
+    transition: background 0.2s ease;
+    margin-right: 8px;
+}
+
+.hide-btn:hover {
+    background: #d1d5db;
 }
 
 .item-footer-actions {

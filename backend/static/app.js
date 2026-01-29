@@ -7,6 +7,7 @@ const userInfoEl = document.getElementById('user-info');
 const loginStateEl = document.getElementById('login-state');
 const filtersEl = document.getElementById('filters');
 const typeFilterEl = document.getElementById('type-filter');
+const showHiddenEl = document.getElementById('show-hidden');
 const newItemBtn = document.getElementById('new-item-btn');
 const createModal = document.getElementById('create-modal');
 const createForm = document.getElementById('create-form');
@@ -18,6 +19,7 @@ const cancelCreateBtn = document.getElementById('cancel-create');
 let allItems = [];
 let currentView = 'all'; // 'all', 'timeline', or 'follow_up'
 let currentTypeFilter = ''; // '' for all, or specific type
+let showHidden = false;
 
 // Initialize the app
 async function init() {
@@ -184,6 +186,14 @@ function setupFilters() {
         currentTypeFilter = typeFilterEl.value;
         renderFilteredItems();
     });
+
+    if (showHiddenEl) {
+        showHidden = showHiddenEl.checked;
+        showHiddenEl.addEventListener('change', () => {
+            showHidden = showHiddenEl.checked;
+            renderFilteredItems();
+        });
+    }
 }
 
 // Get event date from analysis details
@@ -239,6 +249,10 @@ function getEventDateTime(item) {
 // Filter and sort items based on current view and type filter
 function getFilteredItems() {
     let items = [...allItems];
+
+    if (!showHidden) {
+        items = items.filter(item => !item.hidden);
+    }
 
     // Apply type filter
     if (currentTypeFilter) {
@@ -323,7 +337,9 @@ function renderItems(items) {
 
     if (!items || items.length === 0) {
         emptyStateEl.style.display = 'block';
-        if (currentView === 'timeline') {
+        if (!showHidden && allItems.some(item => item.hidden)) {
+            emptyStateEl.querySelector('p').textContent = 'No visible items. Use "Show hidden" to view archived items.';
+        } else if (currentView === 'timeline') {
             emptyStateEl.querySelector('p').textContent = 'No items with event dates found.';
         } else if (currentView === 'follow_up') {
             emptyStateEl.querySelector('p').textContent = 'No items need follow-up.';
@@ -412,7 +428,10 @@ function formatEventDate(date) {
 function renderItem(item) {
     const card = document.createElement('div');
     card.className = 'item-card';
-    card.dataset.id = item.firestore_id;
+    card.dataset.id = item.firestore_id || item.id;
+    if (item.hidden) {
+        card.classList.add('is-hidden');
+    }
     const normalizedType = normalizeType(item);
 
     const header = document.createElement('div');
@@ -534,10 +553,16 @@ function renderItem(item) {
     };
     footerActions.appendChild(infoBtn);
 
+    const hideBtn = document.createElement('button');
+    hideBtn.className = 'hide-btn';
+    hideBtn.textContent = item.hidden ? 'Unhide' : 'Hide';
+    hideBtn.onclick = () => setItemHidden(card.dataset.id, !item.hidden);
+    footerActions.appendChild(hideBtn);
+
     const deleteBtn = document.createElement('button');
     deleteBtn.className = 'delete-btn';
     deleteBtn.textContent = 'Delete';
-    deleteBtn.onclick = () => deleteItem(item.firestore_id);
+    deleteBtn.onclick = () => deleteItem(card.dataset.id);
     footerActions.appendChild(deleteBtn);
 
     footer.appendChild(footerActions);
@@ -684,21 +709,37 @@ async function deleteItem(id) {
         });
 
         if (response.ok) {
-            const card = document.querySelector(`.item-card[data-id="${id}"]`);
-            if (card) {
-                card.remove();
-            }
-
-            // Check if empty
-            if (itemsContainerEl.children.length === 0) {
-                emptyStateEl.style.display = 'block';
-            }
+            allItems = allItems.filter(item => (item.firestore_id || item.id) !== id);
+            renderFilteredItems();
         } else {
             alert('Failed to delete item');
         }
     } catch (error) {
         console.error('Delete error:', error);
         alert('An error occurred while deleting');
+    }
+}
+
+async function setItemHidden(id, hidden) {
+    const action = hidden ? 'hide' : 'unhide';
+
+    try {
+        const response = await fetch(`/api/items/${id}/${action}`, {
+            method: 'PATCH'
+        });
+
+        if (response.ok) {
+            const item = allItems.find(entry => (entry.firestore_id || entry.id) === id);
+            if (item) {
+                item.hidden = hidden;
+            }
+            renderFilteredItems();
+        } else {
+            alert(`Failed to ${hidden ? 'hide' : 'unhide'} item`);
+        }
+    } catch (error) {
+        console.error('Hide error:', error);
+        alert('An error occurred while updating item visibility');
     }
 }
 

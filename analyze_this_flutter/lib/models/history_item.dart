@@ -49,6 +49,7 @@ class HistoryItem {
   final Map<String, dynamic>? analysis;
   final String? status;
   final String? nextStep;
+  final bool hidden;
 
   HistoryItem({
     required this.id,
@@ -61,6 +62,7 @@ class HistoryItem {
     this.analysis,
     this.status,
     this.nextStep,
+    this.hidden = false,
   });
 
   factory HistoryItem.fromJson(Map<String, dynamic> json) {
@@ -83,8 +85,11 @@ class HistoryItem {
       analysis: json['analysis'] != null ? Map<String, dynamic>.from(json['analysis']) : null,
       status: json['status'],
       nextStep: json['next_step'] ?? json['next_step_label'], // Handling potential field name variance
+      hidden: json['hidden'] == true,
     );
   }
+
+  bool get isHidden => hidden == true;
 
   static String _normalizeType(String? rawType, String value, Map<String, dynamic>? metadata) {
     String normalized = (rawType ?? '').toLowerCase();
