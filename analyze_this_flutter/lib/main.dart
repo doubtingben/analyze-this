@@ -872,6 +872,7 @@ class _MyHomePageState extends State<MyHomePage> {
           authToken: _authToken,
           isHidden: item.isHidden,
           showImage: false,
+          showDate: false,
           onToggleHidden: () => _setItemHidden(item, !item.isHidden),
           onTap: () => _openDetailFiltered(items, itemIndex),
           onDelete: () => _deleteItem(item),

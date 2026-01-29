@@ -533,14 +533,18 @@ function renderItem(item) {
 
     card.appendChild(details);
 
-    // Footer with date and delete button
+    // Footer with date and actions
     const footer = document.createElement('div');
     footer.className = 'item-footer';
 
-    const date = document.createElement('span');
-    date.className = 'item-date';
-    date.textContent = formatDate(item.created_at);
-    footer.appendChild(date);
+    if (currentView !== 'timeline') {
+        const date = document.createElement('span');
+        date.className = 'item-date';
+        date.textContent = formatDate(item.created_at);
+        footer.appendChild(date);
+    } else {
+        footer.classList.add('item-footer--compact');
+    }
 
     const footerActions = document.createElement('div');
     footerActions.className = 'item-footer-actions';
