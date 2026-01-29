@@ -16,7 +16,7 @@ from google.cloud.firestore_v1.base_query import FieldFilter
 # SQLAlchemy imports
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
 from sqlalchemy.orm import sessionmaker, declarative_base
-from sqlalchemy import Column, String, DateTime, JSON, inspect
+from sqlalchemy import Column, String, DateTime, JSON, Boolean, inspect
 from sqlalchemy.future import select
 
 # --- Interface ---
@@ -52,6 +52,10 @@ class DatabaseInterface(ABC):
 
     @abstractmethod
     async def get_items_by_status(self, status: str, limit: int = 10) -> List[dict]:
+        pass
+
+    @abstractmethod
+    async def get_unnormalized_items(self, limit: int = 10) -> List[dict]:
         pass
 
 
@@ -148,6 +152,23 @@ class FirestoreDatabase(DatabaseInterface):
         loop = asyncio.get_running_loop()
         return await loop.run_in_executor(None, get_docs)
 
+    async def get_unnormalized_items(self, limit: int = 10) -> List[dict]:
+        # Note: This will only find items where is_normalized is explicitly False.
+        # Items missing the field (legacy) will need a backfill or manual processing if they need normalization.
+        items_ref = self.db.collection('shared_items')
+        query = items_ref.where(field_path='is_normalized', op_string='==', value=False).limit(limit)
+
+        def get_docs():
+            items = []
+            for doc in query.stream():
+                data = doc.to_dict()
+                data['firestore_id'] = doc.id
+                items.append(data)
+            return items
+
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(None, get_docs)
+
 
 # --- SQLite Implementation ---
 
@@ -172,6 +193,7 @@ class DBSharedItem(Base):
     analysis = Column(JSON, nullable=True)
     status = Column(String, default='new')
     next_step = Column(String, nullable=True)
+    is_normalized = Column(Boolean, default=False)
 
 class SQLiteDatabase(DatabaseInterface):
     def __init__(self, db_url: str = "sqlite+aiosqlite:///./development.db"):
@@ -242,7 +264,8 @@ class SQLiteDatabase(DatabaseInterface):
                 item_metadata=item.item_metadata,
                 analysis=analysis_data,
                 status=item.status,
-                next_step=item.next_step
+                next_step=item.next_step,
+                is_normalized=item.is_normalized
             )
             session.add(db_item)
             await session.commit()
@@ -269,7 +292,8 @@ class SQLiteDatabase(DatabaseInterface):
                     'item_metadata': item.item_metadata,
                     'analysis': item.analysis,
                     'status': item.status,
-                    'next_step': item.next_step
+                    'next_step': item.next_step,
+                    'is_normalized': item.is_normalized
                 }
                 for item in items
             ]
@@ -303,7 +327,8 @@ class SQLiteDatabase(DatabaseInterface):
                     'created_at': item.created_at,
                     'analysis': item.analysis,
                     'status': item.status,
-                    'next_step': item.next_step
+                    'next_step': item.next_step,
+                    'is_normalized': item.is_normalized
                 }
             return None
 
@@ -341,7 +366,34 @@ class SQLiteDatabase(DatabaseInterface):
                     'item_metadata': item.item_metadata,
                     'analysis': item.analysis,
                     'status': item.status,
-                    'next_step': item.next_step
+                    'next_step': item.next_step,
+                    'is_normalized': item.is_normalized
+                }
+                for item in items
+            ]
+
+    async def get_unnormalized_items(self, limit: int = 10) -> List[dict]:
+        async with self.SessionLocal() as session:
+            result = await session.execute(
+                select(DBSharedItem)
+                .where(DBSharedItem.is_normalized == False)
+                .limit(limit)
+            )
+            items = result.scalars().all()
+            
+            return [
+                {
+                    'firestore_id': item.id,
+                    'title': item.title,
+                    'content': item.content,
+                    'type': item.type,
+                    'user_email': item.user_email,
+                    'created_at': item.created_at,
+                    'item_metadata': item.item_metadata,
+                    'analysis': item.analysis,
+                    'status': item.status,
+                    'next_step': item.next_step,
+                    'is_normalized': item.is_normalized
                 }
                 for item in items
             ]
