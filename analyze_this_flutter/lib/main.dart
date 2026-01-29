@@ -369,7 +369,7 @@ class _MyHomePageState extends State<MyHomePage> {
   Widget _buildMainView() {
     return Column(
       children: [
-        // User header
+        // User header with type filter
         Container(
           padding: const EdgeInsets.all(AppSpacing.lg),
           color: AppColors.surface,
@@ -395,6 +395,28 @@ class _MyHomePageState extends State<MyHomePage> {
                     ),
                   ],
                 ),
+              ),
+              // Type filter dropdown
+              DropdownMenu<String?>(
+                initialSelection: _currentTypeFilter,
+                hintText: 'All Types',
+                width: 130,
+                textStyle: Theme.of(context).textTheme.bodySmall,
+                onSelected: (String? value) {
+                  setState(() {
+                    _currentTypeFilter = value;
+                  });
+                },
+                dropdownMenuEntries: const [
+                  DropdownMenuEntry(value: null, label: 'All Types'),
+                  DropdownMenuEntry(value: 'image', label: 'Image'),
+                  DropdownMenuEntry(value: 'video', label: 'Video'),
+                  DropdownMenuEntry(value: 'audio', label: 'Audio'),
+                  DropdownMenuEntry(value: 'file', label: 'File'),
+                  DropdownMenuEntry(value: 'screenshot', label: 'Screenshot'),
+                  DropdownMenuEntry(value: 'text', label: 'Text'),
+                  DropdownMenuEntry(value: 'web_url', label: 'Web URL'),
+                ],
               ),
             ],
           ),
@@ -432,47 +454,21 @@ class _MyHomePageState extends State<MyHomePage> {
           bottom: BorderSide(color: Colors.grey.shade200),
         ),
       ),
-      child: Row(
-        children: [
-          // View mode segmented button
-          Flexible(
-            child: SegmentedButton<ViewMode>(
-              segments: const [
-                ButtonSegment(value: ViewMode.all, label: Text('All')),
-                ButtonSegment(value: ViewMode.timeline, label: Text('Timeline')),
-                ButtonSegment(value: ViewMode.followUp, label: Text('Follow-up')),
-              ],
-              selected: {_currentView},
-              onSelectionChanged: (Set<ViewMode> selection) {
-                setState(() {
-                  _currentView = selection.first;
-                });
-              },
-            ),
-          ),
-          const SizedBox(width: AppSpacing.sm),
-          // Type filter dropdown
-          DropdownMenu<String?>(
-            initialSelection: _currentTypeFilter,
-            hintText: 'All Types',
-            width: 120,
-            onSelected: (String? value) {
-              setState(() {
-                _currentTypeFilter = value;
-              });
-            },
-            dropdownMenuEntries: const [
-              DropdownMenuEntry(value: null, label: 'All Types'),
-              DropdownMenuEntry(value: 'image', label: 'Image'),
-              DropdownMenuEntry(value: 'video', label: 'Video'),
-              DropdownMenuEntry(value: 'audio', label: 'Audio'),
-              DropdownMenuEntry(value: 'file', label: 'File'),
-              DropdownMenuEntry(value: 'screenshot', label: 'Screenshot'),
-              DropdownMenuEntry(value: 'text', label: 'Text'),
-              DropdownMenuEntry(value: 'web_url', label: 'Web URL'),
-            ],
-          ),
-        ],
+      child: Center(
+        child: SegmentedButton<ViewMode>(
+          showSelectedIcon: false,
+          segments: const [
+            ButtonSegment(value: ViewMode.all, label: Text('All')),
+            ButtonSegment(value: ViewMode.timeline, label: Text('Timeline')),
+            ButtonSegment(value: ViewMode.followUp, label: Text('Follow-up')),
+          ],
+          selected: {_currentView},
+          onSelectionChanged: (Set<ViewMode> selection) {
+            setState(() {
+              _currentView = selection.first;
+            });
+          },
+        ),
       ),
     );
   }
