@@ -521,6 +521,11 @@ class SQLiteDatabase(DatabaseInterface):
             if not note:
                 return False
 
+            # Verify ownership if user_email is provided in updates
+            user_email = updates.pop('user_email', None)
+            if user_email and note.user_email != user_email:
+                raise ValueError("Forbidden")
+
             for key, value in updates.items():
                 if hasattr(note, key):
                     setattr(note, key, value)

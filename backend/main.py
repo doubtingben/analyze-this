@@ -705,5 +705,237 @@ async def delete_item(item_id: str, request: Request):
             raise HTTPException(status_code=404, detail="Item not found")
     except ValueError:
         raise HTTPException(status_code=403, detail="Forbidden: You do not own this item")
-        
+
     return {"status": "success", "deleted_id": item_id}
+
+
+# --- Item Notes Endpoints ---
+
+from models import ItemNote
+from pydantic import BaseModel
+from typing import List
+
+class NoteCountRequest(BaseModel):
+    item_ids: List[str]
+
+class ItemUpdateRequest(BaseModel):
+    title: Optional[str] = None
+    tags: Optional[List[str]] = None
+
+
+@app.post("/api/items/{item_id}/notes")
+async def create_item_note(
+    item_id: str,
+    request: Request,
+    text: str = Form(None),
+    file: UploadFile = File(None)
+):
+    """Create a note for an item (multipart: text + optional file)"""
+    user_email = await get_authenticated_email(request)
+
+    # Verify the item exists and belongs to the user
+    item = await db.get_shared_item(item_id)
+    if not item:
+        raise HTTPException(status_code=404, detail="Item not found")
+    if item.get('user_email') != user_email:
+        raise HTTPException(status_code=403, detail="Forbidden: You do not own this item")
+
+    # Validate that at least text or file is provided
+    if not text and not file:
+        raise HTTPException(status_code=400, detail="Either text or file must be provided")
+
+    image_path = None
+
+    # Handle file upload if provided
+    if file:
+        try:
+            extension = file.filename.split('.')[-1] if '.' in file.filename else 'bin'
+            blob_name_relative = f"uploads/{user_email}/notes/{uuid.uuid4()}.{extension}"
+
+            if APP_ENV == "development":
+                local_path = Path("static") / blob_name_relative
+                local_path.parent.mkdir(parents=True, exist_ok=True)
+
+                with open(local_path, "wb") as buffer:
+                    shutil.copyfileobj(file.file, buffer)
+
+                image_path = blob_name_relative
+            else:
+                # Production: Firebase Storage
+                bucket = storage.bucket()
+                blob = bucket.blob(blob_name_relative)
+
+                await file.seek(0)
+                loop = asyncio.get_running_loop()
+                await loop.run_in_executor(
+                    None,
+                    functools.partial(blob.upload_from_file, file.file, content_type=file.content_type)
+                )
+                image_path = blob_name_relative
+
+        except Exception as e:
+            print(f"Note file upload failed: {e}")
+            raise HTTPException(status_code=500, detail=f"File upload failed: {str(e)}")
+
+    # Create the note
+    note = ItemNote(
+        item_id=item_id,
+        user_email=user_email,
+        text=text,
+        image_path=image_path
+    )
+
+    created_note = await db.create_item_note(note)
+
+    # Return note data with image URL if applicable
+    response_data = {
+        'id': str(created_note.id),
+        'item_id': created_note.item_id,
+        'user_email': created_note.user_email,
+        'text': created_note.text,
+        'image_path': created_note.image_path,
+        'created_at': created_note.created_at,
+        'updated_at': created_note.updated_at
+    }
+
+    # Transform image_path to full URL
+    if response_data['image_path']:
+        base_url = str(request.base_url).rstrip('/')
+        if APP_ENV == "development":
+            response_data['image_path'] = f"{base_url}/static/{response_data['image_path']}"
+        else:
+            base_url = base_url.replace("http://", "https://")
+            response_data['image_path'] = f"{base_url}/api/content/{response_data['image_path']}"
+
+    return response_data
+
+
+@app.get("/api/items/{item_id}/notes")
+async def get_item_notes(item_id: str, request: Request):
+    """Get all notes for an item"""
+    user_email = await get_authenticated_email(request)
+
+    # Verify the item exists and belongs to the user
+    item = await db.get_shared_item(item_id)
+    if not item:
+        raise HTTPException(status_code=404, detail="Item not found")
+    if item.get('user_email') != user_email:
+        raise HTTPException(status_code=403, detail="Forbidden: You do not own this item")
+
+    notes = await db.get_item_notes(item_id)
+
+    # Transform image_path to full URL for each note
+    base_url = str(request.base_url).rstrip('/')
+    if APP_ENV != "development":
+        base_url = base_url.replace("http://", "https://")
+
+    for note in notes:
+        if note.get('image_path'):
+            if APP_ENV == "development":
+                note['image_path'] = f"{base_url}/static/{note['image_path']}"
+            else:
+                note['image_path'] = f"{base_url}/api/content/{note['image_path']}"
+
+    return notes
+
+
+@app.patch("/api/notes/{note_id}")
+async def update_item_note(note_id: str, request: Request):
+    """Update a note"""
+    user_email = await get_authenticated_email(request)
+
+    # Parse the JSON body
+    try:
+        body = await request.json()
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid JSON")
+
+    # Only allow updating text field
+    updates = {}
+    if 'text' in body:
+        updates['text'] = body['text']
+
+    if not updates:
+        raise HTTPException(status_code=400, detail="No valid fields to update")
+
+    # Add user_email for ownership verification in database layer
+    updates['user_email'] = user_email
+
+    try:
+        success = await db.update_item_note(note_id, updates)
+        if not success:
+            raise HTTPException(status_code=404, detail="Note not found")
+    except ValueError:
+        raise HTTPException(status_code=403, detail="Forbidden: You do not own this note")
+
+    return {"status": "success", "note_id": note_id}
+
+
+@app.delete("/api/notes/{note_id}")
+async def delete_item_note(note_id: str, request: Request):
+    """Delete a note"""
+    user_email = await get_authenticated_email(request)
+
+    try:
+        success = await db.delete_item_note(note_id, user_email)
+        if not success:
+            raise HTTPException(status_code=404, detail="Note not found")
+    except ValueError:
+        raise HTTPException(status_code=403, detail="Forbidden: You do not own this note")
+
+    return {"status": "success", "deleted_id": note_id}
+
+
+@app.patch("/api/items/{item_id}")
+async def update_item(item_id: str, request: Request):
+    """Update item (title, tags)"""
+    user_email = await get_authenticated_email(request)
+
+    # Verify the item exists and belongs to the user
+    item = await db.get_shared_item(item_id)
+    if not item:
+        raise HTTPException(status_code=404, detail="Item not found")
+    if item.get('user_email') != user_email:
+        raise HTTPException(status_code=403, detail="Forbidden: You do not own this item")
+
+    # Parse the JSON body
+    try:
+        body = await request.json()
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid JSON")
+
+    updates = {}
+
+    # Update title directly
+    if 'title' in body:
+        updates['title'] = body['title']
+
+    # Update tags within analysis object
+    if 'tags' in body:
+        current_analysis = item.get('analysis') or {}
+        if isinstance(current_analysis, dict):
+            current_analysis['tags'] = body['tags']
+        else:
+            # If analysis is not a dict, create a new one with tags
+            current_analysis = {'tags': body['tags']}
+        updates['analysis'] = current_analysis
+
+    if not updates:
+        raise HTTPException(status_code=400, detail="No valid fields to update")
+
+    success = await db.update_shared_item(item_id, updates)
+    if not success:
+        raise HTTPException(status_code=404, detail="Item not found")
+
+    return {"status": "success", "item_id": item_id}
+
+
+@app.post("/api/items/note-counts")
+async def get_note_counts(request: Request, body: NoteCountRequest):
+    """Batch get note counts for multiple items"""
+    user_email = await get_authenticated_email(request)
+
+    # Get note counts
+    counts = await db.get_item_note_count(body.item_ids)
+
+    return counts
