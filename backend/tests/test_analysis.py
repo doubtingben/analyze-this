@@ -18,17 +18,20 @@ class TestAnalysis(unittest.TestCase):
         mock_get_prompt.return_value = "System Prompt"
         
         mock_completion = MagicMock()
-        mock_completion.choices[0].message.content = '{"step": "add_event", "details": "Dinner"}'
+        # Mocking return with 'timeline' as per new prompt instructions
+        mock_completion.choices[0].message.content = json.dumps({
+            "overview": "Dinner at 8pm",
+            "timeline": {"date": "2023-10-27", "principal": "Dinner"}
+        })
         mock_client.chat.completions.create.return_value = mock_completion
         
         # execution
         result = analyze_content("Dinner at 8pm")
         
-        # Verification - normalize_analysis transforms step->action and adds overview
+        # Verification
         self.assertEqual(result, {
-            "overview": "Suggested action: add_event",
-            "action": "add_event",
-            "details": "Dinner"
+            "overview": "Dinner at 8pm",
+            "timeline": {"date": "2023-10-27", "principal": "Dinner"}
         })
         mock_client.chat.completions.create.assert_called_once()
     
@@ -71,16 +74,20 @@ class TestAnalysis(unittest.TestCase):
         mock_get_prompt.return_value = "System Prompt"
         
         mock_completion = MagicMock()
-        mock_completion.choices[0].message.content = '{"step": "save_image"}'
+        # Mocking return with 'follow_up' assuming image might need details
+        mock_completion.choices[0].message.content = json.dumps({
+            "overview": "Image analysis",
+            "follow_up": "Need more info"
+        })
         mock_client.chat.completions.create.return_value = mock_completion
         
         # execution
         result = analyze_content("http://example.com/image.png", item_type='image')
         
-        # Verification - normalize_analysis transforms step->action and adds overview
+        # Verification
         self.assertEqual(result, {
-            "overview": "Suggested action: save_image",
-            "action": "save_image"
+            "overview": "Image analysis",
+            "follow_up": "Need more info"
         })
         
         # Check call arguments
@@ -101,16 +108,20 @@ class TestAnalysis(unittest.TestCase):
         mock_get_prompt.return_value = "System Prompt"
         
         mock_completion = MagicMock()
-        mock_completion.choices[0].message.content = '{"step": "add_event"}'
+        # Mocking return with 'timeline'
+        mock_completion.choices[0].message.content = json.dumps({
+            "overview": "Event from URL",
+            "timeline": {"date": "2023-11-01"}
+        })
         mock_client.chat.completions.create.return_value = mock_completion
         
         # execution
         result = analyze_content("http://example.com", item_type='web_url')
         
-        # Verification - normalize_analysis transforms step->action and adds overview
+        # Verification
         self.assertEqual(result, {
-            "overview": "Suggested action: add_event",
-            "action": "add_event"
+            "overview": "Event from URL",
+            "timeline": {"date": "2023-11-01"}
         })
         
         # Check call arguments
@@ -193,7 +204,11 @@ class TestAnalysis(unittest.TestCase):
         mock_get_url.return_value = "data:image/png;base64,ZmFrZS1pbWFnZS1kYXRh"
 
         mock_completion = MagicMock()
-        mock_completion.choices[0].message.content = '{"overview": "A screenshot", "action": "save_image"}'
+        # Mocking return with 'timeline'
+        mock_completion.choices[0].message.content = json.dumps({
+            "overview": "A screenshot",
+            "timeline": {"date": "2023-10-28"}
+        })
         mock_client.chat.completions.create.return_value = mock_completion
 
         # Execute
