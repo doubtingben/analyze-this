@@ -57,10 +57,10 @@ class _MyHomePageState extends State<MyHomePage> {
 
   // Timeline scroll state
   final ScrollController _timelineScrollController = ScrollController();
-  int _nowDividerIndex = 0;
+  final GlobalKey _nowDividerKey = GlobalKey();
   bool _hasScrolledToNow = false;
-  bool _isNowAboveViewport = false;
-  bool _isNowBelowViewport = true;
+  bool _nowButtonVisible = false;
+  bool _nowIsAbove = false; // true = Now is above viewport, false = Now is below
 
   @override
   void initState() {
@@ -293,26 +293,43 @@ class _MyHomePageState extends State<MyHomePage> {
 
   void _updateNowVisibility() {
     if (!_timelineScrollController.hasClients) return;
+    if (_nowDividerKey.currentContext == null) return;
 
-    // Estimate item height (card ~120px + padding)
-    const estimatedItemHeight = 150.0;
-    final scrollOffset = _timelineScrollController.offset;
-    final viewportHeight = _timelineScrollController.position.viewportDimension;
+    final RenderBox? nowBox = _nowDividerKey.currentContext?.findRenderObject() as RenderBox?;
+    if (nowBox == null || !nowBox.hasSize) return;
 
-    final nowOffset = _nowDividerIndex * estimatedItemHeight;
+    // Get the Now divider's position relative to the viewport
+    final nowPosition = nowBox.localToGlobal(Offset.zero);
+    final screenHeight = MediaQuery.of(context).size.height;
+
+    // Account for app bar and filter controls (roughly 200px from top)
+    const topOffset = 200.0;
+    const bottomPadding = 100.0;
+
+    final nowY = nowPosition.dy;
+    final isVisible = nowY >= topOffset && nowY <= screenHeight - bottomPadding;
+    final isAbove = nowY < topOffset;
 
     setState(() {
-      _isNowAboveViewport = nowOffset < scrollOffset;
-      _isNowBelowViewport = nowOffset > scrollOffset + viewportHeight - 100;
+      _nowButtonVisible = !isVisible;
+      _nowIsAbove = isAbove;
     });
   }
 
   void _scrollToNow({bool animate = true}) {
     if (!_timelineScrollController.hasClients) return;
+    if (_nowDividerKey.currentContext == null) return;
 
-    // Estimate item height
-    const estimatedItemHeight = 150.0;
-    final targetOffset = (_nowDividerIndex * estimatedItemHeight) - 100; // Offset to show some context above
+    // Find the Now divider and scroll to make it visible
+    final RenderBox? nowBox = _nowDividerKey.currentContext?.findRenderObject() as RenderBox?;
+    if (nowBox == null) return;
+
+    // Get current scroll position and Now divider's position
+    final scrollOffset = _timelineScrollController.offset;
+    final nowPosition = nowBox.localToGlobal(Offset.zero);
+
+    // Calculate target offset to position Now near top with some context
+    final targetOffset = scrollOffset + nowPosition.dy - 250;
     final maxScroll = _timelineScrollController.position.maxScrollExtent;
     final clampedOffset = targetOffset.clamp(0.0, maxScroll);
 
@@ -672,6 +689,7 @@ class _MyHomePageState extends State<MyHomePage> {
 
   Widget _buildNowDivider() {
     return Padding(
+      key: _nowDividerKey,
       padding: const EdgeInsets.symmetric(vertical: AppSpacing.sm),
       child: Row(
         children: [
@@ -760,9 +778,6 @@ class _MyHomePageState extends State<MyHomePage> {
       }
     }
 
-    // Store nowIndex for scroll calculations
-    _nowDividerIndex = nowIndex;
-
     // Total items = items + 1 for Now divider
     final totalCount = items.length + 1;
 
@@ -814,18 +829,15 @@ class _MyHomePageState extends State<MyHomePage> {
       },
     );
 
-    // Show floating Now button when Now is off-screen
-    final showNowButton = _isNowAboveViewport || _isNowBelowViewport;
-
     return Stack(
       children: [
         listView,
-        if (showNowButton)
+        if (_nowButtonVisible)
           Positioned(
             left: 0,
             right: 0,
-            top: _isNowAboveViewport ? AppSpacing.md : null,
-            bottom: _isNowBelowViewport && !_isNowAboveViewport ? AppSpacing.md : null,
+            top: _nowIsAbove ? AppSpacing.md : null,
+            bottom: !_nowIsAbove ? AppSpacing.md : null,
             child: Center(
               child: _buildNowButton(),
             ),
@@ -859,7 +871,7 @@ class _MyHomePageState extends State<MyHomePage> {
           mainAxisSize: MainAxisSize.min,
           children: [
             Icon(
-              _isNowAboveViewport ? Icons.arrow_upward : Icons.arrow_downward,
+              _nowIsAbove ? Icons.arrow_upward : Icons.arrow_downward,
               color: Colors.white,
               size: 16,
             ),
