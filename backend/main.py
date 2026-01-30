@@ -4,7 +4,8 @@ import asyncio
 import functools
 from pathlib import Path
 from contextlib import asynccontextmanager
-from typing import Optional
+from typing import Optional, List
+from pydantic import BaseModel
 from fastapi import FastAPI, Request, Depends, HTTPException, status, File, UploadFile, Form
 from fastapi.responses import HTMLResponse, RedirectResponse, FileResponse, Response
 from fastapi.staticfiles import StaticFiles
@@ -18,7 +19,7 @@ from dotenv import load_dotenv
 import firebase_admin
 from firebase_admin import credentials, storage
 
-from models import User, SharedItem, ShareType
+from models import User, SharedItem, ShareType, ItemNote
 from database import DatabaseInterface, FirestoreDatabase, SQLiteDatabase
 
 # Load environment variables
@@ -711,10 +712,6 @@ async def delete_item(item_id: str, request: Request):
 
 # --- Item Notes Endpoints ---
 
-from models import ItemNote
-from pydantic import BaseModel
-from typing import List
-
 class NoteCountRequest(BaseModel):
     item_ids: List[str]
 
@@ -887,7 +884,7 @@ async def delete_item_note(note_id: str, request: Request):
 
 
 @app.patch("/api/items/{item_id}")
-async def update_item(item_id: str, request: Request):
+async def update_item(item_id: str, request: Request, body: ItemUpdateRequest):
     """Update item (title, tags)"""
     user_email = await get_authenticated_email(request)
 
@@ -898,26 +895,20 @@ async def update_item(item_id: str, request: Request):
     if item.get('user_email') != user_email:
         raise HTTPException(status_code=403, detail="Forbidden: You do not own this item")
 
-    # Parse the JSON body
-    try:
-        body = await request.json()
-    except Exception:
-        raise HTTPException(status_code=400, detail="Invalid JSON")
-
     updates = {}
 
     # Update title directly
-    if 'title' in body:
-        updates['title'] = body['title']
+    if body.title is not None:
+        updates['title'] = body.title
 
     # Update tags within analysis object
-    if 'tags' in body:
+    if body.tags is not None:
         current_analysis = item.get('analysis') or {}
         if isinstance(current_analysis, dict):
-            current_analysis['tags'] = body['tags']
+            current_analysis['tags'] = body.tags
         else:
             # If analysis is not a dict, create a new one with tags
-            current_analysis = {'tags': body['tags']}
+            current_analysis = {'tags': body.tags}
         updates['analysis'] = current_analysis
 
     if not updates:
@@ -935,7 +926,13 @@ async def get_note_counts(request: Request, body: NoteCountRequest):
     """Batch get note counts for multiple items"""
     user_email = await get_authenticated_email(request)
 
-    # Get note counts
-    counts = await db.get_item_note_count(body.item_ids)
+    # Security: Filter item_ids to only include items owned by the user
+    # Get user's items and intersect with requested item_ids
+    user_items = await db.get_shared_items(user_email)
+    user_item_ids = {item.get('firestore_id') for item in user_items}
+    authorized_item_ids = [item_id for item_id in body.item_ids if item_id in user_item_ids]
+
+    # Get note counts only for authorized items
+    counts = await db.get_item_note_count(authorized_item_ids)
 
     return counts
