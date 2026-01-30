@@ -88,7 +88,7 @@ class _MyHomePageState extends State<MyHomePage> {
 
   Future<void> _loadHistory() async {
     if (_currentUser == null) return;
-    
+
     setState(() {
       _isLoading = true;
     });
@@ -98,10 +98,35 @@ class _MyHomePageState extends State<MyHomePage> {
       final token = authHeaders.accessToken;
       if (token != null) {
         final items = await _apiService.fetchHistory(token);
-        setState(() {
-          _history = items;
-          _authToken = token;
-        });
+
+        // Fetch note counts for all items
+        final itemIds = items.map((item) => item.id).toList();
+        if (itemIds.isNotEmpty) {
+          try {
+            final noteCounts = await _apiService.getNoteCounts(token, itemIds);
+            // Update items with note counts
+            final itemsWithCounts = items.map((item) {
+              final count = noteCounts[item.id] ?? 0;
+              return item.copyWith(noteCount: count);
+            }).toList();
+            setState(() {
+              _history = itemsWithCounts;
+              _authToken = token;
+            });
+          } catch (e) {
+            // If note counts fail, still show items without counts
+            print('Warning: Failed to load note counts: $e');
+            setState(() {
+              _history = items;
+              _authToken = token;
+            });
+          }
+        } else {
+          setState(() {
+            _history = items;
+            _authToken = token;
+          });
+        }
       }
     } catch (e) {
       print('Error loading history: $e');
@@ -956,9 +981,22 @@ class _MyHomePageState extends State<MyHomePage> {
           items: items,
           initialIndex: index,
           authToken: _authToken,
+          onItemUpdated: _handleItemUpdated,
         ),
       ),
     );
+  }
+
+  void _handleItemUpdated(HistoryItem updatedItem) {
+    // Update the item in the local history list
+    setState(() {
+      _history = _history.map((item) {
+        if (item.id == updatedItem.id) {
+          return updatedItem;
+        }
+        return item;
+      }).toList();
+    });
   }
 
   Future<void> _deleteItem(HistoryItem item) async {
