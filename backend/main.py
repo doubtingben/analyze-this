@@ -285,6 +285,28 @@ async def verify_google_token(token: str):
     try:
         # Call Google UserInfo endpoint
         async with httpx.AsyncClient() as client:
+            # First, verify audience using tokeninfo to prevent Confused Deputy attacks
+            token_info_resp = await client.get(
+                'https://oauth2.googleapis.com/tokeninfo',
+                params={'access_token': token}
+            )
+
+            if token_info_resp.status_code == 200:
+                token_info = token_info_resp.json()
+                aud = token_info.get('aud')
+
+                # Check if audience matches our Client IDs
+                # We accept either the web client or extension client
+                valid_audiences = [aid for aid in [GOOGLE_CLIENT_ID, GOOGLE_EXTENSION_CLIENT_ID] if aid]
+
+                if aud not in valid_audiences:
+                    print(f"Token verification failed: Audience mismatch. Expected one of {valid_audiences}, got {aud}")
+                    return None
+            else:
+                print(f"Token verification failed (TokenInfo). Status: {token_info_resp.status_code}")
+                return None
+
+            # If audience is valid, fetch user profile
             response = await client.get(
                 'https://www.googleapis.com/oauth2/v2/userinfo',
                 headers={'Authorization': f'Bearer {token}'}
