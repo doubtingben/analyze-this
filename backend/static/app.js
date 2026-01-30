@@ -17,12 +17,35 @@ const createForm = document.getElementById('create-form');
 const itemTypeSelect = document.getElementById('item-type');
 const modalCloseBtn = document.getElementById('modal-close');
 const cancelCreateBtn = document.getElementById('cancel-create');
+const detailModal = document.getElementById('detail-modal');
+const detailBackdrop = document.getElementById('detail-modal-backdrop');
+const detailCloseBtn = document.getElementById('detail-modal-close');
+const detailEditBtn = document.getElementById('detail-edit-btn');
+const detailTitleEl = document.getElementById('detail-title');
+const detailTitleInput = document.getElementById('detail-title-input');
+const detailTypeEl = document.getElementById('detail-type');
+const detailContentEl = document.getElementById('detail-content');
+const detailTagsEl = document.getElementById('detail-tags');
+const detailTagsEditor = document.getElementById('detail-tags-editor');
+const detailTagInput = document.getElementById('detail-tag-input');
+const detailAddTagBtn = document.getElementById('detail-add-tag');
+const detailEditActions = document.getElementById('detail-edit-actions');
+const detailCancelBtn = document.getElementById('detail-cancel-btn');
+const detailSaveBtn = document.getElementById('detail-save-btn');
+const detailNotesList = document.getElementById('detail-notes-list');
+const detailNotesLoading = document.getElementById('detail-notes-loading');
+const detailNoteForm = document.getElementById('detail-note-form');
+const detailNoteText = document.getElementById('detail-note-text');
 
 // State
 let allItems = [];
 let currentView = 'all'; // 'all', 'timeline', or 'follow_up'
 let currentTypeFilter = ''; // '' for all, or specific type
 let showHidden = false;
+let currentDetailItem = null;
+let detailEditMode = false;
+let editableTags = [];
+let noteCounts = {};
 
 // Initialize the app
 async function init() {
@@ -43,13 +66,69 @@ async function init() {
 
         // Setup create modal
         setupCreateModal();
+        setupDetailModal();
 
         allItems = await fetchItems();
+        await fetchNoteCounts(allItems);
         renderFilteredItems();
     } catch (error) {
         console.error('Initialization error:', error);
         showLoginState();
     }
+}
+
+function setupDetailModal() {
+    if (!detailModal) return;
+
+    detailCloseBtn.addEventListener('click', closeDetailModal);
+    detailBackdrop.addEventListener('click', closeDetailModal);
+
+    detailEditBtn.addEventListener('click', () => {
+        setDetailEditMode(!detailEditMode);
+    });
+
+    detailCancelBtn.addEventListener('click', () => {
+        setDetailEditMode(false);
+    });
+
+    detailSaveBtn.addEventListener('click', saveDetailEdits);
+
+    detailAddTagBtn.addEventListener('click', (event) => {
+        event.preventDefault();
+        const tag = detailTagInput.value.trim();
+        if (!tag) return;
+        if (!editableTags.includes(tag)) {
+            editableTags.push(tag);
+            renderDetailTags();
+        }
+        detailTagInput.value = '';
+    });
+
+    detailNoteForm.addEventListener('submit', async (event) => {
+        event.preventDefault();
+        if (!currentDetailItem) return;
+        const text = detailNoteText.value.trim();
+        if (!text) return;
+        const itemId = getItemId(currentDetailItem);
+
+        const formData = new FormData();
+        formData.append('text', text);
+
+        try {
+            const response = await fetch(`/api/items/${itemId}/notes`, {
+                method: 'POST',
+                body: formData
+            });
+            if (!response.ok) {
+                throw new Error('Failed to add note');
+            }
+            detailNoteText.value = '';
+            const note = await response.json();
+            await loadDetailNotes();
+        } catch (error) {
+            alert(error.message || 'Failed to add note');
+        }
+    });
 }
 
 // Setup create modal event listeners
@@ -161,6 +240,7 @@ async function handleCreateSubmit(e) {
 
         // Refresh items and close modal
         allItems = await fetchItems();
+        await fetchNoteCounts(allItems);
         renderFilteredItems();
         closeModal();
 
@@ -385,6 +465,35 @@ async function fetchItems() {
     return response.json();
 }
 
+async function fetchNoteCounts(items) {
+    if (!items || items.length === 0) {
+        noteCounts = {};
+        return;
+    }
+    const itemIds = items.map(item => getItemId(item)).filter(Boolean);
+    if (!itemIds.length) {
+        noteCounts = {};
+        return;
+    }
+
+    try {
+        const response = await fetch('/api/items/note-counts', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ item_ids: itemIds })
+        });
+        if (!response.ok) {
+            throw new Error('Failed to fetch note counts');
+        }
+        noteCounts = await response.json();
+    } catch (error) {
+        console.warn('Note counts unavailable:', error);
+        noteCounts = {};
+    }
+}
+
 // Render all items
 function renderItems(items) {
     loadingEl.style.display = 'none';
@@ -533,6 +642,16 @@ function renderItem(item) {
     }
     meta.appendChild(sparkle);
 
+    const count = getNoteCount(item);
+    if (count > 0) {
+        const noteBadge = document.createElement('span');
+        noteBadge.className = 'note-count-badge';
+        noteBadge.textContent = `${count}`;
+        noteBadge.title = `${count} note${count === 1 ? '' : 's'}`;
+        noteBadge.dataset.noteCount = count;
+        meta.appendChild(noteBadge);
+    }
+
     titleSection.appendChild(meta);
     header.appendChild(titleSection);
 
@@ -607,8 +726,12 @@ function renderItem(item) {
     const infoBtn = document.createElement('button');
     infoBtn.className = 'info-btn';
     infoBtn.textContent = 'ℹ️';
-    infoBtn.title = 'Show details';
+    infoBtn.title = currentView === 'follow_up' ? 'View details' : 'Show details';
     infoBtn.onclick = () => {
+        if (currentView === 'follow_up') {
+            openDetailModal(item);
+            return;
+        }
         const isVisible = details.style.display !== 'none';
         details.style.display = isVisible ? 'none' : 'block';
         infoBtn.classList.toggle('active', !isVisible);
@@ -632,6 +755,252 @@ function renderItem(item) {
     card.appendChild(footer);
 
     return card;
+}
+
+function getItemId(item) {
+    return item.firestore_id || item.id;
+}
+
+function getNoteCount(item) {
+    const itemId = getItemId(item);
+    if (!itemId) return 0;
+    const count = noteCounts[itemId];
+    return typeof count === 'number' ? count : 0;
+}
+
+function updateNoteCountBadge(itemId, count) {
+    const card = document.querySelector(`.item-card[data-id="${itemId}"]`);
+    if (!card) return;
+    const meta = card.querySelector('.item-meta');
+    if (!meta) return;
+    const existing = meta.querySelector('.note-count-badge');
+
+    if (count > 0) {
+        if (existing) {
+            existing.textContent = `${count}`;
+            existing.title = `${count} note${count === 1 ? '' : 's'}`;
+            existing.dataset.noteCount = count;
+        } else {
+            const badge = document.createElement('span');
+            badge.className = 'note-count-badge';
+            badge.textContent = `${count}`;
+            badge.title = `${count} note${count === 1 ? '' : 's'}`;
+            badge.dataset.noteCount = count;
+            meta.appendChild(badge);
+        }
+    } else if (existing) {
+        existing.remove();
+    }
+}
+
+function openDetailModal(item) {
+    if (!detailModal) return;
+    currentDetailItem = item;
+    detailModal.style.display = 'flex';
+    detailTitleEl.textContent = item.title || 'Untitled';
+    detailTitleInput.value = item.title || '';
+    detailTypeEl.textContent = formatType(normalizeType(item));
+
+    if (typeof item.content === 'string' && item.content.startsWith('http')) {
+        detailContentEl.innerHTML = `<a href="${item.content}" target="_blank" rel="noopener noreferrer">${item.content}</a>`;
+    } else {
+        detailContentEl.textContent = item.content || '';
+    }
+
+    editableTags = item.analysis?.tags ? [...item.analysis.tags] : [];
+    renderDetailTags();
+    setDetailEditMode(false);
+    loadDetailNotes();
+}
+
+function closeDetailModal() {
+    if (!detailModal) return;
+    detailModal.style.display = 'none';
+    currentDetailItem = null;
+}
+
+function setDetailEditMode(enabled) {
+    detailEditMode = enabled;
+    detailEditActions.style.display = enabled ? 'flex' : 'none';
+    detailTagsEditor.style.display = enabled ? 'flex' : 'none';
+    detailTitleInput.style.display = enabled ? 'block' : 'none';
+    detailTitleEl.style.display = enabled ? 'none' : 'block';
+    detailEditBtn.style.display = enabled ? 'none' : 'inline-flex';
+    if (!enabled && currentDetailItem) {
+        detailTitleInput.value = currentDetailItem.title || '';
+        editableTags = currentDetailItem.analysis?.tags ? [...currentDetailItem.analysis.tags] : [];
+    }
+    renderDetailTags();
+}
+
+function renderDetailTags() {
+    detailTagsEl.innerHTML = '';
+    if (!editableTags.length) {
+        const emptyTag = document.createElement('span');
+        emptyTag.className = 'detail-muted';
+        emptyTag.textContent = 'No tags';
+        detailTagsEl.appendChild(emptyTag);
+        return;
+    }
+
+    editableTags.forEach(tag => {
+        const tagEl = document.createElement('span');
+        tagEl.className = 'detail-tag';
+        tagEl.textContent = tag;
+        if (detailEditMode) {
+            const removeBtn = document.createElement('button');
+            removeBtn.type = 'button';
+            removeBtn.textContent = '×';
+            removeBtn.onclick = () => {
+                editableTags = editableTags.filter(t => t !== tag);
+                renderDetailTags();
+            };
+            tagEl.appendChild(removeBtn);
+        }
+        detailTagsEl.appendChild(tagEl);
+    });
+}
+
+async function saveDetailEdits() {
+    if (!currentDetailItem) return;
+    const itemId = getItemId(currentDetailItem);
+    const newTitle = detailTitleInput.value.trim();
+    const tags = editableTags;
+
+    try {
+        const response = await fetch(`/api/items/${itemId}`, {
+            method: 'PATCH',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                title: newTitle,
+                tags: tags
+            })
+        });
+        if (!response.ok) {
+            throw new Error('Failed to update item');
+        }
+        currentDetailItem.title = newTitle;
+        currentDetailItem.analysis = currentDetailItem.analysis || {};
+        currentDetailItem.analysis.tags = tags;
+        detailTitleEl.textContent = newTitle || 'Untitled';
+        setDetailEditMode(false);
+        renderFilteredItems();
+    } catch (error) {
+        alert(error.message || 'Failed to update item');
+    }
+}
+
+async function loadDetailNotes() {
+    if (!currentDetailItem) return;
+    detailNotesLoading.style.display = 'inline';
+    const itemId = getItemId(currentDetailItem);
+
+    try {
+        const response = await fetch(`/api/items/${itemId}/notes`);
+        if (!response.ok) {
+            throw new Error('Failed to load notes');
+        }
+        const notes = await response.json();
+        noteCounts[itemId] = notes.length;
+        updateNoteCountBadge(itemId, notes.length);
+        renderDetailNotes(notes);
+    } catch (error) {
+        detailNotesList.innerHTML = `<div class="detail-muted">${error.message || 'Failed to load notes'}</div>`;
+    } finally {
+        detailNotesLoading.style.display = 'none';
+    }
+}
+
+function renderDetailNotes(notes) {
+    detailNotesList.innerHTML = '';
+    if (!notes.length) {
+        detailNotesList.innerHTML = '<div class="detail-muted">No notes yet.</div>';
+        return;
+    }
+
+    notes.forEach(note => {
+        const noteEl = document.createElement('div');
+        noteEl.className = 'detail-note';
+
+        const textEl = document.createElement('div');
+        textEl.textContent = note.text || '';
+        noteEl.appendChild(textEl);
+
+        if (note.image_path) {
+            const img = document.createElement('img');
+            img.src = note.image_path;
+            img.alt = 'Note attachment';
+            img.style.maxWidth = '100%';
+            img.style.marginTop = '8px';
+            noteEl.appendChild(img);
+        }
+
+        const meta = document.createElement('div');
+        meta.className = 'detail-note-meta';
+        meta.textContent = note.updated_at ? `Updated ${formatDate(note.updated_at)}` : '';
+        noteEl.appendChild(meta);
+
+        const actions = document.createElement('div');
+        actions.className = 'detail-note-actions';
+
+        const editBtn = document.createElement('button');
+        editBtn.className = 'btn-secondary';
+        editBtn.type = 'button';
+        editBtn.textContent = 'Edit';
+        editBtn.onclick = async () => {
+            const newText = prompt('Edit note', note.text || '');
+            if (newText === null) return;
+            await updateNote(note.id, newText);
+        };
+
+        const deleteBtn = document.createElement('button');
+        deleteBtn.className = 'btn-secondary';
+        deleteBtn.type = 'button';
+        deleteBtn.textContent = 'Delete';
+        deleteBtn.onclick = async () => {
+            if (!confirm('Delete this note?')) return;
+            await deleteNote(note.id);
+        };
+
+        actions.appendChild(editBtn);
+        actions.appendChild(deleteBtn);
+        noteEl.appendChild(actions);
+        detailNotesList.appendChild(noteEl);
+    });
+}
+
+async function updateNote(noteId, text) {
+    try {
+        const response = await fetch(`/api/notes/${noteId}`, {
+            method: 'PATCH',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ text })
+        });
+        if (!response.ok) {
+            throw new Error('Failed to update note');
+        }
+        await loadDetailNotes();
+    } catch (error) {
+        alert(error.message || 'Failed to update note');
+    }
+}
+
+async function deleteNote(noteId) {
+    try {
+        const response = await fetch(`/api/notes/${noteId}`, {
+            method: 'DELETE'
+        });
+        if (!response.ok) {
+            throw new Error('Failed to delete note');
+        }
+        await loadDetailNotes();
+    } catch (error) {
+        alert(error.message || 'Failed to delete note');
+    }
 }
 
 // Render media item (image)
@@ -775,6 +1144,7 @@ async function deleteItem(id) {
 
         if (response.ok) {
             allItems = allItems.filter(item => (item.firestore_id || item.id) !== id);
+            delete noteCounts[id];
             renderFilteredItems();
         } else {
             alert('Failed to delete item');
