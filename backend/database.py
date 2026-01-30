@@ -59,6 +59,10 @@ class DatabaseInterface(ABC):
         pass
 
     @abstractmethod
+    async def get_normalized_items(self, limit: int = 10) -> List[dict]:
+        pass
+
+    @abstractmethod
     async def create_item_note(self, note: ItemNote) -> ItemNote:
         pass
 
@@ -177,6 +181,21 @@ class FirestoreDatabase(DatabaseInterface):
         # Items missing the field (legacy) will need a backfill or manual processing if they need normalization.
         items_ref = self.db.collection('shared_items')
         query = items_ref.where(field_path='is_normalized', op_string='==', value=False).limit(limit)
+
+        def get_docs():
+            items = []
+            for doc in query.stream():
+                data = doc.to_dict()
+                data['firestore_id'] = doc.id
+                items.append(data)
+            return items
+
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(None, get_docs)
+
+    async def get_normalized_items(self, limit: int = 10) -> List[dict]:
+        items_ref = self.db.collection('shared_items')
+        query = items_ref.where(field_path='is_normalized', op_string='==', value=True).limit(limit)
 
         def get_docs():
             items = []
@@ -520,6 +539,33 @@ class SQLiteDatabase(DatabaseInterface):
             result = await session.execute(
                 select(DBSharedItem)
                 .where(DBSharedItem.is_normalized == False)
+                .limit(limit)
+            )
+            items = result.scalars().all()
+
+            return [
+                {
+                    'firestore_id': item.id,
+                    'title': item.title,
+                    'content': item.content,
+                    'type': item.type,
+                    'user_email': item.user_email,
+                    'created_at': item.created_at,
+                    'item_metadata': item.item_metadata,
+                    'analysis': item.analysis,
+                    'status': item.status,
+                    'next_step': item.next_step,
+                    'is_normalized': item.is_normalized,
+                    'hidden': item.hidden
+                }
+                for item in items
+            ]
+
+    async def get_normalized_items(self, limit: int = 10) -> List[dict]:
+        async with self.SessionLocal() as session:
+            result = await session.execute(
+                select(DBSharedItem)
+                .where(DBSharedItem.is_normalized == True)
                 .limit(limit)
             )
             items = result.scalars().all()

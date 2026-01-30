@@ -38,8 +38,13 @@ async def process_normalization_async(limit: int = 10, item_id: str = None, forc
         else:
             logger.error(f"Item {item_id} not found.")
     else:
-        logger.info(f"Querying for up to {limit} unnormalized items...")
-        docs_to_process = await db.get_unnormalized_items(limit)
+        if force:
+            logger.info(f"Querying for up to {limit} NORMALIZED items to RE-normalize...")
+            docs_to_process = await db.get_normalized_items(limit)
+        else:
+            logger.info(f"Querying for up to {limit} unnormalized items...")
+            docs_to_process = await db.get_unnormalized_items(limit)
+            
         logger.info(f"Found {len(docs_to_process)} items to process.")
 
     for data in docs_to_process:
@@ -79,7 +84,7 @@ def main():
     parser = argparse.ArgumentParser(description="Worker to normalize titles of shared items.")
     parser.add_argument("--limit", type=int, default=10, help="Number of items to process (default: 10)")
     parser.add_argument("--id", type=str, help="Specific Item ID to process")
-    parser.add_argument("--force", action="store_true", help="Force re-normalization if ID is provided")
+    parser.add_argument("--force", action="store_true", help="Force re-normalization (works with --id or batch mode)")
     
     args = parser.parse_args()
     
