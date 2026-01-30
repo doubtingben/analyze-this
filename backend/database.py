@@ -190,19 +190,83 @@ class FirestoreDatabase(DatabaseInterface):
         return await loop.run_in_executor(None, get_docs)
 
     async def create_item_note(self, note: ItemNote) -> ItemNote:
-        raise NotImplementedError("Firestore ItemNote not implemented")
+        note_dict = {
+            'id': note.id,
+            'item_id': note.item_id,
+            'user_email': note.user_email,
+            'text': note.text,
+            'image_path': note.image_path,
+            'created_at': note.created_at,
+            'updated_at': note.updated_at,
+        }
+        self.db.collection('item_notes').document(note.id).set(note_dict)
+        return note
 
     async def get_item_notes(self, item_id: str) -> List[dict]:
-        raise NotImplementedError("Firestore ItemNote not implemented")
+        notes_ref = self.db.collection('item_notes')
+        query = notes_ref.where(
+            filter=FieldFilter('item_id', '==', item_id)
+        ).order_by('created_at', direction=firestore.Query.ASCENDING)
+
+        def get_docs():
+            notes = []
+            for doc in query.stream():
+                data = doc.to_dict()
+                notes.append(data)
+            return notes
+
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(None, get_docs)
 
     async def update_item_note(self, note_id: str, updates: dict) -> bool:
-        raise NotImplementedError("Firestore ItemNote not implemented")
+        note_ref = self.db.collection('item_notes').document(note_id)
+        doc = note_ref.get()
+        if not doc.exists:
+            return False
+
+        # Check ownership if user_email provided
+        user_email = updates.pop('user_email', None)
+        if user_email:
+            note_data = doc.to_dict()
+            if note_data.get('user_email') != user_email:
+                raise ValueError("Forbidden")
+
+        updates['updated_at'] = datetime.datetime.utcnow()
+        note_ref.update(updates)
+        return True
 
     async def delete_item_note(self, note_id: str, user_email: str) -> bool:
-        raise NotImplementedError("Firestore ItemNote not implemented")
+        note_ref = self.db.collection('item_notes').document(note_id)
+        doc = note_ref.get()
+        if not doc.exists:
+            return False
+
+        note_data = doc.to_dict()
+        if note_data.get('user_email') != user_email:
+            raise ValueError("Forbidden")
+
+        note_ref.delete()
+        return True
 
     async def get_item_note_count(self, item_ids: List[str]) -> Dict[str, int]:
-        raise NotImplementedError("Firestore ItemNote not implemented")
+        if not item_ids:
+            return {}
+
+        # Initialize counts to 0 for all requested IDs
+        counts = {item_id: 0 for item_id in item_ids}
+
+        def get_counts():
+            # Firestore doesn't support COUNT aggregation well, so we fetch and count
+            # For better performance with large datasets, consider using a counter field
+            notes_ref = self.db.collection('item_notes')
+            for item_id in item_ids:
+                query = notes_ref.where(filter=FieldFilter('item_id', '==', item_id))
+                count = sum(1 for _ in query.stream())
+                counts[item_id] = count
+            return counts
+
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(None, get_counts)
 
 
 # --- SQLite Implementation ---
