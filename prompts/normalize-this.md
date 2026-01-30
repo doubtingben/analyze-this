@@ -6,7 +6,14 @@ Consider field values like this as unhelpful and needing replacement:
 - random file names
 - overloaded context cramming like "2 • Inbox – Just announced: Santigold, Purity Ring, and The Black Angels | Fastmail"
 
+Specifically with items with "timeline" status, the title should reflect the timeline event in a human relatable format, what matters most to the user.
+
+No: Inbox – Gastro Florida Appointment Confirmation | Fastmail
+Yes: Gastro Florida Appointment for Ben
+
 Leave nuance to the analysis step. This is for identifying the most important information and humanizing it. So concise, but not generic.
 
-The field on the item that is being normalized is "item.title". Consider all other fields as read-only context.
+For items of type "web_url" or "weburl" or "text", that are just fully qualified URLs, the generate an image of the web page and save it to the item's image field.
+
+The fields on the item that are being normalized are "item.title" and "item.image". Consider all other fields as read-only context.
 
