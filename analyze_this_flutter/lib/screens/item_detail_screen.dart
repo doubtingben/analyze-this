@@ -12,7 +12,6 @@ import '../services/api_service.dart';
 import '../theme/app_colors.dart';
 import '../theme/app_spacing.dart';
 import '../widgets/type_badge.dart';
-import '../config.dart';
 
 class ItemDetailScreen extends StatefulWidget {
   final List<HistoryItem> items;
@@ -487,63 +486,96 @@ class _ItemDetailPageState extends State<_ItemDetailPage> {
           DateTime.fromMillisecondsSinceEpoch(widget.item.timestamp),
         );
 
-    return SingleChildScrollView(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          // Media preview
-          if (_isImageType && widget.item.value.isNotEmpty) _buildImagePreview(),
-
-          // Content section
-          Padding(
-            padding: const EdgeInsets.all(AppSpacing.lg),
+    return Column(
+      children: [
+        // Scrollable content
+        Expanded(
+          child: SingleChildScrollView(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // Type badge and date
-                Row(
-                  children: [
-                    TypeBadge(type: widget.item.type),
-                    const SizedBox(width: AppSpacing.md),
-                    Text(dateStr, style: theme.textTheme.bodySmall),
-                  ],
+                // Media preview
+                if (_isImageType && widget.item.value.isNotEmpty)
+                  _buildImagePreview(),
+
+                // Content section
+                Padding(
+                  padding: const EdgeInsets.all(AppSpacing.lg),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      // Type badge and date
+                      Row(
+                        children: [
+                          TypeBadge(type: widget.item.type),
+                          const SizedBox(width: AppSpacing.md),
+                          Text(dateStr, style: theme.textTheme.bodySmall),
+                        ],
+                      ),
+                      const SizedBox(height: AppSpacing.lg),
+
+                      // Title (editable or static)
+                      _buildEditableTitle(context),
+
+                      // Content/Value
+                      _buildContentSection(context),
+
+                      // Metadata section
+                      if (widget.item.metadata != null) ...[
+                        const SizedBox(height: AppSpacing.xl),
+                        _buildMetadataSection(context),
+                      ],
+
+                      // Analysis section (with editable tags)
+                      if (_hasAnalysis || widget.isEditMode) ...[
+                        const SizedBox(height: AppSpacing.xl),
+                        _buildAnalysisSection(context),
+                      ],
+
+                      // Notes section
+                      const SizedBox(height: AppSpacing.xl),
+                      _buildNotesSection(context),
+                    ],
+                  ),
                 ),
-                const SizedBox(height: AppSpacing.lg),
+              ],
+            ),
+          ),
+        ),
 
-                // Title (editable or static)
-                _buildEditableTitle(context),
-
-                // Content/Value
-                _buildContentSection(context),
-
-                // Metadata section
-                if (widget.item.metadata != null) ...[
-                  const SizedBox(height: AppSpacing.xl),
-                  _buildMetadataSection(context),
-                ],
-
-                // Analysis section (with editable tags)
-                if (_hasAnalysis || widget.isEditMode) ...[
-                  const SizedBox(height: AppSpacing.xl),
-                  _buildAnalysisSection(context),
-                ],
-
-                // Notes section
-                const SizedBox(height: AppSpacing.xl),
-                _buildNotesSection(context),
-
-                // Save button in edit mode
-                if (widget.isEditMode) ...[
-                  const SizedBox(height: AppSpacing.xl),
-                  SizedBox(
-                    width: double.infinity,
+        // Fixed bottom bar for edit mode
+        if (widget.isEditMode)
+          Container(
+            padding: const EdgeInsets.all(AppSpacing.lg),
+            decoration: BoxDecoration(
+              color: theme.scaffoldBackgroundColor,
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.1),
+                  blurRadius: 8,
+                  offset: const Offset(0, -2),
+                ),
+              ],
+            ),
+            child: SafeArea(
+              top: false,
+              child: Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton(
+                      onPressed: _isSaving
+                          ? null
+                          : () => widget.onEditModeChanged?.call(false),
+                      child: const Text('Cancel'),
+                    ),
+                  ),
+                  const SizedBox(width: AppSpacing.md),
+                  Expanded(
                     child: ElevatedButton(
                       onPressed: _isSaving ? null : _saveChanges,
                       style: ElevatedButton.styleFrom(
                         backgroundColor: AppColors.primary,
                         foregroundColor: Colors.white,
-                        padding:
-                            const EdgeInsets.symmetric(vertical: AppSpacing.md),
                       ),
                       child: _isSaving
                           ? const SizedBox(
@@ -554,15 +586,14 @@ class _ItemDetailPageState extends State<_ItemDetailPage> {
                                 color: Colors.white,
                               ),
                             )
-                          : const Text('Save Changes'),
+                          : const Text('Save'),
                     ),
                   ),
                 ],
-              ],
+              ),
             ),
           ),
-        ],
-      ),
+      ],
     );
   }
 
