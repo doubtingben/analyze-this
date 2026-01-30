@@ -30,6 +30,8 @@ class HistoryCard extends StatelessWidget {
 
   bool get _isImageType => item.type == 'image' || item.type == 'screenshot';
 
+  bool get _hasNotes => item.noteCount > 0;
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -55,12 +57,16 @@ class HistoryCard extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  // Header row: badge + sparkle + delete button
+                  // Header row: badge + sparkle + notes + delete button
                   Row(
                     children: [
                       TypeBadge(type: item.type),
                       const SizedBox(width: AppSpacing.sm),
                       _buildSparkle(context),
+                      if (_hasNotes) ...[
+                        const SizedBox(width: AppSpacing.sm),
+                        _buildNoteIndicator(),
+                      ],
                       if (isHidden) ...[
                         const SizedBox(width: AppSpacing.sm),
                         _buildHiddenChip(),
@@ -192,6 +198,35 @@ class HistoryCard extends StatelessWidget {
           fontWeight: FontWeight.w600,
           color: AppColors.textSecondary,
         ),
+      ),
+    );
+  }
+
+  Widget _buildNoteIndicator() {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+      decoration: BoxDecoration(
+        color: AppColors.primary.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(
+            Icons.note_outlined,
+            size: 12,
+            color: AppColors.primary,
+          ),
+          const SizedBox(width: 4),
+          Text(
+            '${item.noteCount}',
+            style: TextStyle(
+              fontSize: 10,
+              fontWeight: FontWeight.w600,
+              color: AppColors.primary,
+            ),
+          ),
+        ],
       ),
     );
   }
