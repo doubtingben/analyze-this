@@ -512,13 +512,18 @@ async def share_item(
             if not content_val.startswith(expected_prefix):
                 raise HTTPException(status_code=403, detail="Invalid content path: Prefix mismatch")
          
+    image_path = None
+    if normalized_type in (ShareType.image, ShareType.screenshot):
+        image_path = item_data.get('content')
+
     new_item = SharedItem(
         title=item_data.get('title'),
         content=item_data.get('content'),
         type=normalized_type,
         user_email=user_email,
         created_at=datetime.datetime.now(datetime.timezone.utc),
-        item_metadata=item_data.get('item_metadata')
+        item_metadata=item_data.get('item_metadata'),
+        image=image_path
     )
     
     # Analysis is now handled by a background worker
