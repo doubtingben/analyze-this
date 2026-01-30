@@ -345,6 +345,9 @@ class SQLiteDatabase(DatabaseInterface):
 
             await conn.run_sync(ensure_item_notes_table)
 
+    async def close(self):
+        await self.engine.dispose()
+
     async def get_user(self, email: str) -> Optional[User]:
         async with self.SessionLocal() as session:
             result = await session.execute(select(DBUser).where(DBUser.email == email))
@@ -372,7 +375,7 @@ class SQLiteDatabase(DatabaseInterface):
                     email=user.email,
                     name=user.name,
                     picture=user.picture,
-                    created_at=user.created_at or datetime.datetime.utcnow()
+                    created_at=user.created_at or datetime.datetime.now(datetime.timezone.utc)
                 )
                 session.add(db_user)
 
@@ -397,7 +400,7 @@ class SQLiteDatabase(DatabaseInterface):
                 title=item.title,
                 content=item.content,
                 type=item.type,
-                created_at=item.created_at or datetime.datetime.utcnow(),
+                created_at=item.created_at or datetime.datetime.now(datetime.timezone.utc),
                 item_metadata=item.item_metadata,
                 analysis=analysis_data,
                 status=item.status,

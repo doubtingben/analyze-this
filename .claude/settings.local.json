@@ -1,0 +1,23 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git stash:*)",
+      "Bash(git add:*)",
+      "Bash(git fetch:*)",
+      "Bash(git rebase:*)",
+      "Bash(git rm:*)",
+      "Bash(make backend-test:*)",
+      "Bash(gh run view:*)",
+      "Bash(python -m unittest:*)",
+      "Bash(git checkout:*)",
+      "Bash(git pull:*)",
+      "Bash(git commit:*)",
+      "Bash(flutter analyze:*)",
+      "Bash(git reset:*)",
+      "Bash(make flutter-lint:*)",
+      "Bash(git rev-parse:*)",
+      "Bash(python:*)",
+      "Bash(python3:*)"
+    ]
+  }
+}

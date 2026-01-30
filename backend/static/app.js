@@ -4,10 +4,13 @@ const emptyStateEl = document.getElementById('empty-state');
 const itemsContainerEl = document.getElementById('items-container');
 const userNameEl = document.getElementById('user-name');
 const userInfoEl = document.getElementById('user-info');
+const userMenuTriggerEl = document.getElementById('user-menu-trigger');
+const userMenuEl = document.getElementById('user-menu');
 const loginStateEl = document.getElementById('login-state');
 const filtersEl = document.getElementById('filters');
 const typeFilterEl = document.getElementById('type-filter');
-const showHiddenEl = document.getElementById('show-hidden');
+const showHiddenEl = document.getElementById('show-archive');
+const exportBtnEl = document.getElementById('export-btn');
 const newItemBtn = document.getElementById('new-item-btn');
 const createModal = document.getElementById('create-modal');
 const createForm = document.getElementById('create-form');
@@ -36,6 +39,7 @@ async function init() {
 
         // Setup filter controls
         setupFilters();
+        setupUserMenu();
 
         // Setup create modal
         setupCreateModal();
@@ -196,6 +200,57 @@ function setupFilters() {
     }
 }
 
+function setupUserMenu() {
+    if (userMenuTriggerEl) {
+        userMenuTriggerEl.addEventListener('click', (event) => {
+            event.stopPropagation();
+            toggleUserMenu();
+        });
+    }
+
+    if (exportBtnEl) {
+        exportBtnEl.addEventListener('click', () => {
+            window.location.href = '/api/export';
+            closeUserMenu();
+        });
+    }
+
+    document.addEventListener('click', (event) => {
+        if (!userMenuEl || !userMenuTriggerEl) return;
+        if (userMenuEl.contains(event.target) || userMenuTriggerEl.contains(event.target)) {
+            return;
+        }
+        closeUserMenu();
+    });
+
+    document.addEventListener('keydown', (event) => {
+        if (event.key === 'Escape') {
+            closeUserMenu();
+        }
+    });
+}
+
+function openUserMenu() {
+    if (!userMenuEl) return;
+    userMenuEl.classList.add('is-open');
+    userMenuEl.setAttribute('aria-hidden', 'false');
+}
+
+function closeUserMenu() {
+    if (!userMenuEl) return;
+    userMenuEl.classList.remove('is-open');
+    userMenuEl.setAttribute('aria-hidden', 'true');
+}
+
+function toggleUserMenu() {
+    if (!userMenuEl) return;
+    if (userMenuEl.classList.contains('is-open')) {
+        closeUserMenu();
+    } else {
+        openUserMenu();
+    }
+}
+
 // Get event date from analysis details
 function getEventDateTime(item) {
     if (!item.analysis) return null;
@@ -264,11 +319,11 @@ function getFilteredItems() {
         // Filter to only items with derived date/time
         items = items.filter(item => getEventDateTime(item) !== null);
 
-        // Sort by event date/time (ascending - oldest first)
+        // Sort by event date/time (descending - newest first)
         items.sort((a, b) => {
             const dateA = getEventDateTime(a);
             const dateB = getEventDateTime(b);
-            return dateA - dateB;
+            return dateB - dateA;
         });
     } else if (currentView === 'follow_up') {
         // Filter to only items with follow_up status
@@ -338,7 +393,7 @@ function renderItems(items) {
     if (!items || items.length === 0) {
         emptyStateEl.style.display = 'block';
         if (!showHidden && allItems.some(item => item.hidden)) {
-            emptyStateEl.querySelector('p').textContent = 'No visible items. Use "Show hidden" to view archived items.';
+            emptyStateEl.querySelector('p').textContent = 'No visible items. Use "Show Archive" to view archived items.';
         } else if (currentView === 'timeline') {
             emptyStateEl.querySelector('p').textContent = 'No items with event dates found.';
         } else if (currentView === 'follow_up') {
@@ -374,8 +429,8 @@ function renderTimelineItems(items) {
     items.forEach(item => {
         const eventDate = getEventDateTime(item);
 
-        // Insert "Now" divider before the first future item
-        if (!nowDividerInserted && eventDate > now) {
+        // Insert "Now" divider before the first past item
+        if (!nowDividerInserted && eventDate < now) {
             nowDividerEl = document.createElement('div');
             nowDividerEl.className = 'now-divider';
             nowDividerEl.id = 'now-divider';
@@ -385,6 +440,9 @@ function renderTimelineItems(items) {
         }
 
         const card = renderItem(item);
+        if (eventDate < now) {
+            card.classList.add('timeline-past');
+        }
 
         // Add event date badge for timeline view
         const eventDateBadge = document.createElement('div');
@@ -395,7 +453,7 @@ function renderTimelineItems(items) {
         itemsContainerEl.appendChild(card);
     });
 
-    // If all items are in the past, add Now divider at the end
+    // If all items are in the future, add Now divider at the end
     if (!nowDividerInserted && items.length > 0) {
         nowDividerEl = document.createElement('div');
         nowDividerEl.className = 'now-divider';
@@ -530,14 +588,18 @@ function renderItem(item) {
 
     card.appendChild(details);
 
-    // Footer with date and delete button
+    // Footer with date and actions
     const footer = document.createElement('div');
     footer.className = 'item-footer';
 
-    const date = document.createElement('span');
-    date.className = 'item-date';
-    date.textContent = formatDate(item.created_at);
-    footer.appendChild(date);
+    if (currentView !== 'timeline') {
+        const date = document.createElement('span');
+        date.className = 'item-date';
+        date.textContent = formatDate(item.created_at);
+        footer.appendChild(date);
+    } else {
+        footer.classList.add('item-footer--compact');
+    }
 
     const footerActions = document.createElement('div');
     footerActions.className = 'item-footer-actions';
@@ -574,6 +636,9 @@ function renderItem(item) {
 
 // Render media item (image)
 function renderMediaItem(item, container) {
+    if (currentView === 'timeline') {
+        return;
+    }
     const img = document.createElement('img');
     img.className = 'item-image';
     img.src = item.content;
