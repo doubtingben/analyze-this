@@ -1,8 +1,12 @@
 import asyncio
+import io
+import json
 import os
 import sys
 import tempfile
 import unittest
+import zipfile
+from pathlib import Path
 from unittest.mock import patch
 
 from fastapi.testclient import TestClient
@@ -33,6 +37,7 @@ class TestApi(unittest.TestCase):
 
     def tearDown(self):
         self.db_patcher.stop()
+        asyncio.run(main.db.close())
         self.temp_dir.cleanup()
 
     def test_share_requires_auth(self):
@@ -96,6 +101,57 @@ class TestApi(unittest.TestCase):
         self.assertEqual(len(items), 1)
         self.assertEqual(items[0]["analysis"]["overview"], "Test Overview")
         self.assertEqual(items[0]["analysis"]["timeline"]["date"], "2023-01-01")
+
+    def test_export_includes_items_and_files(self):
+        from models import SharedItem, ShareType
+
+        uploads_dir = Path("static/uploads/dev@example.com")
+        uploads_dir.mkdir(parents=True, exist_ok=True)
+        file_path = uploads_dir / "export-test.txt"
+        file_bytes = b"exported file contents"
+        file_path.write_bytes(file_bytes)
+
+        file_item = SharedItem(
+            user_email="dev@example.com",
+            type=ShareType.file,
+            content="uploads/dev@example.com/export-test.txt",
+            title="Export File",
+            hidden=True,
+        )
+        text_item = SharedItem(
+            user_email="dev@example.com",
+            type=ShareType.text,
+            content="Hello export",
+            title="Export Text",
+        )
+
+        asyncio.run(main.db.create_shared_item(file_item))
+        asyncio.run(main.db.create_shared_item(text_item))
+
+        response = self.client.get("/api/export", headers=self.headers)
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.headers["content-type"].startswith("application/zip"))
+
+        with zipfile.ZipFile(io.BytesIO(response.content)) as zipf:
+            self.assertIn("items.json", zipf.namelist())
+            self.assertIn("export_manifest.json", zipf.namelist())
+
+            items = json.loads(zipf.read("items.json"))
+            self.assertEqual(len(items), 2)
+            self.assertTrue(any(item.get("hidden") for item in items))
+
+            file_item_export = next(
+                item for item in items if item.get("content") == "uploads/dev@example.com/export-test.txt"
+            )
+            export_path = file_item_export.get("export_file")
+            self.assertIsNotNone(export_path)
+            self.assertEqual(zipf.read(export_path), file_bytes)
+
+            manifest = json.loads(zipf.read("export_manifest.json"))
+            self.assertEqual(manifest["item_count"], 2)
+            self.assertTrue(any(entry["export_path"] == export_path for entry in manifest["files"]))
+
+        file_path.unlink(missing_ok=True)
 
 
 if __name__ == "__main__":

@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
 from typing import Optional
 from uuid import UUID, uuid4
@@ -42,7 +42,7 @@ class User(BaseModel):
     email: str
     name: Optional[str] = None
     picture: Optional[str] = None
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 class SharedItem(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid4()))
@@ -50,7 +50,7 @@ class SharedItem(BaseModel):
     type: ShareType
     content: str
     title: Optional[str] = None
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     item_metadata: Optional[dict] = Field(default=None)
     analysis: Optional[AnalysisResult] = Field(default=None)
     status: ItemStatus = Field(default=ItemStatus.new)

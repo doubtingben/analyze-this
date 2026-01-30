@@ -4,10 +4,13 @@ const emptyStateEl = document.getElementById('empty-state');
 const itemsContainerEl = document.getElementById('items-container');
 const userNameEl = document.getElementById('user-name');
 const userInfoEl = document.getElementById('user-info');
+const userMenuTriggerEl = document.getElementById('user-menu-trigger');
+const userMenuEl = document.getElementById('user-menu');
 const loginStateEl = document.getElementById('login-state');
 const filtersEl = document.getElementById('filters');
 const typeFilterEl = document.getElementById('type-filter');
-const showHiddenEl = document.getElementById('show-hidden');
+const showHiddenEl = document.getElementById('show-archive');
+const exportBtnEl = document.getElementById('export-btn');
 const newItemBtn = document.getElementById('new-item-btn');
 const createModal = document.getElementById('create-modal');
 const createForm = document.getElementById('create-form');
@@ -36,6 +39,7 @@ async function init() {
 
         // Setup filter controls
         setupFilters();
+        setupUserMenu();
 
         // Setup create modal
         setupCreateModal();
@@ -196,6 +200,57 @@ function setupFilters() {
     }
 }
 
+function setupUserMenu() {
+    if (userMenuTriggerEl) {
+        userMenuTriggerEl.addEventListener('click', (event) => {
+            event.stopPropagation();
+            toggleUserMenu();
+        });
+    }
+
+    if (exportBtnEl) {
+        exportBtnEl.addEventListener('click', () => {
+            window.location.href = '/api/export';
+            closeUserMenu();
+        });
+    }
+
+    document.addEventListener('click', (event) => {
+        if (!userMenuEl || !userMenuTriggerEl) return;
+        if (userMenuEl.contains(event.target) || userMenuTriggerEl.contains(event.target)) {
+            return;
+        }
+        closeUserMenu();
+    });
+
+    document.addEventListener('keydown', (event) => {
+        if (event.key === 'Escape') {
+            closeUserMenu();
+        }
+    });
+}
+
+function openUserMenu() {
+    if (!userMenuEl) return;
+    userMenuEl.classList.add('is-open');
+    userMenuEl.setAttribute('aria-hidden', 'false');
+}
+
+function closeUserMenu() {
+    if (!userMenuEl) return;
+    userMenuEl.classList.remove('is-open');
+    userMenuEl.setAttribute('aria-hidden', 'true');
+}
+
+function toggleUserMenu() {
+    if (!userMenuEl) return;
+    if (userMenuEl.classList.contains('is-open')) {
+        closeUserMenu();
+    } else {
+        openUserMenu();
+    }
+}
+
 // Get event date from analysis details
 function getEventDateTime(item) {
     if (!item.analysis) return null;
@@ -338,7 +393,7 @@ function renderItems(items) {
     if (!items || items.length === 0) {
         emptyStateEl.style.display = 'block';
         if (!showHidden && allItems.some(item => item.hidden)) {
-            emptyStateEl.querySelector('p').textContent = 'No visible items. Use "Show hidden" to view archived items.';
+            emptyStateEl.querySelector('p').textContent = 'No visible items. Use "Show Archive" to view archived items.';
         } else if (currentView === 'timeline') {
             emptyStateEl.querySelector('p').textContent = 'No items with event dates found.';
         } else if (currentView === 'follow_up') {

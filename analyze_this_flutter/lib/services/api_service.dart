@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:typed_data';
 import 'package:http/http.dart' as http;
 import 'package:http_parser/http_parser.dart';
 import 'package:mime/mime.dart';
@@ -48,6 +49,20 @@ class ApiService {
     if (response.statusCode != 200 && response.statusCode != 204) {
       throw Exception('Failed to update item visibility: ${response.statusCode}');
     }
+  }
+
+  Future<Uint8List> exportData(String token) async {
+    final response = await http.get(
+      Uri.parse('${Config.apiUrl}/api/export'),
+      headers: {
+        'Authorization': 'Bearer $token',
+      },
+    );
+
+    if (response.statusCode == 200) {
+      return response.bodyBytes;
+    }
+    throw Exception('Failed to export data: ${response.statusCode}');
   }
 
   Future<void> uploadShare(
