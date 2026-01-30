@@ -1005,7 +1005,7 @@ class _ItemDetailPageState extends State<_ItemDetailPage> {
               borderRadius:
                   const BorderRadius.vertical(top: Radius.circular(8)),
               child: CachedNetworkImage(
-                imageUrl: '${Config.apiUrl}${note.imagePath}',
+                imageUrl: note.imagePath!,
                 httpHeaders: widget.authToken != null
                     ? {'Authorization': 'Bearer ${widget.authToken}'}
                     : null,
