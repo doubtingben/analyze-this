@@ -45,6 +45,10 @@
 	<true/>
 	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>This app needs access to your photo library to attach images to notes.</string>
+	<key>NSCameraUsageDescription</key>
+	<string>This app needs access to your camera to take photos for notes.</string>
 	<key>AppGroupId</key>
 	<string>group.org.interestedparticipant.analyzeThis</string>
 	<key>CFBundleURLTypes</key>

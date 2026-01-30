@@ -50,6 +50,7 @@ class HistoryItem {
   final String? status;
   final String? nextStep;
   final bool hidden;
+  final int noteCount;
 
   HistoryItem({
     required this.id,
@@ -63,6 +64,7 @@ class HistoryItem {
     this.status,
     this.nextStep,
     this.hidden = false,
+    this.noteCount = 0,
   });
 
   factory HistoryItem.fromJson(Map<String, dynamic> json) {
@@ -86,10 +88,41 @@ class HistoryItem {
       status: json['status'],
       nextStep: json['next_step'] ?? json['next_step_label'], // Handling potential field name variance
       hidden: json['hidden'] == true,
+      noteCount: json['note_count'] ?? 0,
     );
   }
 
   bool get isHidden => hidden == true;
+
+  HistoryItem copyWith({
+    String? id,
+    int? timestamp,
+    String? value,
+    String? type,
+    String? firestoreId,
+    String? title,
+    ShareItemMetadata? metadata,
+    Map<String, dynamic>? analysis,
+    String? status,
+    String? nextStep,
+    bool? hidden,
+    int? noteCount,
+  }) {
+    return HistoryItem(
+      id: id ?? this.id,
+      timestamp: timestamp ?? this.timestamp,
+      value: value ?? this.value,
+      type: type ?? this.type,
+      firestoreId: firestoreId ?? this.firestoreId,
+      title: title ?? this.title,
+      metadata: metadata ?? this.metadata,
+      analysis: analysis ?? this.analysis,
+      status: status ?? this.status,
+      nextStep: nextStep ?? this.nextStep,
+      hidden: hidden ?? this.hidden,
+      noteCount: noteCount ?? this.noteCount,
+    );
+  }
 
   static String _normalizeType(String? rawType, String value, Map<String, dynamic>? metadata) {
     String normalized = (rawType ?? '').toLowerCase();

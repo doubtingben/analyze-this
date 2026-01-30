@@ -6,6 +6,7 @@ import 'package:mime/mime.dart';
 import 'package:receive_sharing_intent/receive_sharing_intent.dart';
 import '../config.dart';
 import '../models/history_item.dart';
+import '../models/item_note.dart';
 
 class ApiService {
   Future<List<HistoryItem>> fetchHistory(String token) async {
@@ -145,6 +146,157 @@ class ApiService {
     if (response.statusCode != 200 && response.statusCode != 201) {
       final respStr = await response.stream.bytesToString();
       throw Exception('Failed to share item: ${response.statusCode} $respStr');
+    }
+  }
+
+  /// Update item (title and/or tags)
+  Future<void> updateItem(String token, String itemId, {String? title, List<String>? tags}) async {
+    final body = <String, dynamic>{};
+    if (title != null) body['title'] = title;
+    if (tags != null) body['tags'] = tags;
+
+    if (body.isEmpty) {
+      throw ArgumentError('At least one of title or tags must be provided');
+    }
+
+    final response = await http.patch(
+      Uri.parse('${Config.apiUrl}/api/items/$itemId'),
+      headers: {
+        'Authorization': 'Bearer $token',
+        'Content-Type': 'application/json',
+      },
+      body: jsonEncode(body),
+    );
+
+    if (response.statusCode != 200 && response.statusCode != 204) {
+      throw Exception('Failed to update item: ${response.statusCode}');
+    }
+  }
+
+  /// Get all notes for an item
+  Future<List<ItemNote>> getItemNotes(String token, String itemId) async {
+    final response = await http.get(
+      Uri.parse('${Config.apiUrl}/api/items/$itemId/notes'),
+      headers: {
+        'Authorization': 'Bearer $token',
+      },
+    );
+
+    if (response.statusCode == 200) {
+      final List<dynamic> data = jsonDecode(response.body);
+      return data.map((json) => ItemNote.fromJson(json)).toList();
+    } else {
+      throw Exception('Failed to load notes: ${response.statusCode}');
+    }
+  }
+
+  /// Create a note for an item (with optional file attachment)
+  Future<ItemNote> createNote(String token, String itemId, {String? text, String? imagePath}) async {
+    if (text == null && imagePath == null) {
+      throw ArgumentError('At least one of text or imagePath must be provided');
+    }
+
+    final uri = Uri.parse('${Config.apiUrl}/api/items/$itemId/notes');
+
+    if (imagePath != null) {
+      // Multipart request for file upload
+      final request = http.MultipartRequest('POST', uri);
+      request.headers['Authorization'] = 'Bearer $token';
+
+      if (text != null) {
+        request.fields['text'] = text;
+      }
+
+      final mimeTypeStr = lookupMimeType(imagePath) ?? 'application/octet-stream';
+      final mediaType = MediaType.parse(mimeTypeStr);
+
+      request.files.add(await http.MultipartFile.fromPath(
+        'file',
+        imagePath,
+        contentType: mediaType,
+        filename: imagePath.split('/').last,
+      ));
+
+      final response = await request.send();
+      final respBody = await response.stream.bytesToString();
+      if (response.statusCode != 200 && response.statusCode != 201) {
+        throw Exception('Failed to create note: ${response.statusCode} $respBody');
+      }
+      return ItemNote.fromJson(jsonDecode(respBody));
+    } else {
+      // Simple POST with form data for text-only note
+      final request = http.MultipartRequest('POST', uri);
+      request.headers['Authorization'] = 'Bearer $token';
+      request.fields['text'] = text!;
+
+      final response = await request.send();
+      final respBody = await response.stream.bytesToString();
+      if (response.statusCode != 200 && response.statusCode != 201) {
+        throw Exception('Failed to create note: ${response.statusCode} $respBody');
+      }
+      return ItemNote.fromJson(jsonDecode(respBody));
+    }
+  }
+
+  /// Update a note's text (imagePath updates not yet supported by backend)
+  Future<void> updateNote(String token, String noteId, {String? text, String? imagePath}) async {
+    if (text == null && imagePath == null) {
+      throw ArgumentError('At least one of text or imagePath must be provided');
+    }
+
+    // Note: Backend currently only supports text updates
+    // imagePath parameter is reserved for future use
+    final body = <String, dynamic>{};
+    if (text != null) body['text'] = text;
+
+    final response = await http.patch(
+      Uri.parse('${Config.apiUrl}/api/notes/$noteId'),
+      headers: {
+        'Authorization': 'Bearer $token',
+        'Content-Type': 'application/json',
+      },
+      body: jsonEncode(body),
+    );
+
+    if (response.statusCode != 200) {
+      throw Exception('Failed to update note: ${response.statusCode}');
+    }
+  }
+
+  /// Delete a note
+  Future<void> deleteNote(String token, String noteId) async {
+    final response = await http.delete(
+      Uri.parse('${Config.apiUrl}/api/notes/$noteId'),
+      headers: {
+        'Authorization': 'Bearer $token',
+      },
+    );
+
+    if (response.statusCode != 200 && response.statusCode != 204) {
+      throw Exception('Failed to delete note: ${response.statusCode}');
+    }
+  }
+
+  /// Get note counts for multiple items
+  Future<Map<String, int>> getNoteCounts(String token, List<String> itemIds) async {
+    if (itemIds.isEmpty) {
+      return {};
+    }
+
+    final response = await http.post(
+      Uri.parse('${Config.apiUrl}/api/items/note-counts'),
+      headers: {
+        'Authorization': 'Bearer $token',
+        'Content-Type': 'application/json',
+      },
+      body: jsonEncode({'item_ids': itemIds}),
+    );
+
+    if (response.statusCode == 200) {
+      final Map<String, dynamic> data = jsonDecode(response.body);
+      return data.map((key, value) => MapEntry(key, value as int));
+    } else {
+      throw Exception('Failed to get note counts: ${response.statusCode}');
     }
   }
 
