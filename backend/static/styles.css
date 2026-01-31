@@ -785,6 +785,41 @@ body {
     color: #111827;
 }
 
+.detail-item-id {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    background: #f9fafb;
+    padding: 8px 12px;
+    border-radius: 6px;
+    border: 1px solid #e5e7eb;
+}
+
+.detail-item-id code {
+    font-family: 'SF Mono', 'Monaco', 'Menlo', monospace;
+    font-size: 12px;
+    color: #6b7280;
+    flex: 1;
+    word-break: break-all;
+}
+
+.detail-item-id .btn-icon {
+    background: none;
+    border: none;
+    padding: 4px;
+    cursor: pointer;
+    color: #6b7280;
+    border-radius: 4px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.detail-item-id .btn-icon:hover {
+    background: #e5e7eb;
+    color: #374151;
+}
+
 .detail-input,
 .detail-note-form textarea {
     border: 1px solid #e5e7eb;
