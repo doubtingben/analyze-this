@@ -29,11 +29,14 @@ from database import DatabaseInterface, FirestoreDatabase, SQLiteDatabase
 # Load environment variables
 load_dotenv()
 
-SECRET_KEY = os.getenv("SECRET_KEY", "super-secret-key-please-change")
-GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID")
-GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET")
-GOOGLE_EXTENSION_CLIENT_ID = os.getenv("GOOGLE_EXTENSION_CLIENT_ID")
-APP_ENV = os.getenv("APP_ENV", "production")
+SECRET_KEY = os.getenv("SECRET_KEY", "super-secret-key-please-change").strip()
+GOOGLE_CLIENT_ID = (os.getenv("GOOGLE_CLIENT_ID") or "").strip() or None
+GOOGLE_CLIENT_SECRET = (os.getenv("GOOGLE_CLIENT_SECRET") or "").strip() or None
+GOOGLE_EXTENSION_CLIENT_ID = (os.getenv("GOOGLE_EXTENSION_CLIENT_ID") or "").strip() or None
+GOOGLE_IOS_CLIENT_ID = (os.getenv("GOOGLE_IOS_CLIENT_ID") or "").strip() or None
+GOOGLE_ANDROID_CLIENT_ID = (os.getenv("GOOGLE_ANDROID_CLIENT_ID") or "").strip() or None
+GOOGLE_ANDROID_DEBUG_CLIENT_ID = (os.getenv("GOOGLE_ANDROID_DEBUG_CLIENT_ID") or "").strip() or None
+APP_ENV = os.getenv("APP_ENV", "production").strip()
 
 # Read Version
 try:
@@ -297,7 +300,7 @@ async def verify_google_token(token: str):
 
                 # Check if audience matches our Client IDs
                 # We accept either the web client or extension client
-                valid_audiences = [aid for aid in [GOOGLE_CLIENT_ID, GOOGLE_EXTENSION_CLIENT_ID] if aid]
+                valid_audiences = [aid for aid in [GOOGLE_CLIENT_ID, GOOGLE_EXTENSION_CLIENT_ID, GOOGLE_IOS_CLIENT_ID, GOOGLE_ANDROID_CLIENT_ID, GOOGLE_ANDROID_DEBUG_CLIENT_ID] if aid]
 
                 if aud not in valid_audiences:
                     print(f"Token verification failed: Audience mismatch. Expected one of {valid_audiences}, got {aud}")

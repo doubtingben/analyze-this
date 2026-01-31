@@ -20,6 +20,8 @@ class TestTokenVerification(unittest.TestCase):
     def setUp(self):
         main.GOOGLE_CLIENT_ID = "valid-client-id"
         main.GOOGLE_EXTENSION_CLIENT_ID = "valid-extension-id"
+        main.GOOGLE_IOS_CLIENT_ID = "valid-ios-id"
+        main.GOOGLE_ANDROID_CLIENT_ID = "valid-android-id"
         main.APP_ENV = "production"
 
     @patch('main.run_in_threadpool')
@@ -111,6 +113,92 @@ class TestTokenVerification(unittest.TestCase):
 
         self.assertIsNotNone(result)
         self.assertEqual(result['email'], "user@example.com")
+
+    @patch('main.run_in_threadpool')
+    @patch('httpx.AsyncClient')
+    def test_verify_access_token_ios(self, mock_httpx_client, mock_run_in_threadpool):
+        """
+        Test that an access token issued to the iOS app is accepted.
+        """
+        mock_run_in_threadpool.side_effect = ValueError("Invalid ID Token")
+        token = "ios-token"
+
+        mock_client_instance = mock_httpx_client.return_value.__aenter__.return_value
+        mock_get = AsyncMock()
+        mock_client_instance.get = mock_get
+
+        userinfo_response = MagicMock()
+        userinfo_response.status_code = 200
+        userinfo_response.json.return_value = {
+            "email": "ios-user@example.com",
+            "name": "iOS User",
+            "picture": "http://pic.com/ios"
+        }
+
+        tokeninfo_response = MagicMock()
+        tokeninfo_response.status_code = 200
+        # Valid IOS audience
+        tokeninfo_response.json.return_value = {
+            "aud": "valid-ios-id",
+            "scope": "email"
+        }
+
+        async def get_side_effect(url, headers=None, params=None):
+            if "tokeninfo" in url:
+                return tokeninfo_response
+            if "userinfo" in url:
+                return userinfo_response
+            return MagicMock(status_code=404)
+
+        mock_get.side_effect = get_side_effect
+
+        result = asyncio.run(main.verify_google_token(token))
+
+        self.assertIsNotNone(result)
+        self.assertEqual(result['email'], "ios-user@example.com")
+
+    @patch('main.run_in_threadpool')
+    @patch('httpx.AsyncClient')
+    def test_verify_access_token_android(self, mock_httpx_client, mock_run_in_threadpool):
+        """
+        Test that an access token issued to the Android app is accepted.
+        """
+        mock_run_in_threadpool.side_effect = ValueError("Invalid ID Token")
+        token = "android-token"
+
+        mock_client_instance = mock_httpx_client.return_value.__aenter__.return_value
+        mock_get = AsyncMock()
+        mock_client_instance.get = mock_get
+
+        userinfo_response = MagicMock()
+        userinfo_response.status_code = 200
+        userinfo_response.json.return_value = {
+            "email": "android-user@example.com",
+            "name": "Android User",
+            "picture": "http://pic.com/android"
+        }
+
+        tokeninfo_response = MagicMock()
+        tokeninfo_response.status_code = 200
+        # Valid ANDROID audience
+        tokeninfo_response.json.return_value = {
+            "aud": "valid-android-id",
+            "scope": "email"
+        }
+
+        async def get_side_effect(url, headers=None, params=None):
+            if "tokeninfo" in url:
+                return tokeninfo_response
+            if "userinfo" in url:
+                return userinfo_response
+            return MagicMock(status_code=404)
+
+        mock_get.side_effect = get_side_effect
+
+        result = asyncio.run(main.verify_google_token(token))
+
+        self.assertIsNotNone(result)
+        self.assertEqual(result['email'], "android-user@example.com")
 
 if __name__ == '__main__':
     unittest.main()

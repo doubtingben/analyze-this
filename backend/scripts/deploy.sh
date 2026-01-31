@@ -35,6 +35,9 @@ check_secret "GOOGLE_CLIENT_ID"
 check_secret "GOOGLE_CLIENT_SECRET"
 check_secret "FIREBASE_STORAGE_BUCKET"
 check_secret "GOOGLE_EXTENSION_CLIENT_ID"
+check_secret "GOOGLE_IOS_CLIENT_ID"
+check_secret "GOOGLE_ANDROID_CLIENT_ID"
+check_secret "GOOGLE_ANDROID_DEBUG_CLIENT_ID"
 
 # Generate version file
 GIT_HASH=$(git rev-parse HEAD)
@@ -57,6 +60,9 @@ gcloud run deploy $SERVICE_NAME \
   --set-secrets "GOOGLE_CLIENT_SECRET=GOOGLE_CLIENT_SECRET:latest" \
   --set-secrets "FIREBASE_STORAGE_BUCKET=FIREBASE_STORAGE_BUCKET:latest" \
   --set-secrets "GOOGLE_EXTENSION_CLIENT_ID=GOOGLE_EXTENSION_CLIENT_ID:latest" \
+  --set-secrets "GOOGLE_IOS_CLIENT_ID=GOOGLE_IOS_CLIENT_ID:latest" \
+  --set-secrets "GOOGLE_ANDROID_CLIENT_ID=GOOGLE_ANDROID_CLIENT_ID:latest" \
+  --set-secrets "GOOGLE_ANDROID_DEBUG_CLIENT_ID=GOOGLE_ANDROID_DEBUG_CLIENT_ID:latest" \
   ${RUNTIME_SERVICE_ACCOUNT:+--service-account "$RUNTIME_SERVICE_ACCOUNT"}
 
 # Cleanup
