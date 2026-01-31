@@ -9,7 +9,7 @@ import zipfile
 from pathlib import Path
 from contextlib import asynccontextmanager
 from typing import Optional, List
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from fastapi import FastAPI, Request, Depends, HTTPException, status, File, UploadFile, Form, BackgroundTasks
 from fastapi.responses import HTMLResponse, RedirectResponse, FileResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
@@ -37,6 +37,9 @@ GOOGLE_IOS_CLIENT_ID = (os.getenv("GOOGLE_IOS_CLIENT_ID") or "").strip() or None
 GOOGLE_ANDROID_CLIENT_ID = (os.getenv("GOOGLE_ANDROID_CLIENT_ID") or "").strip() or None
 GOOGLE_ANDROID_DEBUG_CLIENT_ID = (os.getenv("GOOGLE_ANDROID_DEBUG_CLIENT_ID") or "").strip() or None
 APP_ENV = os.getenv("APP_ENV", "production").strip()
+
+MAX_TITLE_LENGTH = 255
+MAX_TEXT_LENGTH = 10000
 
 # Read Version
 try:
@@ -431,9 +434,9 @@ async def share_item(
         raise HTTPException(status_code=401, detail="Unauthorized")
 
     # Input Validation
-    if title and len(title) > 255:
+    if title and len(title) > MAX_TITLE_LENGTH:
         raise HTTPException(status_code=400, detail="Title too long")
-    if content and len(content) > 10000:
+    if content and len(content) > MAX_TEXT_LENGTH:
         raise HTTPException(status_code=400, detail="Content too long")
 
     # Determine Input Type
@@ -872,7 +875,7 @@ class NoteCountRequest(BaseModel):
     item_ids: List[str]
 
 class ItemUpdateRequest(BaseModel):
-    title: Optional[str] = None
+    title: Optional[str] = Field(None, max_length=MAX_TITLE_LENGTH)
     tags: Optional[List[str]] = None
 
 
@@ -896,6 +899,9 @@ async def create_item_note(
     # Validate that at least text or file is provided
     if not text and not file:
         raise HTTPException(status_code=400, detail="Either text or file must be provided")
+
+    if text and len(text) > MAX_TEXT_LENGTH:
+        raise HTTPException(status_code=400, detail="Note text too long")
 
     image_path = None
 
@@ -1006,7 +1012,13 @@ async def update_item_note(note_id: str, request: Request):
     # Only allow updating text field
     updates = {}
     if 'text' in body:
-        updates['text'] = body['text']
+        text_val = body['text']
+        if text_val is not None:
+            if not isinstance(text_val, str):
+                raise HTTPException(status_code=400, detail="Text must be a string")
+            if len(text_val) > MAX_TEXT_LENGTH:
+                raise HTTPException(status_code=400, detail="Note text too long")
+        updates['text'] = text_val
 
     if not updates:
         raise HTTPException(status_code=400, detail="No valid fields to update")
