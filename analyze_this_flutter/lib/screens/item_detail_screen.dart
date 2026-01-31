@@ -535,6 +535,10 @@ class _ItemDetailPageState extends State<_ItemDetailPage> {
                       // Notes section
                       const SizedBox(height: AppSpacing.xl),
                       _buildNotesSection(context),
+
+                      // Item ID (readonly)
+                      const SizedBox(height: AppSpacing.xl),
+                      _buildItemIdSection(context),
                     ],
                   ),
                 ),
@@ -1012,6 +1016,51 @@ class _ItemDetailPageState extends State<_ItemDetailPage> {
                 const SizedBox(height: AppSpacing.md),
             itemBuilder: (context, index) => _buildNoteCard(_notes[index]),
           ),
+      ],
+    );
+  }
+
+  Widget _buildItemIdSection(BuildContext context) {
+    final theme = Theme.of(context);
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text('Item ID', style: theme.textTheme.titleMedium),
+        const SizedBox(height: AppSpacing.sm),
+        Container(
+          width: double.infinity,
+          padding: const EdgeInsets.all(AppSpacing.md),
+          decoration: BoxDecoration(
+            color: AppColors.badgeBackground,
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: Row(
+            children: [
+              Expanded(
+                child: SelectableText(
+                  widget.item.id,
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    fontFamily: 'monospace',
+                    color: AppColors.textSecondary,
+                  ),
+                ),
+              ),
+              IconButton(
+                icon: const Icon(Icons.copy, size: 16),
+                onPressed: () {
+                  Clipboard.setData(ClipboardData(text: widget.item.id));
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('Item ID copied')),
+                  );
+                },
+                tooltip: 'Copy ID',
+                visualDensity: VisualDensity.compact,
+                color: AppColors.textSecondary,
+              ),
+            ],
+          ),
+        ),
       ],
     );
   }

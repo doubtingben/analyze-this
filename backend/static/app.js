@@ -36,6 +36,7 @@ const detailNotesList = document.getElementById('detail-notes-list');
 const detailNotesLoading = document.getElementById('detail-notes-loading');
 const detailNoteForm = document.getElementById('detail-note-form');
 const detailNoteText = document.getElementById('detail-note-text');
+const detailItemIdEl = document.getElementById('detail-item-id');
 
 // State
 let allItems = [];
@@ -726,15 +727,9 @@ function renderItem(item) {
     const infoBtn = document.createElement('button');
     infoBtn.className = 'info-btn';
     infoBtn.textContent = 'ℹ️';
-    infoBtn.title = currentView === 'follow_up' ? 'View details' : 'Show details';
+    infoBtn.title = 'View details';
     infoBtn.onclick = () => {
-        if (currentView === 'follow_up') {
-            openDetailModal(item);
-            return;
-        }
-        const isVisible = details.style.display !== 'none';
-        details.style.display = isVisible ? 'none' : 'block';
-        infoBtn.classList.toggle('active', !isVisible);
+        openDetailModal(item);
     };
     footerActions.appendChild(infoBtn);
 
@@ -805,6 +800,20 @@ function openDetailModal(item) {
         detailContentEl.innerHTML = `<a href="${item.content}" target="_blank" rel="noopener noreferrer">${item.content}</a>`;
     } else {
         detailContentEl.textContent = item.content || '';
+    }
+
+    // Display item ID with copy button
+    const itemId = item.firestore_id || item.id || '';
+    if (detailItemIdEl) {
+        detailItemIdEl.innerHTML = `
+            <code>${itemId}</code>
+            <button class="btn-icon" onclick="navigator.clipboard.writeText('${itemId}').then(() => alert('Item ID copied!'))" title="Copy ID">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                    <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+                </svg>
+            </button>
+        `;
     }
 
     editableTags = item.analysis?.tags ? [...item.analysis.tags] : [];
