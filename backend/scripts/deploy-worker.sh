@@ -9,7 +9,6 @@ BACKEND_DIR="$(dirname "$SCRIPT_DIR")"
 cd "$BACKEND_DIR"
 
 # Configuration
-JOB_NAME="worker-analysis"
 REGION="us-central1"
 PROJECT_ID="analyze-this-2026"
 
@@ -20,6 +19,24 @@ SERVICE_ACCOUNT_EMAIL="${SERVICE_ACCOUNT_NAME}@${PROJECT_ID}.iam.gserviceaccount
 echo "Using Service Account: $SERVICE_ACCOUNT_EMAIL"
 echo "Note: Ensure this service account is created and has 'Secret Manager Secret Accessor' role."
 echo "Run './backend/scripts/setup-sa.sh' to configure it if needed."
+
+if [ -z "$1" ]; then
+  echo "Usage: ./backend/scripts/deploy-worker.sh <analysis|normalize> [region]"
+  exit 1
+fi
+
+JOB_TYPE="$1"
+if [ "$JOB_TYPE" != "analysis" ] && [ "$JOB_TYPE" != "normalize" ]; then
+  echo "Error: job type must be 'analysis' or 'normalize'."
+  exit 1
+fi
+
+if [ -n "$2" ]; then
+  REGION="$2"
+fi
+
+JOB_NAME="worker-$JOB_TYPE"
+SCRIPT_NAME="worker_${JOB_TYPE}.py"
 
 echo "Deploying $JOB_NAME to Google Cloud Run Jobs..."
 
@@ -48,7 +65,7 @@ gcloud run jobs deploy $JOB_NAME \
   --region $REGION \
   --project $PROJECT_ID \
   --command python \
-  --args worker_analysis.py \
+  --args "$SCRIPT_NAME" --queue \
   --service-account "$SERVICE_ACCOUNT_EMAIL" \
   --set-env-vars "APP_ENV=production" \
   --set-secrets "FIREBASE_STORAGE_BUCKET=FIREBASE_STORAGE_BUCKET:latest" \

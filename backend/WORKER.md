@@ -1,9 +1,9 @@
-# Analysis Worker
+# Analysis + Normalize Workers
 
-This worker script is responsible for processing `SharedItem`s in the database that have not yet been analyzed by the AI.
+These worker scripts process `SharedItem`s using a Firestore-backed queue.
 
 ## Overview
-The worker connects to Firestore, queries for items where `analysis` is `null`, sends the content to the AI model, and updates the document with the result.
+New items enqueue two jobs: `analysis` and `normalize`. Cloud Run Jobs run the worker scripts, which lease queued jobs, process the item, and mark the job complete.
 
 ## Usage
 
@@ -14,27 +14,33 @@ The worker connects to Firestore, queries for items where `analysis` is `null`, 
 
 ### Running the Worker
 
-**Process next batch (default 10):**
+**Process next batch from the queue (default 10):**
 ```bash
-python backend/worker_analysis.py
+python backend/worker_analysis.py --queue
 ```
 
-**Process N items:**
+**Process N queued jobs:**
 ```bash
-python backend/worker_analysis.py --limit 50
+python backend/worker_analysis.py --queue --limit 50
 ```
 
-**Process a specific item:**
+**Process a specific item (legacy mode):**
 ```bash
 python backend/worker_analysis.py --id <firestore_document_id>
 ```
 
-**Force re-analyze a specific item:**
+**Force re-analyze a specific item (legacy mode):**
 ```bash
 python backend/worker_analysis.py --id <firestore_document_id> --force
 ```
 
-## Environment Variables
+## Normalize Worker (Queue Mode)
+
+```bash
+python backend/worker_normalize.py --queue
+```
+
+## Environment Variables / Secrets
 
 The worker uses the same `.env` file as the backend. Ensure these are set:
 
@@ -45,5 +51,23 @@ The worker uses the same `.env` file as the backend. Ensure these are set:
 | `OPENROUTER_API_KEY` | API Key for OpenRouter (AI Model) |
 | `OPENROUTER_MODEL` | (Optional) Model identifier, defaults to `google/gemini-2.0-flash-exp:free` |
 
+## Required IAM Permissions
+
+For the Cloud Run Job service account:
+- `roles/datastore.user` (Firestore read/write)
+- `roles/storage.objectViewer` (read uploaded files for analysis)
+- `roles/secretmanager.secretAccessor` (read secrets)
+
+If you plan to trigger Cloud Run Jobs programmatically (dispatcher/scheduler service):
+- `roles/run.developer` or `roles/run.admin`
+- `roles/iam.serviceAccountUser` (to run jobs as the worker SA)
+
 ## Deployment logic
-For production, this script can be run as a Job (Cloud Run Job) on a schedule (e.g., every minute) or triggered via Eventarc when a new document is created in Firestore (requires wrapping in a Cloud Function or Cloud Run service wrapper).
+For production, run Cloud Run Jobs on a schedule (e.g., every minute) or via Eventarc. The job processes queued work items.
+
+### Deploy jobs
+Use the unified deploy script:
+```bash
+./backend/scripts/deploy-worker.sh analysis
+./backend/scripts/deploy-worker.sh normalize
+```

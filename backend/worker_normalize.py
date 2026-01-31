@@ -7,6 +7,7 @@ from dotenv import load_dotenv
 from normalization import normalize_item_title
 from database import DatabaseInterface, FirestoreDatabase, SQLiteDatabase
 from worker_analysis import get_db
+from worker_queue import process_queue_jobs
 
 # Configure logging
 logging.basicConfig(
@@ -80,14 +81,51 @@ async def process_normalization_async(limit: int = 10, item_id: str = None, forc
             # We raise here to halt the worker as requested.
             raise e
 
+async def _process_normalize_item(db, data):
+    doc_id = data.get('firestore_id') or data.get('id')
+    current_title = data.get('title')
+    content = data.get('content')
+    item_type = data.get('type', 'text')
+
+    loop = asyncio.get_running_loop()
+    new_title = await loop.run_in_executor(None, normalize_item_title, content, item_type, current_title)
+
+    updates = {'is_normalized': True}
+    if new_title:
+        if new_title != current_title:
+            logger.info(f"Title changed: '{current_title}' -> '{new_title}'")
+            updates['title'] = new_title
+        else:
+            logger.info("Title unchanged.")
+    else:
+        logger.warning(f"Normalization returned None/Failed for {doc_id}. Marking as normalized.")
+
+    await db.update_shared_item(doc_id, updates)
+    logger.info(f"Successfully normalized item {doc_id}.")
+    return True, None
+
 def main():
     parser = argparse.ArgumentParser(description="Worker to normalize titles of shared items.")
     parser.add_argument("--limit", type=int, default=10, help="Number of items to process (default: 10)")
     parser.add_argument("--id", type=str, help="Specific Item ID to process")
     parser.add_argument("--force", action="store_true", help="Force re-normalization (works with --id or batch mode)")
+    parser.add_argument("--queue", action="store_true", help="Process jobs from the worker queue")
+    parser.add_argument("--lease-seconds", type=int, default=600, help="Lease duration for queued jobs (seconds)")
     
     args = parser.parse_args()
     
+    if args.queue:
+        asyncio.run(process_queue_jobs(
+            job_type="normalize",
+            limit=args.limit,
+            lease_seconds=args.lease_seconds,
+            get_db=get_db,
+            process_item_fn=_process_normalize_item,
+            logger=logger,
+            halt_on_error=True,
+        ))
+        return
+
     asyncio.run(process_normalization_async(limit=args.limit, item_id=args.id, force=args.force))
 
 if __name__ == "__main__":

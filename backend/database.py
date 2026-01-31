@@ -1,5 +1,6 @@
 import os
 import datetime
+from uuid import uuid4
 import asyncio
 from abc import ABC, abstractmethod
 from typing import List, Optional, Dict, Any
@@ -16,7 +17,7 @@ from google.cloud.firestore_v1.base_query import FieldFilter
 # SQLAlchemy imports
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
 from sqlalchemy.orm import sessionmaker, declarative_base
-from sqlalchemy import Column, String, DateTime, JSON, Boolean, inspect, text, func
+from sqlalchemy import Column, String, DateTime, JSON, Boolean, Integer, inspect, text, func
 from sqlalchemy.future import select
 
 # --- Interface ---
@@ -82,6 +83,22 @@ class DatabaseInterface(ABC):
     async def get_item_note_count(self, item_ids: List[str]) -> Dict[str, int]:
         pass
 
+    @abstractmethod
+    async def enqueue_worker_job(self, item_id: str, user_email: str, job_type: str, payload: Optional[dict] = None) -> str:
+        pass
+
+    @abstractmethod
+    async def lease_worker_jobs(self, job_type: str, worker_id: str, limit: int = 10, lease_seconds: int = 600) -> List[dict]:
+        pass
+
+    @abstractmethod
+    async def complete_worker_job(self, job_id: str) -> bool:
+        pass
+
+    @abstractmethod
+    async def fail_worker_job(self, job_id: str, error: str) -> bool:
+        pass
+
 
 # --- Firestore Implementation ---
 
@@ -109,7 +126,8 @@ class FirestoreDatabase(DatabaseInterface):
 
     async def create_shared_item(self, item: SharedItem) -> SharedItem:
         item_dict = item.dict()
-        self.db.collection('shared_items').add(item_dict)
+        # Use item.id as Firestore document ID for easier cross-system referencing
+        self.db.collection('shared_items').document(item.id).set(item_dict)
         return item
 
     async def get_shared_items(self, user_email: str) -> List[dict]:
@@ -287,6 +305,87 @@ class FirestoreDatabase(DatabaseInterface):
         loop = asyncio.get_running_loop()
         return await loop.run_in_executor(None, get_counts)
 
+    async def enqueue_worker_job(self, item_id: str, user_email: str, job_type: str, payload: Optional[dict] = None) -> str:
+        job_data = {
+            'item_id': item_id,
+            'user_email': user_email,
+            'job_type': job_type,
+            'status': 'queued',
+            'attempts': 0,
+            'payload': payload or {},
+            'created_at': firestore.SERVER_TIMESTAMP,
+            'updated_at': firestore.SERVER_TIMESTAMP
+        }
+        doc_ref = self.db.collection('worker_queue').document()
+        doc_ref.set(job_data)
+        return doc_ref.id
+
+    async def lease_worker_jobs(self, job_type: str, worker_id: str, limit: int = 10, lease_seconds: int = 600) -> List[dict]:
+        def lease():
+            now = datetime.datetime.now(datetime.timezone.utc)
+            lease_expires_at = now + datetime.timedelta(seconds=lease_seconds)
+            jobs = []
+            query = (
+                self.db.collection('worker_queue')
+                .where(filter=FieldFilter('job_type', '==', job_type))
+                .where(filter=FieldFilter('status', '==', 'queued'))
+                .order_by('created_at')
+                .limit(limit)
+            )
+
+            for doc in query.stream():
+                transaction = self.db.transaction()
+
+                def _claim(transaction):
+                    snapshot = doc.reference.get(transaction=transaction)
+                    data = snapshot.to_dict() or {}
+                    if data.get('status') != 'queued':
+                        return
+                    attempts = int(data.get('attempts', 0)) + 1
+                    transaction.update(doc.reference, {
+                        'status': 'leased',
+                        'worker_id': worker_id,
+                        'lease_expires_at': lease_expires_at,
+                        'attempts': attempts,
+                        'updated_at': firestore.SERVER_TIMESTAMP
+                    })
+                    data['firestore_id'] = snapshot.id
+                    data['status'] = 'leased'
+                    data['worker_id'] = worker_id
+                    data['lease_expires_at'] = lease_expires_at
+                    data['attempts'] = attempts
+                    jobs.append(data)
+
+                transaction.call(_claim)
+
+            return jobs
+
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(None, lease)
+
+    async def complete_worker_job(self, job_id: str) -> bool:
+        job_ref = self.db.collection('worker_queue').document(job_id)
+        doc = job_ref.get()
+        if not doc.exists:
+            return False
+        job_ref.update({
+            'status': 'completed',
+            'updated_at': firestore.SERVER_TIMESTAMP
+        })
+        return True
+
+    async def fail_worker_job(self, job_id: str, error: str) -> bool:
+        job_ref = self.db.collection('worker_queue').document(job_id)
+        doc = job_ref.get()
+        if not doc.exists:
+            return False
+        job_ref.update({
+            'status': 'failed',
+            'error': error,
+            'updated_at': firestore.SERVER_TIMESTAMP
+        })
+        return True
+
 
 # --- SQLite Implementation ---
 
@@ -321,6 +420,21 @@ class DBItemNote(Base):
     user_email = Column(String, nullable=False)
     text = Column(String, nullable=True)
     image_path = Column(String, nullable=True)
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.datetime.utcnow)
+
+class DBWorkerJob(Base):
+    __tablename__ = 'worker_queue'
+    id = Column(String, primary_key=True)
+    item_id = Column(String, nullable=False, index=True)
+    user_email = Column(String, nullable=False)
+    job_type = Column(String, nullable=False, index=True)
+    status = Column(String, nullable=False, default='queued')
+    attempts = Column(Integer, default=0)
+    worker_id = Column(String, nullable=True)
+    lease_expires_at = Column(DateTime, nullable=True)
+    error = Column(String, nullable=True)
+    payload = Column(JSON, nullable=True)
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.datetime.utcnow)
 
@@ -363,6 +477,31 @@ class SQLiteDatabase(DatabaseInterface):
                     sync_conn.execute(text("CREATE INDEX ix_item_notes_item_id ON item_notes (item_id)"))
 
             await conn.run_sync(ensure_item_notes_table)
+
+            def ensure_worker_queue_table(sync_conn):
+                inspector = inspect(sync_conn)
+                if 'worker_queue' not in inspector.get_table_names():
+                    sync_conn.execute(text("""
+                        CREATE TABLE worker_queue (
+                            id VARCHAR PRIMARY KEY,
+                            item_id VARCHAR NOT NULL,
+                            user_email VARCHAR NOT NULL,
+                            job_type VARCHAR NOT NULL,
+                            status VARCHAR NOT NULL,
+                            attempts INTEGER,
+                            worker_id VARCHAR,
+                            lease_expires_at DATETIME,
+                            error VARCHAR,
+                            payload JSON,
+                            created_at DATETIME,
+                            updated_at DATETIME
+                        )
+                    """))
+                    sync_conn.execute(text("CREATE INDEX ix_worker_queue_item_id ON worker_queue (item_id)"))
+                    sync_conn.execute(text("CREATE INDEX ix_worker_queue_job_type ON worker_queue (job_type)"))
+                    sync_conn.execute(text("CREATE INDEX ix_worker_queue_status ON worker_queue (status)"))
+
+            await conn.run_sync(ensure_worker_queue_table)
 
     async def close(self):
         await self.engine.dispose()
@@ -682,3 +821,81 @@ class SQLiteDatabase(DatabaseInterface):
                 counts[item_id] = count
 
             return counts
+
+    async def enqueue_worker_job(self, item_id: str, user_email: str, job_type: str, payload: Optional[dict] = None) -> str:
+        async with self.SessionLocal() as session:
+            job_id = str(uuid4())
+            now = datetime.datetime.now(datetime.timezone.utc)
+            job = DBWorkerJob(
+                id=job_id,
+                item_id=item_id,
+                user_email=user_email,
+                job_type=job_type,
+                status='queued',
+                attempts=0,
+                payload=payload or {},
+                created_at=now,
+                updated_at=now
+            )
+            session.add(job)
+            await session.commit()
+            return job_id
+
+    async def lease_worker_jobs(self, job_type: str, worker_id: str, limit: int = 10, lease_seconds: int = 600) -> List[dict]:
+        async with self.SessionLocal() as session:
+            now = datetime.datetime.now(datetime.timezone.utc)
+            lease_expires_at = now + datetime.timedelta(seconds=lease_seconds)
+
+            result = await session.execute(
+                select(DBWorkerJob)
+                .where(DBWorkerJob.job_type == job_type)
+                .where(DBWorkerJob.status == 'queued')
+                .order_by(DBWorkerJob.created_at.asc())
+                .limit(limit)
+            )
+            jobs = result.scalars().all()
+
+            leased = []
+            for job in jobs:
+                job.status = 'leased'
+                job.worker_id = worker_id
+                job.lease_expires_at = lease_expires_at
+                job.attempts = (job.attempts or 0) + 1
+                job.updated_at = now
+                leased.append({
+                    'firestore_id': job.id,
+                    'item_id': job.item_id,
+                    'user_email': job.user_email,
+                    'job_type': job.job_type,
+                    'status': job.status,
+                    'attempts': job.attempts,
+                    'worker_id': job.worker_id,
+                    'lease_expires_at': job.lease_expires_at,
+                    'payload': job.payload
+                })
+
+            await session.commit()
+            return leased
+
+    async def complete_worker_job(self, job_id: str) -> bool:
+        async with self.SessionLocal() as session:
+            result = await session.execute(select(DBWorkerJob).where(DBWorkerJob.id == job_id))
+            job = result.scalar_one_or_none()
+            if not job:
+                return False
+            job.status = 'completed'
+            job.updated_at = datetime.datetime.now(datetime.timezone.utc)
+            await session.commit()
+            return True
+
+    async def fail_worker_job(self, job_id: str, error: str) -> bool:
+        async with self.SessionLocal() as session:
+            result = await session.execute(select(DBWorkerJob).where(DBWorkerJob.id == job_id))
+            job = result.scalar_one_or_none()
+            if not job:
+                return False
+            job.status = 'failed'
+            job.error = error
+            job.updated_at = datetime.datetime.now(datetime.timezone.utc)
+            await session.commit()
+            return True

@@ -6,6 +6,7 @@ from dotenv import load_dotenv
 
 from analysis import analyze_content
 from database import DatabaseInterface, FirestoreDatabase, SQLiteDatabase
+from worker_queue import process_queue_jobs
 
 # Configure logging
 logging.basicConfig(
@@ -107,14 +108,71 @@ async def process_items_async(limit: int = 10, item_id: str = None, force: bool 
             logger.error(f"Failed to analyze item {doc_id}: {e}")
             await db.update_shared_item(doc_id, {'status': 'processed', 'next_step': 'error'})
 
+async def _process_analysis_item(db, data):
+    doc_id = data.get('firestore_id') or data.get('id')
+
+    # 1. Mark as Analyzing
+    try:
+        await db.update_shared_item(doc_id, {'status': 'analyzing'})
+    except Exception as e:
+        logger.error(f"Failed to update status to analyzing for {doc_id}: {e}")
+
+    content = data.get('content')
+    item_type = data.get('type', 'text')
+
+    if not content:
+        logger.warning(f"Item {doc_id} has no content. Skipping.")
+        await db.update_shared_item(doc_id, {'status': 'processed', 'next_step': 'no_content'})
+        return True, None
+
+    try:
+        loop = asyncio.get_running_loop()
+        analysis_result = await loop.run_in_executor(None, analyze_content, content, item_type)
+
+        if analysis_result:
+            new_status = 'analyzed'
+            if analysis_result.get('timeline'):
+                new_status = 'timeline'
+            elif analysis_result.get('follow_up'):
+                new_status = 'follow_up'
+
+            await db.update_shared_item(doc_id, {
+                'analysis': analysis_result,
+                'status': new_status,
+                'next_step': new_status
+            })
+            logger.info(f"Successfully analyzed item {doc_id}.")
+            return True, None
+
+        logger.warning(f"Analysis returned None for item {doc_id}.")
+        await db.update_shared_item(doc_id, {'status': 'processed', 'next_step': 'failed_analysis'})
+        return False, "analysis_returned_none"
+    except Exception as e:
+        logger.error(f"Failed to analyze item {doc_id}: {e}")
+        await db.update_shared_item(doc_id, {'status': 'processed', 'next_step': 'error'})
+        return False, str(e)
 
 def main():
     parser = argparse.ArgumentParser(description="Worker to process unanalyzed shared items.")
     parser.add_argument("--limit", type=int, default=10, help="Number of items to process (default: 10)")
     parser.add_argument("--id", type=str, help="Specific Item ID to process")
     parser.add_argument("--force", action="store_true", help="Force re-analysis if ID is provided")
+    parser.add_argument("--queue", action="store_true", help="Process jobs from the worker queue")
+    parser.add_argument("--lease-seconds", type=int, default=600, help="Lease duration for queued jobs (seconds)")
 
     args = parser.parse_args()
+
+    if args.queue:
+        asyncio.run(process_queue_jobs(
+            job_type="analysis",
+            limit=args.limit,
+            lease_seconds=args.lease_seconds,
+            get_db=get_db,
+            process_item_fn=_process_analysis_item,
+            logger=logger,
+            halt_on_error=False,
+        ))
+        return
 
     asyncio.run(process_items_async(limit=args.limit, item_id=args.id, force=args.force))
 

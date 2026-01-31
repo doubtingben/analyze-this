@@ -31,4 +31,16 @@ gcloud projects add-iam-policy-binding "$PROJECT_ID" \
     --role "roles/secretmanager.secretAccessor" \
     --condition None > /dev/null
 
+echo "Granting Firestore (Datastore) user role..."
+gcloud projects add-iam-policy-binding "$PROJECT_ID" \
+    --member "serviceAccount:$SERVICE_ACCOUNT_EMAIL" \
+    --role "roles/datastore.user" \
+    --condition None > /dev/null
+
+echo "Granting Storage Object Viewer role..."
+gcloud projects add-iam-policy-binding "$PROJECT_ID" \
+    --member "serviceAccount:$SERVICE_ACCOUNT_EMAIL" \
+    --role "roles/storage.objectViewer" \
+    --condition None > /dev/null
+
 echo "Service Account setup complete."

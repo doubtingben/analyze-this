@@ -559,6 +559,13 @@ async def share_item(
     
     # Save to DB
     await db.create_shared_item(new_item)
+
+    # Enqueue worker jobs for analysis + normalization
+    try:
+        await db.enqueue_worker_job(new_item.id, user_email, "analysis", {"source": "share"})
+        await db.enqueue_worker_job(new_item.id, user_email, "normalize", {"source": "share"})
+    except Exception as e:
+        print(f"Failed to enqueue worker jobs for item {new_item.id}: {e}")
     
     return new_item
 
