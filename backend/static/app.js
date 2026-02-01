@@ -53,7 +53,9 @@ const metricsWorkerList = document.getElementById('metrics-worker-list');
 // State
 let allItems = [];
 let currentView = 'all'; // 'all', 'timeline', or 'follow_up'
-let currentTypeFilter = ''; // '' for all, or specific type
+let selectedTypes = new Set();     // Empty = all types
+let selectedTags = new Set();      // Empty = no tag filter
+let searchQuery = '';              // Empty = no search
 let showHidden = false;
 let currentDetailItem = null;
 let detailEditMode = false;
@@ -279,9 +281,12 @@ function setupFilters() {
         });
     });
 
-    // Type filter dropdown
+    // Type filter dropdown (backward compatible - single selection updates Set)
     typeFilterEl.addEventListener('change', () => {
-        currentTypeFilter = typeFilterEl.value;
+        selectedTypes.clear();
+        if (typeFilterEl.value) {
+            selectedTypes.add(typeFilterEl.value);
+        }
         renderFilteredItems();
     });
 
@@ -524,6 +529,18 @@ function toggleUserMenu() {
     }
 }
 
+// Get all available tags from items
+function getAllAvailableTags() {
+  const tags = new Set();
+  allItems.forEach(item => {
+    const itemTags = item.analysis?.tags;
+    if (Array.isArray(itemTags)) {
+      itemTags.forEach(tag => tags.add(tag));
+    }
+  });
+  return tags;
+}
+
 // Get event date from analysis details
 function getEventDateTime(item) {
     if (!item.analysis) return null;
@@ -582,9 +599,26 @@ function getFilteredItems() {
         items = items.filter(item => !item.hidden);
     }
 
-    // Apply type filter
-    if (currentTypeFilter) {
-        items = items.filter(item => normalizeType(item) === currentTypeFilter);
+    // Search filter
+    if (searchQuery) {
+        const query = searchQuery.toLowerCase();
+        items = items.filter(item =>
+            (item.title?.toLowerCase().includes(query)) ||
+            (item.content?.toLowerCase().includes(query))
+        );
+    }
+
+    // Type filter (multi-select)
+    if (selectedTypes.size > 0) {
+        items = items.filter(item => selectedTypes.has(normalizeType(item)));
+    }
+
+    // Tag filter
+    if (selectedTags.size > 0) {
+        items = items.filter(item => {
+            const itemTags = item.analysis?.tags || [];
+            return [...selectedTags].some(tag => itemTags.includes(tag));
+        });
     }
 
     // Apply view-specific filtering and sorting
@@ -700,8 +734,9 @@ function renderItems(items) {
             emptyStateEl.querySelector('p').textContent = 'No items with event dates found.';
         } else if (currentView === 'follow_up') {
             emptyStateEl.querySelector('p').textContent = 'No items need follow-up.';
-        } else if (currentTypeFilter) {
-            emptyStateEl.querySelector('p').textContent = `No ${formatType(currentTypeFilter)} items found.`;
+        } else if (selectedTypes.size > 0) {
+            const typeNames = [...selectedTypes].map(formatType).join(', ');
+            emptyStateEl.querySelector('p').textContent = `No ${typeNames} items found.`;
         } else {
             emptyStateEl.querySelector('p').textContent = 'No items yet. Share something from the mobile app or browser extension!';
         }
