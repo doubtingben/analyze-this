@@ -16,18 +16,12 @@ on:
         required: true
         default: true
         type: boolean
-      deploy_mobile:
-        description: 'Build Mobile'
-        required: true
-        default: true
-        type: boolean
 
 jobs:
   changes:
     runs-on: ubuntu-latest
     outputs:
       backend: ${{ steps.filter.outputs.backend }}
-      mobile: ${{ steps.filter.outputs.mobile }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -38,9 +32,6 @@ jobs:
           filters: |
             backend:
               - 'backend/**'
-              - 'Makefile'
-            mobile:
-              - 'mobile/**'
               - 'Makefile'
 
   deploy-backend:
@@ -72,32 +63,3 @@ jobs:
           GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
           FIREBASE_STORAGE_BUCKET: ${{ secrets.FIREBASE_STORAGE_BUCKET }}
         run: make backend-deploy
-
-  build-mobile:
-    needs: changes
-    if: ${{ needs.changes.outputs.mobile == 'true' || inputs.deploy_mobile == true }}
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: ${{ inputs.ref }}
-
-      - name: Setup Node
-        uses: actions/setup-node@v4
-        with:
-          node-version: 20
-
-      - name: Setup EAS
-        uses: expo/expo-github-action@v8
-        with:
-          eas-version: latest
-          token: ${{ secrets.EXPO_TOKEN }}
-
-      - name: Install dependencies
-        run: make mobile-install
-
-      - name: Build and Submit iOS to TestFlight
-        run: cd mobile && npx eas-cli build --platform ios --profile preview --auto-submit --non-interactive
-
-      - name: Build and Submit Android to Google Play
-        run: cd mobile && npx eas-cli build --platform android --profile preview --auto-submit --non-interactive
