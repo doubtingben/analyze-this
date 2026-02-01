@@ -7,6 +7,12 @@ plugins {
     // The Flutter Gradle Plugin must be applied after the Android and Kotlin Gradle plugins.
     id("dev.flutter.flutter-gradle-plugin")
     id("com.google.gms.google-services")
+    id("com.github.triplet.play")
+}
+
+play {
+    serviceAccountCredentials.set(file(System.getenv("GOOGLE_SERVICE_ACCOUNT_KEY_PATH") ?: "fake-path-for-build"))
+    track.set("internal")
 }
 
 val keystoreProperties = Properties()
