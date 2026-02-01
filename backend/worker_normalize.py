@@ -70,7 +70,8 @@ async def process_normalization_async(limit: int = 10, item_id: str = None, forc
                 else:
                     logger.info("Title unchanged.")
             else:
-                logger.warning(f"Normalization returned None/Failed for {doc_id}. Marking as normalized to prevent infinite loop.")
+                logger.warning(f"Normalization returned None/Failed for {doc_id}. Marking as error.")
+                updates['status'] = 'error'
             
             await db.update_shared_item(doc_id, updates)
             logger.info(f"Successfully updated processing for item {doc_id}.")
@@ -97,12 +98,15 @@ async def _process_normalize_item(db, data):
             updates['title'] = new_title
         else:
             logger.info("Title unchanged.")
+        
+        await db.update_shared_item(doc_id, updates)
+        logger.info(f"Successfully normalized item {doc_id}.")
+        return True, None
     else:
-        logger.warning(f"Normalization returned None/Failed for {doc_id}. Marking as normalized.")
-
-    await db.update_shared_item(doc_id, updates)
-    logger.info(f"Successfully normalized item {doc_id}.")
-    return True, None
+        logger.warning(f"Normalization returned None/Failed for {doc_id}. Marking as error.")
+        updates['status'] = 'error'
+        await db.update_shared_item(doc_id, updates)
+        return False, "normalization_returned_none"
 
 def main():
     parser = argparse.ArgumentParser(description="Worker to normalize titles of shared items.")

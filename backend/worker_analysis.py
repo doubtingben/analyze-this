@@ -85,7 +85,7 @@ async def process_items_async(limit: int = 10, item_id: str = None, force: bool 
             # If analyze_content is CPU bound blocking:
             analysis_result = await loop.run_in_executor(None, analyze_content, content, item_type)
 
-            if analysis_result:
+            if analysis_result and not analysis_result.get('error'):
                 # Determine status based on analysis result content
                 new_status = 'analyzed'  # Default fallback
                 if analysis_result.get('timeline'):
@@ -101,12 +101,20 @@ async def process_items_async(limit: int = 10, item_id: str = None, force: bool 
                 })
                 logger.info(f"Successfully analyzed item {doc_id}.")
             else:
-                logger.warning(f"Analysis returned None for item {doc_id}.")
-                await db.update_shared_item(doc_id, {'status': 'processed', 'next_step': 'failed_analysis'})
+                error_msg = "Unknown error"
+                if analysis_result:
+                    error_msg = analysis_result.get('error', error_msg)
+                
+                logger.warning(f"Analysis failed for item {doc_id}: {error_msg}")
+                await db.update_shared_item(doc_id, {
+                    'status': 'error', 
+                    'next_step': 'error',
+                    'analysis': analysis_result  # Save the error details if available
+                })
 
         except Exception as e:
             logger.error(f"Failed to analyze item {doc_id}: {e}")
-            await db.update_shared_item(doc_id, {'status': 'processed', 'next_step': 'error'})
+            await db.update_shared_item(doc_id, {'status': 'error', 'next_step': 'error'})
 
 async def _process_analysis_item(db, data):
     doc_id = data.get('firestore_id') or data.get('id')
@@ -129,7 +137,7 @@ async def _process_analysis_item(db, data):
         loop = asyncio.get_running_loop()
         analysis_result = await loop.run_in_executor(None, analyze_content, content, item_type)
 
-        if analysis_result:
+        if analysis_result and not analysis_result.get('error'):
             new_status = 'analyzed'
             if analysis_result.get('timeline'):
                 new_status = 'timeline'
@@ -144,12 +152,20 @@ async def _process_analysis_item(db, data):
             logger.info(f"Successfully analyzed item {doc_id}.")
             return True, None
 
-        logger.warning(f"Analysis returned None for item {doc_id}.")
-        await db.update_shared_item(doc_id, {'status': 'processed', 'next_step': 'failed_analysis'})
-        return False, "analysis_returned_none"
+        error_msg = "Unknown error"
+        if analysis_result:
+            error_msg = analysis_result.get('error', error_msg)
+            
+        logger.warning(f"Analysis failed for item {doc_id}: {error_msg}")
+        await db.update_shared_item(doc_id, {
+            'status': 'error', 
+            'next_step': 'error',
+            'analysis': analysis_result
+        })
+        return False, f"analysis_failed: {error_msg}"
     except Exception as e:
         logger.error(f"Failed to analyze item {doc_id}: {e}")
-        await db.update_shared_item(doc_id, {'status': 'processed', 'next_step': 'error'})
+        await db.update_shared_item(doc_id, {'status': 'error', 'next_step': 'error'})
         return False, str(e)
 
 def main():
