@@ -65,6 +65,9 @@ class _MyHomePageState extends State<MyHomePage> {
   // Active filter count for badge
   int get _activeFilterCount => _selectedTypes.length + _selectedTags.length;
 
+  // Search controller
+  final TextEditingController _searchController = TextEditingController();
+
   // Timeline scroll state
   final ScrollController _timelineScrollController = ScrollController();
   final GlobalKey _nowDividerKey = GlobalKey();
@@ -324,6 +327,7 @@ class _MyHomePageState extends State<MyHomePage> {
   void dispose() {
     _intentDataStreamSubscription?.cancel();
     _timelineScrollController.dispose();
+    _searchController.dispose();
     super.dispose();
   }
 
@@ -425,6 +429,7 @@ class _MyHomePageState extends State<MyHomePage> {
   }
 
   void _clearSearch() {
+    _searchController.clear();
     setState(() {
       _searchQuery = '';
     });
@@ -677,6 +682,7 @@ class _MyHomePageState extends State<MyHomePage> {
               // Search field
               Expanded(
                 child: TextField(
+                  controller: _searchController,
                   decoration: InputDecoration(
                     hintText: 'Search...',
                     prefixIcon: const Icon(Icons.search),

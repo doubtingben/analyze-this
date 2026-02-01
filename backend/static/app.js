@@ -8,7 +8,6 @@ const userMenuTriggerEl = document.getElementById('user-menu-trigger');
 const userMenuEl = document.getElementById('user-menu');
 const loginStateEl = document.getElementById('login-state');
 const filtersEl = document.getElementById('filters');
-const typeFilterEl = document.getElementById('type-filter');
 const showHiddenEl = document.getElementById('show-archive');
 const exportBtnEl = document.getElementById('export-btn');
 const newItemBtn = document.getElementById('new-item-btn');
@@ -295,18 +294,6 @@ function setupFilters() {
             renderFilteredItems();
         });
     });
-
-    // Type filter dropdown (backward compatible - single selection updates Set)
-    if (typeFilterEl) {
-        typeFilterEl.addEventListener('change', () => {
-            selectedTypes.clear();
-            if (typeFilterEl.value) {
-                selectedTypes.add(typeFilterEl.value);
-            }
-            updateFilterCountBadge();
-            renderFilteredItems();
-        });
-    }
 
     if (showHiddenEl) {
         showHidden = showHiddenEl.checked;
