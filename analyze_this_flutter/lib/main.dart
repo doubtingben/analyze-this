@@ -13,6 +13,7 @@ import 'theme/app_theme.dart';
 import 'theme/app_colors.dart';
 import 'theme/app_spacing.dart';
 import 'widgets/history_card.dart';
+import 'widgets/filter_dialog.dart';
 import 'screens/item_detail_screen.dart';
 import 'screens/metrics_screen.dart';
 
@@ -60,6 +61,9 @@ class _MyHomePageState extends State<MyHomePage> {
   Set<String> _selectedTags = {};      // Empty = no tag filter
   String _searchQuery = '';            // Empty = no search
   bool _showHidden = false;
+
+  // Active filter count for badge
+  int get _activeFilterCount => _selectedTypes.length + _selectedTags.length;
 
   // Timeline scroll state
   final ScrollController _timelineScrollController = ScrollController();
@@ -420,6 +424,27 @@ class _MyHomePageState extends State<MyHomePage> {
     );
   }
 
+  void _clearSearch() {
+    setState(() {
+      _searchQuery = '';
+    });
+  }
+
+  void _showFilterDialog() {
+    FilterDialog.show(
+      context: context,
+      selectedTypes: _selectedTypes,
+      selectedTags: _selectedTags,
+      availableTags: _getAllAvailableTags(),
+      onApply: (types, tags) {
+        setState(() {
+          _selectedTypes = types;
+          _selectedTags = tags;
+        });
+      },
+    );
+  }
+
   Future<void> _handleExport() async {
     if (_currentUser == null) return;
 
@@ -636,31 +661,61 @@ class _MyHomePageState extends State<MyHomePage> {
                   ),
                 ),
               ),
-              // Type filter dropdown (temporary - will be replaced by filter dialog in Task 3)
-              DropdownMenu<String?>(
-                initialSelection: _selectedTypes.isEmpty ? null : _selectedTypes.first,
-                hintText: 'All Types',
-                width: 130,
-                textStyle: Theme.of(context).textTheme.bodySmall,
-                onSelected: (String? value) {
-                  setState(() {
-                    if (value == null) {
-                      _selectedTypes = {};
-                    } else {
-                      _selectedTypes = {value};
-                    }
-                  });
-                },
-                dropdownMenuEntries: const [
-                  DropdownMenuEntry(value: null, label: 'All Types'),
-                  DropdownMenuEntry(value: 'image', label: 'Image'),
-                  DropdownMenuEntry(value: 'video', label: 'Video'),
-                  DropdownMenuEntry(value: 'audio', label: 'Audio'),
-                  DropdownMenuEntry(value: 'file', label: 'File'),
-                  DropdownMenuEntry(value: 'screenshot', label: 'Screenshot'),
-                  DropdownMenuEntry(value: 'text', label: 'Text'),
-                  DropdownMenuEntry(value: 'web_url', label: 'Web URL'),
-                ],
+            ],
+          ),
+        ),
+        const Divider(height: 1),
+        // Search field and filter button
+        Container(
+          padding: const EdgeInsets.symmetric(
+            horizontal: AppSpacing.lg,
+            vertical: AppSpacing.sm,
+          ),
+          color: AppColors.surface,
+          child: Row(
+            children: [
+              // Search field
+              Expanded(
+                child: TextField(
+                  decoration: InputDecoration(
+                    hintText: 'Search...',
+                    prefixIcon: const Icon(Icons.search),
+                    suffixIcon: _searchQuery.isNotEmpty
+                        ? IconButton(
+                            icon: const Icon(Icons.clear),
+                            onPressed: _clearSearch,
+                          )
+                        : null,
+                    isDense: true,
+                    contentPadding: const EdgeInsets.symmetric(
+                      horizontal: AppSpacing.md,
+                      vertical: AppSpacing.sm,
+                    ),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(8),
+                      borderSide: BorderSide(color: Colors.grey.shade300),
+                    ),
+                    enabledBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(8),
+                      borderSide: BorderSide(color: Colors.grey.shade300),
+                    ),
+                    focusedBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(8),
+                      borderSide: BorderSide(color: AppColors.primary),
+                    ),
+                  ),
+                  onChanged: (value) => setState(() => _searchQuery = value),
+                ),
+              ),
+              const SizedBox(width: AppSpacing.sm),
+              // Filter button with badge
+              Badge(
+                isLabelVisible: _activeFilterCount > 0,
+                label: Text('$_activeFilterCount'),
+                child: IconButton(
+                  icon: const Icon(Icons.filter_list),
+                  onPressed: _showFilterDialog,
+                ),
               ),
             ],
           ),
