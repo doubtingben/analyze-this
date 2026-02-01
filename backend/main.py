@@ -1104,3 +1104,28 @@ async def get_note_counts(request: Request, body: NoteCountRequest):
     counts = await db.get_item_note_count(authorized_item_ids)
 
     return counts
+
+
+@app.get("/api/metrics")
+async def get_user_metrics(request: Request):
+    """Get user metrics including item counts by status and worker queue status"""
+    user_email = await get_authenticated_email(request)
+
+    # Get item counts grouped by status
+    status_counts = await db.get_user_item_counts_by_status(user_email)
+
+    # Get worker queue counts grouped by status
+    worker_counts = await db.get_user_worker_job_counts_by_status(user_email)
+
+    # Calculate totals
+    total_items = sum(status_counts.values())
+    total_jobs = sum(worker_counts.values())
+
+    return {
+        "total_items": total_items,
+        "by_status": status_counts,
+        "worker_queue": {
+            "total": total_jobs,
+            "by_status": worker_counts
+        }
+    }

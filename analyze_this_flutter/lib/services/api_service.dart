@@ -300,6 +300,22 @@ class ApiService {
     }
   }
 
+  /// Get user metrics (item counts by status)
+  Future<Map<String, dynamic>> getMetrics(String token) async {
+    final response = await http.get(
+      Uri.parse('${Config.apiUrl}/api/metrics'),
+      headers: {
+        'Authorization': 'Bearer $token',
+      },
+    );
+
+    if (response.statusCode == 200) {
+      return jsonDecode(response.body) as Map<String, dynamic>;
+    } else {
+      throw Exception('Failed to load metrics: ${response.statusCode}');
+    }
+  }
+
   // Helpers
   String _mapShareTypeToString(ShareItemType type) {
     if (type == ShareItemType.text) return 'text';
