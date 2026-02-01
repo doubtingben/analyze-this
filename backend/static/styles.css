@@ -338,6 +338,12 @@ body {
     background: #bfdbfe;
 }
 
+.filter-empty-msg {
+    color: #9ca3af;
+    font-size: 13px;
+    font-style: italic;
+}
+
 .filter-modal-footer {
     display: flex;
     justify-content: flex-end;

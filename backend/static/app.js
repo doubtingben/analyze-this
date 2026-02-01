@@ -49,6 +49,16 @@ const metricsStatusList = document.getElementById('metrics-status-list');
 const metricsWorkerSection = document.getElementById('metrics-worker-section');
 const metricsWorkerTotal = document.getElementById('metrics-worker-total');
 const metricsWorkerList = document.getElementById('metrics-worker-list');
+const searchInputEl = document.getElementById('search-input');
+const filterBtnEl = document.getElementById('filter-btn');
+const filterCountEl = document.getElementById('filter-count');
+const filterModal = document.getElementById('filter-modal');
+const filterModalBackdrop = document.getElementById('filter-modal-backdrop');
+const filterModalCloseBtn = document.getElementById('filter-modal-close');
+const filterTypesEl = document.getElementById('filter-types');
+const filterTagsEl = document.getElementById('filter-tags');
+const filterApplyBtn = document.getElementById('filter-apply-btn');
+const filterClearBtn = document.getElementById('filter-clear-btn');
 
 // State
 let allItems = [];
@@ -61,6 +71,9 @@ let currentDetailItem = null;
 let detailEditMode = false;
 let editableTags = [];
 let noteCounts = {};
+let searchDebounceTimer;
+let pendingSelectedTypes = new Set();  // Temporary selection in modal
+let pendingSelectedTags = new Set();   // Temporary selection in modal
 
 // Initialize the app
 async function init() {
@@ -78,6 +91,8 @@ async function init() {
         // Setup filter controls
         setupFilters();
         setupUserMenu();
+        setupSearchInput();
+        setupFilterModal();
 
         // Setup create modal
         setupCreateModal();
@@ -282,13 +297,16 @@ function setupFilters() {
     });
 
     // Type filter dropdown (backward compatible - single selection updates Set)
-    typeFilterEl.addEventListener('change', () => {
-        selectedTypes.clear();
-        if (typeFilterEl.value) {
-            selectedTypes.add(typeFilterEl.value);
-        }
-        renderFilteredItems();
-    });
+    if (typeFilterEl) {
+        typeFilterEl.addEventListener('change', () => {
+            selectedTypes.clear();
+            if (typeFilterEl.value) {
+                selectedTypes.add(typeFilterEl.value);
+            }
+            updateFilterCountBadge();
+            renderFilteredItems();
+        });
+    }
 
     if (showHiddenEl) {
         showHidden = showHiddenEl.checked;
@@ -357,6 +375,170 @@ function openMetricsModal() {
 function closeMetricsModal() {
     if (!metricsModal) return;
     metricsModal.style.display = 'none';
+}
+
+// Setup search input with debounce
+function setupSearchInput() {
+    if (!searchInputEl) return;
+
+    searchInputEl.addEventListener('input', (e) => {
+        clearTimeout(searchDebounceTimer);
+        searchDebounceTimer = setTimeout(() => {
+            searchQuery = e.target.value;
+            renderFilteredItems();
+        }, 300);
+    });
+}
+
+// Setup filter modal
+function setupFilterModal() {
+    if (!filterModal) return;
+
+    // Open modal
+    if (filterBtnEl) {
+        filterBtnEl.addEventListener('click', openFilterModal);
+    }
+
+    // Close modal
+    if (filterModalCloseBtn) {
+        filterModalCloseBtn.addEventListener('click', closeFilterModal);
+    }
+    if (filterModalBackdrop) {
+        filterModalBackdrop.addEventListener('click', closeFilterModal);
+    }
+
+    // Apply button
+    if (filterApplyBtn) {
+        filterApplyBtn.addEventListener('click', applyFilters);
+    }
+
+    // Clear button
+    if (filterClearBtn) {
+        filterClearBtn.addEventListener('click', clearFilters);
+    }
+}
+
+function openFilterModal() {
+    if (!filterModal) return;
+
+    // Copy current selections to pending
+    pendingSelectedTypes = new Set(selectedTypes);
+    pendingSelectedTags = new Set(selectedTags);
+
+    // Populate chips
+    populateFilterChips();
+
+    filterModal.style.display = 'flex';
+}
+
+function closeFilterModal() {
+    if (!filterModal) return;
+    filterModal.style.display = 'none';
+}
+
+function populateFilterChips() {
+    // Static list of types
+    const types = ['image', 'video', 'audio', 'file', 'screenshot', 'text', 'web_url'];
+
+    // Populate type chips
+    if (filterTypesEl) {
+        filterTypesEl.innerHTML = '';
+        types.forEach(type => {
+            const chip = document.createElement('button');
+            chip.type = 'button';
+            chip.className = 'filter-chip';
+            if (pendingSelectedTypes.has(type)) {
+                chip.classList.add('selected');
+            }
+            chip.textContent = formatType(type);
+            chip.dataset.value = type;
+            chip.addEventListener('click', () => toggleTypeChip(chip, type));
+            filterTypesEl.appendChild(chip);
+        });
+    }
+
+    // Populate tag chips from available tags
+    if (filterTagsEl) {
+        filterTagsEl.innerHTML = '';
+        const availableTags = getAllAvailableTags();
+        if (availableTags.size === 0) {
+            const emptyMsg = document.createElement('span');
+            emptyMsg.className = 'filter-empty-msg';
+            emptyMsg.textContent = 'No tags available';
+            filterTagsEl.appendChild(emptyMsg);
+        } else {
+            // Sort tags alphabetically
+            const sortedTags = [...availableTags].sort();
+            sortedTags.forEach(tag => {
+                const chip = document.createElement('button');
+                chip.type = 'button';
+                chip.className = 'filter-chip';
+                if (pendingSelectedTags.has(tag)) {
+                    chip.classList.add('selected');
+                }
+                chip.textContent = tag;
+                chip.dataset.value = tag;
+                chip.addEventListener('click', () => toggleTagChip(chip, tag));
+                filterTagsEl.appendChild(chip);
+            });
+        }
+    }
+}
+
+function toggleTypeChip(chip, type) {
+    if (pendingSelectedTypes.has(type)) {
+        pendingSelectedTypes.delete(type);
+        chip.classList.remove('selected');
+    } else {
+        pendingSelectedTypes.add(type);
+        chip.classList.add('selected');
+    }
+}
+
+function toggleTagChip(chip, tag) {
+    if (pendingSelectedTags.has(tag)) {
+        pendingSelectedTags.delete(tag);
+        chip.classList.remove('selected');
+    } else {
+        pendingSelectedTags.add(tag);
+        chip.classList.add('selected');
+    }
+}
+
+function applyFilters() {
+    // Copy pending selections to actual selections
+    selectedTypes = new Set(pendingSelectedTypes);
+    selectedTags = new Set(pendingSelectedTags);
+
+    // Update filter count badge
+    updateFilterCountBadge();
+
+    // Re-render items
+    renderFilteredItems();
+
+    // Close modal
+    closeFilterModal();
+}
+
+function clearFilters() {
+    // Clear pending selections
+    pendingSelectedTypes.clear();
+    pendingSelectedTags.clear();
+
+    // Re-populate chips to update visual state
+    populateFilterChips();
+}
+
+function updateFilterCountBadge() {
+    if (!filterCountEl) return;
+
+    const count = selectedTypes.size + selectedTags.size;
+    if (count > 0) {
+        filterCountEl.textContent = count;
+        filterCountEl.style.display = 'inline-flex';
+    } else {
+        filterCountEl.style.display = 'none';
+    }
 }
 
 async function fetchMetrics() {
