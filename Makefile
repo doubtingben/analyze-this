@@ -170,7 +170,20 @@ flutter-build-apk: ## Build Android APK (Release)
 
 .PHONY: flutter-build-appbundle
 flutter-build-appbundle: ## Build Android App Bundle (Release)
-	cd analyze_this_flutter && flutter build appbundle --release
+	@if [ -n "$$PLAYSTORE_UPLOAD_KEYSTORE_KEY_PROPERTIES_PATH" ] && [ -n "$$PLAYSTORE_APP_SIGNING_KEY_PATH" ]; then \
+		echo "Setting up release keystore..."; \
+		cp "$$PLAYSTORE_UPLOAD_KEYSTORE_KEY_PROPERTIES_PATH" analyze_this_flutter/android/key.properties; \
+		echo "storeFile=$$PLAYSTORE_APP_SIGNING_KEY_PATH" >> analyze_this_flutter/android/key.properties; \
+	else \
+		echo "Error: Release keys not found in environment. Cannot build release bundle."; \
+		echo "Please set PLAYSTORE_UPLOAD_KEYSTORE_KEY_PROPERTIES_PATH and PLAYSTORE_APP_SIGNING_KEY_PATH."; \
+		exit 1; \
+	fi
+	export JAVA_HOME="/Applications/Android Studio.app/Contents/jbr/Contents/Home" && cd analyze_this_flutter && flutter build appbundle --release
+
+.PHONY: flutter-release-android
+flutter-release-android: flutter-build-appbundle ## Release Android App Bundle to Play Store (Internal Track)
+	export JAVA_HOME="/Applications/Android Studio.app/Contents/jbr/Contents/Home" && cd analyze_this_flutter/android && ./gradlew publishReleaseBundle
 
 .PHONY: flutter-build-ios
 flutter-build-ios: ## Build iOS app .app (Release, no codesign)
