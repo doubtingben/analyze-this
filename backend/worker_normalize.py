@@ -19,7 +19,7 @@ logger = logging.getLogger(__name__)
 # Load environment variables
 load_dotenv()
 
-async def process_normalization_async(limit: int = 10, item_id: str = None, force: bool = False):
+async def process_normalization_async(limit: int = 10, item_id: str = None, force: bool = False, allow_missing_analysis: bool = False):
     """
     Processes unnormalized items using DatabaseInterface.
     """
@@ -53,13 +53,18 @@ async def process_normalization_async(limit: int = 10, item_id: str = None, forc
         current_title = data.get('title')
         content = data.get('content')
         item_type = data.get('type', 'text')
+        analysis_data = data.get('analysis')
+
+        if not analysis_data and not allow_missing_analysis:
+            logger.info(f"Skipping item {doc_id}: Analysis is missing and --allow-no-analysis is not set.")
+            continue
         
         logger.info(f"Normalizing item {doc_id} ('{current_title}')...")
         
         try:
             # We run normalization in executor since it calls sync network (OpenAI client)
             loop = asyncio.get_running_loop()
-            new_title = await loop.run_in_executor(None, normalize_item_title, content, item_type, current_title)
+            new_title = await loop.run_in_executor(None, normalize_item_title, content, item_type, current_title, analysis_data)
             
             updates = {'is_normalized': True}
             
@@ -82,14 +87,23 @@ async def process_normalization_async(limit: int = 10, item_id: str = None, forc
             # We raise here to halt the worker as requested.
             raise e
 
-async def _process_normalize_item(db, data):
+async def _process_normalize_item(db, data, allow_missing_analysis=False):
     doc_id = data.get('firestore_id') or data.get('id')
     current_title = data.get('title')
     content = data.get('content')
     item_type = data.get('type', 'text')
+    analysis_data = data.get('analysis')
+
+    if not analysis_data and not allow_missing_analysis:
+        logger.warning(f"Skipping item {doc_id}: Analysis is missing and --allow-no-analysis is not set.")
+        return False, "missing_analysis"  # Return false to keep it in queue or fail job depending on logic.
+        # Actually returning False here will mark the job as failed in process_queue_jobs.
+        # If we want to retry later, maybe we should fail it so it gets retried? 
+        # But 'missing_analysis' sounds like a "not ready" state.
+        # Let's fail it for now so it's visible.
 
     loop = asyncio.get_running_loop()
-    new_title = await loop.run_in_executor(None, normalize_item_title, content, item_type, current_title)
+    new_title = await loop.run_in_executor(None, normalize_item_title, content, item_type, current_title, analysis_data)
 
     updates = {'is_normalized': True}
     if new_title:
@@ -116,23 +130,32 @@ def main():
     parser.add_argument("--queue", action="store_true", help="Process jobs from the worker queue")
     parser.add_argument("--lease-seconds", type=int, default=600, help="Lease duration for queued jobs (seconds)")
     parser.add_argument("--loop", action="store_true", help="Run in continuous loop mode (only with --queue)")
+    parser.add_argument("--allow-no-analysis", action="store_true", help="Allow validation even if analysis data is missing")
     
     args = parser.parse_args()
     
     if args.queue:
+        from functools import partial
+        process_fn = partial(_process_normalize_item, allow_missing_analysis=args.allow_no_analysis)
+        
         asyncio.run(process_queue_jobs(
             job_type="normalize",
             limit=args.limit,
             lease_seconds=args.lease_seconds,
             get_db=get_db,
-            process_item_fn=_process_normalize_item,
+            process_item_fn=process_fn,
             logger=logger,
             halt_on_error=True,
             continuous=args.loop,
         ))
         return
 
-    asyncio.run(process_normalization_async(limit=args.limit, item_id=args.id, force=args.force))
+    asyncio.run(process_normalization_async(
+        limit=args.limit, 
+        item_id=args.id, 
+        force=args.force, 
+        allow_missing_analysis=args.allow_no_analysis
+    ))
 
 if __name__ == "__main__":
     main()
