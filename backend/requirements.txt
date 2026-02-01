@@ -15,3 +15,4 @@ aiosqlite
 sqlalchemy
 httpx
 greenlet
+reportlab
