@@ -13,6 +13,7 @@ import 'theme/app_theme.dart';
 import 'theme/app_colors.dart';
 import 'theme/app_spacing.dart';
 import 'widgets/history_card.dart';
+import 'widgets/filter_dialog.dart';
 import 'screens/item_detail_screen.dart';
 import 'screens/metrics_screen.dart';
 
@@ -56,8 +57,18 @@ class _MyHomePageState extends State<MyHomePage> {
   GoogleSignInAccount? _currentUser;
   String? _authToken;
   ViewMode _currentView = ViewMode.all;
-  String? _currentTypeFilter;
+  Set<String> _selectedTypes = {};     // Empty = all types
+  Set<String> _selectedTags = {};      // Empty = no tag filter
+  String _searchQuery = '';            // Empty = no search
   bool _showHidden = false;
+  bool _searchExpanded = false;
+
+  // Active filter count for badge
+  int get _activeFilterCount => _selectedTypes.length + _selectedTags.length;
+
+  // Search controller
+  final TextEditingController _searchController = TextEditingController();
+  final FocusNode _searchFocusNode = FocusNode();
 
   // Timeline scroll state
   final ScrollController _timelineScrollController = ScrollController();
@@ -318,6 +329,8 @@ class _MyHomePageState extends State<MyHomePage> {
   void dispose() {
     _intentDataStreamSubscription?.cancel();
     _timelineScrollController.dispose();
+    _searchController.dispose();
+    _searchFocusNode.dispose();
     super.dispose();
   }
 
@@ -415,6 +428,36 @@ class _MyHomePageState extends State<MyHomePage> {
       MaterialPageRoute(
         builder: (context) => MetricsScreen(authToken: _authToken!),
       ),
+    );
+  }
+
+  void _toggleSearch() {
+    setState(() {
+      if (_searchExpanded) {
+        // Collapse: clear search and close
+        _searchController.clear();
+        _searchQuery = '';
+        _searchExpanded = false;
+      } else {
+        // Expand and focus
+        _searchExpanded = true;
+        Future.microtask(() => _searchFocusNode.requestFocus());
+      }
+    });
+  }
+
+  void _showFilterDialog() {
+    FilterDialog.show(
+      context: context,
+      selectedTypes: _selectedTypes,
+      selectedTags: _selectedTags,
+      availableTags: _getAllAvailableTags(),
+      onApply: (types, tags) {
+        setState(() {
+          _selectedTypes = types;
+          _selectedTags = tags;
+        });
+      },
     );
   }
 
@@ -523,15 +566,61 @@ class _MyHomePageState extends State<MyHomePage> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Text(widget.title),
-        actions: [
-          if (_currentUser != null)
-            IconButton(
-              icon: const Icon(Icons.refresh),
-              onPressed: _loadHistory,
-              tooltip: 'Refresh',
-            ),
-        ],
+        leading: _currentUser != null
+            ? Padding(
+                padding: const EdgeInsets.all(8.0),
+                child: GestureDetector(
+                  onTap: _showUserMenu,
+                  child: _currentUser!.photoUrl != null
+                      ? CircleAvatar(
+                          backgroundImage: NetworkImage(_currentUser!.photoUrl!),
+                        )
+                      : const CircleAvatar(child: Icon(Icons.person, size: 20)),
+                ),
+              )
+            : null,
+        title: _searchExpanded
+            ? TextField(
+                controller: _searchController,
+                focusNode: _searchFocusNode,
+                decoration: InputDecoration(
+                  hintText: 'Search...',
+                  border: InputBorder.none,
+                  suffixIcon: IconButton(
+                    icon: const Icon(Icons.close),
+                    onPressed: _toggleSearch,
+                  ),
+                ),
+                onChanged: (value) => setState(() => _searchQuery = value),
+              )
+            : Text(widget.title),
+        actions: _currentUser != null
+            ? [
+                if (!_searchExpanded)
+                  IconButton(
+                    icon: Icon(
+                      Icons.search,
+                      color: _searchQuery.isNotEmpty ? AppColors.primary : null,
+                    ),
+                    onPressed: _toggleSearch,
+                    tooltip: 'Search',
+                  ),
+                Badge(
+                  isLabelVisible: _activeFilterCount > 0,
+                  label: Text('$_activeFilterCount'),
+                  child: IconButton(
+                    icon: const Icon(Icons.filter_list),
+                    onPressed: _showFilterDialog,
+                    tooltip: 'Filter',
+                  ),
+                ),
+                IconButton(
+                  icon: const Icon(Icons.refresh),
+                  onPressed: _loadHistory,
+                  tooltip: 'Refresh',
+                ),
+              ]
+            : null,
       ),
       body: _currentUser == null ? _buildSignInView() : _buildMainView(),
     );
@@ -577,91 +666,7 @@ class _MyHomePageState extends State<MyHomePage> {
   Widget _buildMainView() {
     return Column(
       children: [
-        // User header with type filter
-        Container(
-          padding: const EdgeInsets.all(AppSpacing.lg),
-          color: AppColors.surface,
-          child: Row(
-            children: [
-              Expanded(
-                child: Material(
-                  color: Colors.transparent,
-                  child: InkWell(
-                    onTap: _showUserMenu,
-                    borderRadius: BorderRadius.circular(12),
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(
-                        vertical: AppSpacing.sm,
-                        horizontal: AppSpacing.xs,
-                      ),
-                      child: Row(
-                        children: [
-                          if (_currentUser!.photoUrl != null)
-                            CircleAvatar(
-                              radius: 20,
-                              backgroundImage: NetworkImage(_currentUser!.photoUrl!),
-                            )
-                          else
-                            const CircleAvatar(
-                              radius: 20,
-                              child: Icon(Icons.person),
-                            ),
-                          const SizedBox(width: AppSpacing.md),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  'Welcome back,',
-                                  style: Theme.of(context).textTheme.bodySmall,
-                                ),
-                                Text(
-                                  _currentUser!.displayName ?? 'User',
-                                  style: Theme.of(context).textTheme.titleMedium,
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                ),
-                              ],
-                            ),
-                          ),
-                          Icon(
-                            Icons.expand_more,
-                            color: AppColors.textSecondary,
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-              // Type filter dropdown
-              DropdownMenu<String?>(
-                initialSelection: _currentTypeFilter,
-                hintText: 'All Types',
-                width: 130,
-                textStyle: Theme.of(context).textTheme.bodySmall,
-                onSelected: (String? value) {
-                  setState(() {
-                    _currentTypeFilter = value;
-                  });
-                },
-                dropdownMenuEntries: const [
-                  DropdownMenuEntry(value: null, label: 'All Types'),
-                  DropdownMenuEntry(value: 'image', label: 'Image'),
-                  DropdownMenuEntry(value: 'video', label: 'Video'),
-                  DropdownMenuEntry(value: 'audio', label: 'Audio'),
-                  DropdownMenuEntry(value: 'file', label: 'File'),
-                  DropdownMenuEntry(value: 'screenshot', label: 'Screenshot'),
-                  DropdownMenuEntry(value: 'text', label: 'Text'),
-                  DropdownMenuEntry(value: 'web_url', label: 'Web URL'),
-                ],
-              ),
-            ],
-          ),
-        ),
-        const Divider(height: 1),
-
-        // Filter controls
+        // Filter controls (view mode tabs)
         _buildFilterControls(),
 
         // Content
@@ -753,6 +758,17 @@ class _MyHomePageState extends State<MyHomePage> {
     }
   }
 
+  Set<String> _getAllAvailableTags() {
+    final tags = <String>{};
+    for (final item in _history) {
+      final itemTags = item.analysis?['tags'];
+      if (itemTags is List) {
+        tags.addAll(itemTags.cast<String>());
+      }
+    }
+    return tags;
+  }
+
   List<HistoryItem> _getFilteredItems() {
     List<HistoryItem> items = List.from(_history);
 
@@ -760,9 +776,27 @@ class _MyHomePageState extends State<MyHomePage> {
       items = items.where((item) => !item.isHidden).toList();
     }
 
-    // Apply type filter
-    if (_currentTypeFilter != null) {
-      items = items.where((item) => item.type == _currentTypeFilter).toList();
+    // Apply search filter
+    if (_searchQuery.isNotEmpty) {
+      final query = _searchQuery.toLowerCase();
+      items = items.where((item) =>
+        (item.title?.toLowerCase().contains(query) ?? false) ||
+        item.value.toLowerCase().contains(query)
+      ).toList();
+    }
+
+    // Apply type filter (multi-select)
+    if (_selectedTypes.isNotEmpty) {
+      items = items.where((item) => _selectedTypes.contains(item.type)).toList();
+    }
+
+    // Apply tag filter
+    if (_selectedTags.isNotEmpty) {
+      items = items.where((item) {
+        final itemTags = item.analysis?['tags'];
+        if (itemTags is! List) return false;
+        return _selectedTags.any((tag) => itemTags.contains(tag));
+      }).toList();
     }
 
     // Apply view-specific filtering and sorting
@@ -805,8 +839,8 @@ class _MyHomePageState extends State<MyHomePage> {
         icon = Icons.check_circle_outline;
         break;
       case ViewMode.all:
-        if (_currentTypeFilter != null) {
-          message = 'No $_currentTypeFilter items found';
+        if (_selectedTypes.isNotEmpty || _selectedTags.isNotEmpty || _searchQuery.isNotEmpty) {
+          message = 'No matching items found';
           icon = Icons.filter_list_off;
         } else {
           message = 'No items yet';
@@ -836,7 +870,7 @@ class _MyHomePageState extends State<MyHomePage> {
           Text(
               (!_showHidden && _history.any((item) => item.isHidden))
                   ? 'Enable "Show Archive" to view archived items'
-                  : _currentView == ViewMode.all && _currentTypeFilter == null
+                  : _currentView == ViewMode.all && _selectedTypes.isEmpty && _selectedTags.isEmpty && _searchQuery.isEmpty
                       ? 'Share content from other apps to see it here'
                       : 'Try changing your filters',
               style: Theme.of(context).textTheme.bodySmall,

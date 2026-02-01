@@ -8,7 +8,6 @@ const userMenuTriggerEl = document.getElementById('user-menu-trigger');
 const userMenuEl = document.getElementById('user-menu');
 const loginStateEl = document.getElementById('login-state');
 const filtersEl = document.getElementById('filters');
-const typeFilterEl = document.getElementById('type-filter');
 const showHiddenEl = document.getElementById('show-archive');
 const exportBtnEl = document.getElementById('export-btn');
 const newItemBtn = document.getElementById('new-item-btn');
@@ -49,16 +48,31 @@ const metricsStatusList = document.getElementById('metrics-status-list');
 const metricsWorkerSection = document.getElementById('metrics-worker-section');
 const metricsWorkerTotal = document.getElementById('metrics-worker-total');
 const metricsWorkerList = document.getElementById('metrics-worker-list');
+const searchInputEl = document.getElementById('search-input');
+const filterBtnEl = document.getElementById('filter-btn');
+const filterCountEl = document.getElementById('filter-count');
+const filterModal = document.getElementById('filter-modal');
+const filterModalBackdrop = document.getElementById('filter-modal-backdrop');
+const filterModalCloseBtn = document.getElementById('filter-modal-close');
+const filterTypesEl = document.getElementById('filter-types');
+const filterTagsEl = document.getElementById('filter-tags');
+const filterApplyBtn = document.getElementById('filter-apply-btn');
+const filterClearBtn = document.getElementById('filter-clear-btn');
 
 // State
 let allItems = [];
 let currentView = 'all'; // 'all', 'timeline', or 'follow_up'
-let currentTypeFilter = ''; // '' for all, or specific type
+let selectedTypes = new Set();     // Empty = all types
+let selectedTags = new Set();      // Empty = no tag filter
+let searchQuery = '';              // Empty = no search
 let showHidden = false;
 let currentDetailItem = null;
 let detailEditMode = false;
 let editableTags = [];
 let noteCounts = {};
+let searchDebounceTimer;
+let pendingSelectedTypes = new Set();  // Temporary selection in modal
+let pendingSelectedTags = new Set();   // Temporary selection in modal
 
 // Initialize the app
 async function init() {
@@ -76,6 +90,8 @@ async function init() {
         // Setup filter controls
         setupFilters();
         setupUserMenu();
+        setupSearchInput();
+        setupFilterModal();
 
         // Setup create modal
         setupCreateModal();
@@ -279,12 +295,6 @@ function setupFilters() {
         });
     });
 
-    // Type filter dropdown
-    typeFilterEl.addEventListener('change', () => {
-        currentTypeFilter = typeFilterEl.value;
-        renderFilteredItems();
-    });
-
     if (showHiddenEl) {
         showHidden = showHiddenEl.checked;
         showHiddenEl.addEventListener('change', () => {
@@ -352,6 +362,170 @@ function openMetricsModal() {
 function closeMetricsModal() {
     if (!metricsModal) return;
     metricsModal.style.display = 'none';
+}
+
+// Setup search input with debounce
+function setupSearchInput() {
+    if (!searchInputEl) return;
+
+    searchInputEl.addEventListener('input', (e) => {
+        clearTimeout(searchDebounceTimer);
+        searchDebounceTimer = setTimeout(() => {
+            searchQuery = e.target.value;
+            renderFilteredItems();
+        }, 300);
+    });
+}
+
+// Setup filter modal
+function setupFilterModal() {
+    if (!filterModal) return;
+
+    // Open modal
+    if (filterBtnEl) {
+        filterBtnEl.addEventListener('click', openFilterModal);
+    }
+
+    // Close modal
+    if (filterModalCloseBtn) {
+        filterModalCloseBtn.addEventListener('click', closeFilterModal);
+    }
+    if (filterModalBackdrop) {
+        filterModalBackdrop.addEventListener('click', closeFilterModal);
+    }
+
+    // Apply button
+    if (filterApplyBtn) {
+        filterApplyBtn.addEventListener('click', applyFilters);
+    }
+
+    // Clear button
+    if (filterClearBtn) {
+        filterClearBtn.addEventListener('click', clearFilters);
+    }
+}
+
+function openFilterModal() {
+    if (!filterModal) return;
+
+    // Copy current selections to pending
+    pendingSelectedTypes = new Set(selectedTypes);
+    pendingSelectedTags = new Set(selectedTags);
+
+    // Populate chips
+    populateFilterChips();
+
+    filterModal.style.display = 'flex';
+}
+
+function closeFilterModal() {
+    if (!filterModal) return;
+    filterModal.style.display = 'none';
+}
+
+function populateFilterChips() {
+    // Static list of types
+    const types = ['image', 'video', 'audio', 'file', 'screenshot', 'text', 'web_url'];
+
+    // Populate type chips
+    if (filterTypesEl) {
+        filterTypesEl.innerHTML = '';
+        types.forEach(type => {
+            const chip = document.createElement('button');
+            chip.type = 'button';
+            chip.className = 'filter-chip';
+            if (pendingSelectedTypes.has(type)) {
+                chip.classList.add('selected');
+            }
+            chip.textContent = formatType(type);
+            chip.dataset.value = type;
+            chip.addEventListener('click', () => toggleTypeChip(chip, type));
+            filterTypesEl.appendChild(chip);
+        });
+    }
+
+    // Populate tag chips from available tags
+    if (filterTagsEl) {
+        filterTagsEl.innerHTML = '';
+        const availableTags = getAllAvailableTags();
+        if (availableTags.size === 0) {
+            const emptyMsg = document.createElement('span');
+            emptyMsg.className = 'filter-empty-msg';
+            emptyMsg.textContent = 'No tags available';
+            filterTagsEl.appendChild(emptyMsg);
+        } else {
+            // Sort tags alphabetically
+            const sortedTags = [...availableTags].sort();
+            sortedTags.forEach(tag => {
+                const chip = document.createElement('button');
+                chip.type = 'button';
+                chip.className = 'filter-chip';
+                if (pendingSelectedTags.has(tag)) {
+                    chip.classList.add('selected');
+                }
+                chip.textContent = tag;
+                chip.dataset.value = tag;
+                chip.addEventListener('click', () => toggleTagChip(chip, tag));
+                filterTagsEl.appendChild(chip);
+            });
+        }
+    }
+}
+
+function toggleTypeChip(chip, type) {
+    if (pendingSelectedTypes.has(type)) {
+        pendingSelectedTypes.delete(type);
+        chip.classList.remove('selected');
+    } else {
+        pendingSelectedTypes.add(type);
+        chip.classList.add('selected');
+    }
+}
+
+function toggleTagChip(chip, tag) {
+    if (pendingSelectedTags.has(tag)) {
+        pendingSelectedTags.delete(tag);
+        chip.classList.remove('selected');
+    } else {
+        pendingSelectedTags.add(tag);
+        chip.classList.add('selected');
+    }
+}
+
+function applyFilters() {
+    // Copy pending selections to actual selections
+    selectedTypes = new Set(pendingSelectedTypes);
+    selectedTags = new Set(pendingSelectedTags);
+
+    // Update filter count badge
+    updateFilterCountBadge();
+
+    // Re-render items
+    renderFilteredItems();
+
+    // Close modal
+    closeFilterModal();
+}
+
+function clearFilters() {
+    // Clear pending selections
+    pendingSelectedTypes.clear();
+    pendingSelectedTags.clear();
+
+    // Re-populate chips to update visual state
+    populateFilterChips();
+}
+
+function updateFilterCountBadge() {
+    if (!filterCountEl) return;
+
+    const count = selectedTypes.size + selectedTags.size;
+    if (count > 0) {
+        filterCountEl.textContent = count;
+        filterCountEl.style.display = 'inline-flex';
+    } else {
+        filterCountEl.style.display = 'none';
+    }
 }
 
 async function fetchMetrics() {
@@ -524,6 +698,18 @@ function toggleUserMenu() {
     }
 }
 
+// Get all available tags from items
+function getAllAvailableTags() {
+  const tags = new Set();
+  allItems.forEach(item => {
+    const itemTags = item.analysis?.tags;
+    if (Array.isArray(itemTags)) {
+      itemTags.forEach(tag => tags.add(tag));
+    }
+  });
+  return tags;
+}
+
 // Get event date from analysis details
 function getEventDateTime(item) {
     if (!item.analysis) return null;
@@ -582,9 +768,26 @@ function getFilteredItems() {
         items = items.filter(item => !item.hidden);
     }
 
-    // Apply type filter
-    if (currentTypeFilter) {
-        items = items.filter(item => normalizeType(item) === currentTypeFilter);
+    // Search filter
+    if (searchQuery) {
+        const query = searchQuery.toLowerCase();
+        items = items.filter(item =>
+            (item.title?.toLowerCase().includes(query)) ||
+            (item.content?.toLowerCase().includes(query))
+        );
+    }
+
+    // Type filter (multi-select)
+    if (selectedTypes.size > 0) {
+        items = items.filter(item => selectedTypes.has(normalizeType(item)));
+    }
+
+    // Tag filter
+    if (selectedTags.size > 0) {
+        items = items.filter(item => {
+            const itemTags = item.analysis?.tags || [];
+            return [...selectedTags].some(tag => itemTags.includes(tag));
+        });
     }
 
     // Apply view-specific filtering and sorting
@@ -700,8 +903,9 @@ function renderItems(items) {
             emptyStateEl.querySelector('p').textContent = 'No items with event dates found.';
         } else if (currentView === 'follow_up') {
             emptyStateEl.querySelector('p').textContent = 'No items need follow-up.';
-        } else if (currentTypeFilter) {
-            emptyStateEl.querySelector('p').textContent = `No ${formatType(currentTypeFilter)} items found.`;
+        } else if (selectedTypes.size > 0) {
+            const typeNames = [...selectedTypes].map(formatType).join(', ');
+            emptyStateEl.querySelector('p').textContent = `No ${typeNames} items found.`;
         } else {
             emptyStateEl.querySelector('p').textContent = 'No items yet. Share something from the mobile app or browser extension!';
         }
