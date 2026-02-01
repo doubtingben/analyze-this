@@ -23,6 +23,7 @@
                             <span>Show Archive</span>
                             <input type="checkbox" id="show-archive" />
                         </label>
+                        <button class="user-menu-item" id="metrics-btn" type="button">Metrics</button>
                         <button class="user-menu-item" id="export-btn" type="button">Export</button>
                         <a href="/logout" class="user-menu-item">Logout</a>
                     </div>
@@ -81,6 +82,38 @@
                         <button type="submit" class="btn-submit" id="submit-create">Create</button>
                     </div>
                 </form>
+            </div>
+        </div>
+
+        <!-- Metrics Modal -->
+        <div id="metrics-modal" class="modal" style="display: none;">
+            <div class="modal-backdrop" id="metrics-modal-backdrop"></div>
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h2>Metrics</h2>
+                    <button class="modal-close" id="metrics-modal-close" type="button">&times;</button>
+                </div>
+                <div class="metrics-body">
+                    <div id="metrics-loading" class="loading">Loading metrics...</div>
+                    <div id="metrics-error" class="metrics-error" style="display: none;"></div>
+                    <div id="metrics-content" style="display: none;">
+                        <div class="metrics-total">
+                            <div class="metrics-total-count" id="metrics-total-count">0</div>
+                            <div class="metrics-total-label">Total Items</div>
+                        </div>
+                        <div class="metrics-breakdown">
+                            <h3>Items by Status</h3>
+                            <div id="metrics-status-list" class="metrics-status-list"></div>
+                        </div>
+                        <div class="metrics-breakdown metrics-worker-queue" id="metrics-worker-section">
+                            <div class="metrics-worker-header">
+                                <h3>Worker Queue</h3>
+                                <span class="metrics-worker-total" id="metrics-worker-total">0 jobs</span>
+                            </div>
+                            <div id="metrics-worker-list" class="metrics-status-list"></div>
+                        </div>
+                    </div>
+                </div>
             </div>
         </div>
 

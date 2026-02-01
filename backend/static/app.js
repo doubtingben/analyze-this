@@ -37,6 +37,18 @@ const detailNotesLoading = document.getElementById('detail-notes-loading');
 const detailNoteForm = document.getElementById('detail-note-form');
 const detailNoteText = document.getElementById('detail-note-text');
 const detailItemIdEl = document.getElementById('detail-item-id');
+const metricsBtnEl = document.getElementById('metrics-btn');
+const metricsModal = document.getElementById('metrics-modal');
+const metricsModalBackdrop = document.getElementById('metrics-modal-backdrop');
+const metricsModalClose = document.getElementById('metrics-modal-close');
+const metricsLoading = document.getElementById('metrics-loading');
+const metricsError = document.getElementById('metrics-error');
+const metricsContent = document.getElementById('metrics-content');
+const metricsTotalCount = document.getElementById('metrics-total-count');
+const metricsStatusList = document.getElementById('metrics-status-list');
+const metricsWorkerSection = document.getElementById('metrics-worker-section');
+const metricsWorkerTotal = document.getElementById('metrics-worker-total');
+const metricsWorkerList = document.getElementById('metrics-worker-list');
 
 // State
 let allItems = [];
@@ -68,6 +80,7 @@ async function init() {
         // Setup create modal
         setupCreateModal();
         setupDetailModal();
+        setupMetricsModal();
 
         allItems = await fetchItems();
         await fetchNoteCounts(allItems);
@@ -307,6 +320,185 @@ function setupUserMenu() {
     document.addEventListener('keydown', (event) => {
         if (event.key === 'Escape') {
             closeUserMenu();
+        }
+    });
+}
+
+function setupMetricsModal() {
+    if (!metricsModal) return;
+
+    if (metricsBtnEl) {
+        metricsBtnEl.addEventListener('click', () => {
+            closeUserMenu();
+            openMetricsModal();
+        });
+    }
+
+    if (metricsModalClose) {
+        metricsModalClose.addEventListener('click', closeMetricsModal);
+    }
+
+    if (metricsModalBackdrop) {
+        metricsModalBackdrop.addEventListener('click', closeMetricsModal);
+    }
+}
+
+function openMetricsModal() {
+    if (!metricsModal) return;
+    metricsModal.style.display = 'flex';
+    fetchMetrics();
+}
+
+function closeMetricsModal() {
+    if (!metricsModal) return;
+    metricsModal.style.display = 'none';
+}
+
+async function fetchMetrics() {
+    if (!metricsLoading || !metricsError || !metricsContent) return;
+
+    metricsLoading.style.display = 'block';
+    metricsError.style.display = 'none';
+    metricsContent.style.display = 'none';
+
+    try {
+        const response = await fetch('/api/metrics');
+        if (!response.ok) {
+            throw new Error('Failed to fetch metrics');
+        }
+        const data = await response.json();
+        displayMetrics(data);
+    } catch (error) {
+        metricsLoading.style.display = 'none';
+        metricsError.style.display = 'block';
+        metricsError.textContent = error.message || 'Failed to load metrics';
+    }
+}
+
+function displayMetrics(data) {
+    metricsLoading.style.display = 'none';
+    metricsContent.style.display = 'block';
+
+    // Display total
+    metricsTotalCount.textContent = data.total_items || 0;
+
+    // Status labels and icons
+    const statusConfig = {
+        new: { label: 'New', icon: '🆕' },
+        analyzing: { label: 'Analyzing', icon: '⏳' },
+        analyzed: { label: 'Analyzed', icon: '✅' },
+        timeline: { label: 'Timeline', icon: '📅' },
+        follow_up: { label: 'Follow-up', icon: '🚩' },
+        processed: { label: 'Processed', icon: '✔️' },
+        soft_deleted: { label: 'Archived', icon: '📦' }
+    };
+
+    const statusOrder = ['new', 'analyzing', 'analyzed', 'timeline', 'follow_up', 'processed', 'soft_deleted'];
+    const byStatus = data.by_status || {};
+
+    // Clear existing items
+    metricsStatusList.innerHTML = '';
+
+    // Render status items
+    statusOrder.forEach(status => {
+        const count = byStatus[status] || 0;
+        // Always show new and follow_up, hide others if 0
+        if (count === 0 && status !== 'new' && status !== 'follow_up') {
+            return;
+        }
+
+        const config = statusConfig[status] || { label: status, icon: '●' };
+        const item = document.createElement('div');
+        item.className = 'metrics-status-item';
+        item.dataset.status = status;
+        item.innerHTML = `
+            <div class="metrics-status-item-left">
+                <div class="metrics-status-icon">${config.icon}</div>
+                <span class="metrics-status-label">${config.label}</span>
+            </div>
+            <span class="metrics-status-count">${count}</span>
+        `;
+        metricsStatusList.appendChild(item);
+    });
+
+    // Add any unknown statuses
+    Object.entries(byStatus).forEach(([status, count]) => {
+        if (!statusOrder.includes(status) && count > 0) {
+            const item = document.createElement('div');
+            item.className = 'metrics-status-item';
+            item.dataset.status = status;
+            item.innerHTML = `
+                <div class="metrics-status-item-left">
+                    <div class="metrics-status-icon">●</div>
+                    <span class="metrics-status-label">${status}</span>
+                </div>
+                <span class="metrics-status-count">${count}</span>
+            `;
+            metricsStatusList.appendChild(item);
+        }
+    });
+
+    // Display worker queue metrics
+    displayWorkerQueueMetrics(data.worker_queue);
+}
+
+function displayWorkerQueueMetrics(workerQueue) {
+    if (!metricsWorkerSection || !metricsWorkerTotal || !metricsWorkerList) return;
+
+    // Always show worker queue section
+    metricsWorkerSection.style.display = 'block';
+    const total = workerQueue?.total || 0;
+    metricsWorkerTotal.textContent = `${total} jobs`;
+
+    const workerStatusConfig = {
+        queued: { label: 'Queued', icon: '⏱️' },
+        leased: { label: 'Processing', icon: '🔄' },
+        completed: { label: 'Completed', icon: '✅' },
+        failed: { label: 'Failed', icon: '❌' }
+    };
+
+    const workerStatusOrder = ['queued', 'leased', 'completed', 'failed'];
+    const byStatus = workerQueue?.by_status || {};
+
+    // Clear existing items
+    metricsWorkerList.innerHTML = '';
+
+    // Render worker status items
+    workerStatusOrder.forEach(status => {
+        const count = byStatus[status] || 0;
+        // Always show queued and leased, hide completed/failed if 0
+        if (count === 0 && status !== 'queued' && status !== 'leased') {
+            return;
+        }
+
+        const config = workerStatusConfig[status] || { label: status, icon: '●' };
+        const item = document.createElement('div');
+        item.className = 'metrics-status-item';
+        item.dataset.status = status;
+        item.innerHTML = `
+            <div class="metrics-status-item-left">
+                <div class="metrics-status-icon">${config.icon}</div>
+                <span class="metrics-status-label">${config.label}</span>
+            </div>
+            <span class="metrics-status-count">${count}</span>
+        `;
+        metricsWorkerList.appendChild(item);
+    });
+
+    // Add any unknown worker statuses
+    Object.entries(byStatus).forEach(([status, count]) => {
+        if (!workerStatusOrder.includes(status) && count > 0) {
+            const item = document.createElement('div');
+            item.className = 'metrics-status-item';
+            item.dataset.status = status;
+            item.innerHTML = `
+                <div class="metrics-status-item-left">
+                    <div class="metrics-status-icon">●</div>
+                    <span class="metrics-status-label">${status}</span>
+                </div>
+                <span class="metrics-status-count">${count}</span>
+            `;
+            metricsWorkerList.appendChild(item);
         }
     });
 }

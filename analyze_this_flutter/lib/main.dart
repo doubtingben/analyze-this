@@ -14,6 +14,7 @@ import 'theme/app_colors.dart';
 import 'theme/app_spacing.dart';
 import 'widgets/history_card.dart';
 import 'screens/item_detail_screen.dart';
+import 'screens/metrics_screen.dart';
 
 import 'services/sharing_service.dart' as custom_sharing;
 
@@ -407,6 +408,16 @@ class _MyHomePageState extends State<MyHomePage> {
     });
   }
 
+  void _openMetrics() {
+    if (_authToken == null) return;
+
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (context) => MetricsScreen(authToken: _authToken!),
+      ),
+    );
+  }
+
   Future<void> _handleExport() async {
     if (_currentUser == null) return;
 
@@ -471,6 +482,15 @@ class _MyHomePageState extends State<MyHomePage> {
                       _showHidden = value;
                     });
                     Navigator.pop(context);
+                  },
+                ),
+                ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: const Icon(Icons.analytics_outlined),
+                  title: const Text('Metrics'),
+                  onTap: () {
+                    Navigator.pop(context);
+                    _openMetrics();
                   },
                 ),
                 ListTile(

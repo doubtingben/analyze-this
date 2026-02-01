@@ -6,7 +6,7 @@ from abc import ABC, abstractmethod
 from typing import List, Optional, Dict, Any
 import logging
 
-from models import User, SharedItem, ItemNote
+from models import User, SharedItem, ItemNote, WorkerJobStatus
 
 # Firestore imports
 import firebase_admin
@@ -81,6 +81,14 @@ class DatabaseInterface(ABC):
 
     @abstractmethod
     async def get_item_note_count(self, item_ids: List[str]) -> Dict[str, int]:
+        pass
+
+    @abstractmethod
+    async def get_user_item_counts_by_status(self, user_email: str) -> Dict[str, int]:
+        pass
+
+    @abstractmethod
+    async def get_user_worker_job_counts_by_status(self, user_email: str) -> Dict[str, int]:
         pass
 
     @abstractmethod
@@ -305,12 +313,42 @@ class FirestoreDatabase(DatabaseInterface):
         loop = asyncio.get_running_loop()
         return await loop.run_in_executor(None, get_counts)
 
+    async def get_user_item_counts_by_status(self, user_email: str) -> Dict[str, int]:
+        def get_counts():
+            items_ref = self.db.collection('shared_items')
+            query = items_ref.where(filter=FieldFilter('user_email', '==', user_email))
+
+            counts = {}
+            for doc in query.stream():
+                data = doc.to_dict()
+                status = data.get('status', 'new')
+                counts[status] = counts.get(status, 0) + 1
+            return counts
+
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(None, get_counts)
+
+    async def get_user_worker_job_counts_by_status(self, user_email: str) -> Dict[str, int]:
+        def get_counts():
+            jobs_ref = self.db.collection('worker_queue')
+            query = jobs_ref.where(filter=FieldFilter('user_email', '==', user_email))
+
+            counts = {}
+            for doc in query.stream():
+                data = doc.to_dict()
+                status = data.get('status', WorkerJobStatus.queued.value)
+                counts[status] = counts.get(status, 0) + 1
+            return counts
+
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(None, get_counts)
+
     async def enqueue_worker_job(self, item_id: str, user_email: str, job_type: str, payload: Optional[dict] = None) -> str:
         job_data = {
             'item_id': item_id,
             'user_email': user_email,
             'job_type': job_type,
-            'status': 'queued',
+            'status': WorkerJobStatus.queued.value,
             'attempts': 0,
             'payload': payload or {},
             'created_at': firestore.SERVER_TIMESTAMP,
@@ -328,7 +366,7 @@ class FirestoreDatabase(DatabaseInterface):
             query = (
                 self.db.collection('worker_queue')
                 .where(filter=FieldFilter('job_type', '==', job_type))
-                .where(filter=FieldFilter('status', '==', 'queued'))
+                .where(filter=FieldFilter('status', '==', WorkerJobStatus.queued.value))
                 .order_by('created_at')
                 .limit(limit)
             )
@@ -340,18 +378,18 @@ class FirestoreDatabase(DatabaseInterface):
                 def _claim(transaction):
                     snapshot = doc.reference.get(transaction=transaction)
                     data = snapshot.to_dict() or {}
-                    if data.get('status') != 'queued':
+                    if data.get('status') != WorkerJobStatus.queued.value:
                         return
                     attempts = int(data.get('attempts', 0)) + 1
                     transaction.update(doc.reference, {
-                        'status': 'leased',
+                        'status': WorkerJobStatus.leased.value,
                         'worker_id': worker_id,
                         'lease_expires_at': lease_expires_at,
                         'attempts': attempts,
                         'updated_at': firestore.SERVER_TIMESTAMP
                     })
                     data['firestore_id'] = snapshot.id
-                    data['status'] = 'leased'
+                    data['status'] = WorkerJobStatus.leased.value
                     data['worker_id'] = worker_id
                     data['lease_expires_at'] = lease_expires_at
                     data['attempts'] = attempts
@@ -370,7 +408,7 @@ class FirestoreDatabase(DatabaseInterface):
         if not doc.exists:
             return False
         job_ref.update({
-            'status': 'completed',
+            'status': WorkerJobStatus.completed.value,
             'updated_at': firestore.SERVER_TIMESTAMP
         })
         return True
@@ -381,7 +419,7 @@ class FirestoreDatabase(DatabaseInterface):
         if not doc.exists:
             return False
         job_ref.update({
-            'status': 'failed',
+            'status': WorkerJobStatus.failed.value,
             'error': error,
             'updated_at': firestore.SERVER_TIMESTAMP
         })
@@ -823,6 +861,36 @@ class SQLiteDatabase(DatabaseInterface):
 
             return counts
 
+    async def get_user_item_counts_by_status(self, user_email: str) -> Dict[str, int]:
+        async with self.SessionLocal() as session:
+            result = await session.execute(
+                select(DBSharedItem.status, func.count(DBSharedItem.id))
+                .where(DBSharedItem.user_email == user_email)
+                .group_by(DBSharedItem.status)
+            )
+            rows = result.all()
+
+            counts = {}
+            for status, count in rows:
+                counts[status or 'new'] = count
+
+            return counts
+
+    async def get_user_worker_job_counts_by_status(self, user_email: str) -> Dict[str, int]:
+        async with self.SessionLocal() as session:
+            result = await session.execute(
+                select(DBWorkerJob.status, func.count(DBWorkerJob.id))
+                .where(DBWorkerJob.user_email == user_email)
+                .group_by(DBWorkerJob.status)
+            )
+            rows = result.all()
+
+            counts = {}
+            for status, count in rows:
+                counts[status or WorkerJobStatus.queued.value] = count
+
+            return counts
+
     async def enqueue_worker_job(self, item_id: str, user_email: str, job_type: str, payload: Optional[dict] = None) -> str:
         async with self.SessionLocal() as session:
             job_id = str(uuid4())
@@ -832,7 +900,7 @@ class SQLiteDatabase(DatabaseInterface):
                 item_id=item_id,
                 user_email=user_email,
                 job_type=job_type,
-                status='queued',
+                status=WorkerJobStatus.queued.value,
                 attempts=0,
                 payload=payload or {},
                 created_at=now,
@@ -850,7 +918,7 @@ class SQLiteDatabase(DatabaseInterface):
             result = await session.execute(
                 select(DBWorkerJob)
                 .where(DBWorkerJob.job_type == job_type)
-                .where(DBWorkerJob.status == 'queued')
+                .where(DBWorkerJob.status == WorkerJobStatus.queued.value)
                 .order_by(DBWorkerJob.created_at.asc())
                 .limit(limit)
             )
@@ -858,7 +926,7 @@ class SQLiteDatabase(DatabaseInterface):
 
             leased = []
             for job in jobs:
-                job.status = 'leased'
+                job.status = WorkerJobStatus.leased.value
                 job.worker_id = worker_id
                 job.lease_expires_at = lease_expires_at
                 job.attempts = (job.attempts or 0) + 1
@@ -884,7 +952,7 @@ class SQLiteDatabase(DatabaseInterface):
             job = result.scalar_one_or_none()
             if not job:
                 return False
-            job.status = 'completed'
+            job.status = WorkerJobStatus.completed.value
             job.updated_at = datetime.datetime.now(datetime.timezone.utc)
             await session.commit()
             return True
@@ -895,7 +963,7 @@ class SQLiteDatabase(DatabaseInterface):
             job = result.scalar_one_or_none()
             if not job:
                 return False
-            job.status = 'failed'
+            job.status = WorkerJobStatus.failed.value
             job.error = error
             job.updated_at = datetime.datetime.now(datetime.timezone.utc)
             await session.commit()

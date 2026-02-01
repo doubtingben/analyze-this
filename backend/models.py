@@ -24,6 +24,13 @@ class ItemStatus(str, Enum):
     processed = 'processed'
     soft_deleted = 'soft_deleted'
 
+
+class WorkerJobStatus(str, Enum):
+    queued = 'queued'
+    leased = 'leased'
+    completed = 'completed'
+    failed = 'failed'
+
 class TimelineEvent(BaseModel):
     date: Optional[str] = None
     time: Optional[str] = None
