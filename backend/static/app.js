@@ -489,22 +489,33 @@ function renderTagEditorList() {
 
     tags.forEach(tag => {
         const row = document.createElement('div');
-        row.className = 'tag-editor-row';
+        row.className = 'tag-editor-item';
 
-        const nameEl = document.createElement('span');
+        const iconEl = document.createElement('div');
+        iconEl.className = 'tag-editor-icon';
+        iconEl.textContent = '🏷️';
+        row.appendChild(iconEl);
+
+        const infoEl = document.createElement('div');
+        infoEl.className = 'tag-editor-info';
+
+        const nameEl = document.createElement('div');
         nameEl.className = 'tag-editor-name';
         nameEl.textContent = tag.name;
-        row.appendChild(nameEl);
+        infoEl.appendChild(nameEl);
 
-        const countEl = document.createElement('span');
-        countEl.className = 'tag-editor-item-count';
+        const countEl = document.createElement('div');
+        countEl.className = 'tag-editor-count-label';
         countEl.textContent = `${tag.count} item${tag.count === 1 ? '' : 's'}`;
-        row.appendChild(countEl);
+        infoEl.appendChild(countEl);
+
+        row.appendChild(infoEl);
 
         const deleteBtn = document.createElement('button');
-        deleteBtn.className = 'tag-editor-delete-btn';
-        deleteBtn.textContent = 'Delete';
+        deleteBtn.className = 'tag-editor-delete';
+        deleteBtn.textContent = '🗑️';
         deleteBtn.type = 'button';
+        deleteBtn.title = 'Delete tag';
         deleteBtn.addEventListener('click', () => deleteTag(tag.name));
         row.appendChild(deleteBtn);
 
