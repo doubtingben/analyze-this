@@ -174,6 +174,31 @@
             </div>
         </div>
 
+        <!-- Filter Modal -->
+        <div id="filter-modal" class="modal" style="display: none;">
+            <div class="modal-backdrop" id="filter-modal-backdrop"></div>
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h2>Filters</h2>
+                    <button class="modal-close" id="filter-modal-close">&times;</button>
+                </div>
+                <div class="filter-modal-body">
+                    <div class="filter-section">
+                        <h3>Types</h3>
+                        <div id="filter-types" class="filter-chips"></div>
+                    </div>
+                    <div class="filter-section">
+                        <h3>Tags</h3>
+                        <div id="filter-tags" class="filter-chips"></div>
+                    </div>
+                </div>
+                <div class="filter-modal-footer">
+                    <button class="btn-secondary" id="filter-clear-btn">Clear</button>
+                    <button class="btn-primary" id="filter-apply-btn">Apply</button>
+                </div>
+            </div>
+        </div>
+
         <main>
             <div id="login-state" class="login-state" style="display: none;">
                 <h2>Welcome to Analyze This</h2>
@@ -191,17 +216,12 @@
                     <button class="view-btn" data-view="timeline">Timeline</button>
                     <button class="view-btn" data-view="follow_up">Follow-up</button>
                 </div>
-                <div class="type-filter">
-                    <select id="type-filter">
-                        <option value="">All Types</option>
-                        <option value="screenshot">Screenshot</option>
-                        <option value="image">Image</option>
-                        <option value="web_url">Web URL</option>
-                        <option value="text">Text</option>
-                        <option value="video">Video</option>
-                        <option value="audio">Audio</option>
-                        <option value="file">File</option>
-                    </select>
+                <div class="filter-controls">
+                    <input type="text" id="search-input" class="search-input" placeholder="Search items...">
+                    <button id="filter-btn" class="filter-btn" type="button">
+                        <span class="filter-icon">Filters</span>
+                        <span id="filter-count" class="filter-count" style="display: none;"></span>
+                    </button>
                 </div>
             </div>
 
