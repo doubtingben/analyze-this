@@ -56,7 +56,9 @@ class _MyHomePageState extends State<MyHomePage> {
   GoogleSignInAccount? _currentUser;
   String? _authToken;
   ViewMode _currentView = ViewMode.all;
-  String? _currentTypeFilter;
+  Set<String> _selectedTypes = {};     // Empty = all types
+  Set<String> _selectedTags = {};      // Empty = no tag filter
+  String _searchQuery = '';            // Empty = no search
   bool _showHidden = false;
 
   // Timeline scroll state
@@ -634,15 +636,19 @@ class _MyHomePageState extends State<MyHomePage> {
                   ),
                 ),
               ),
-              // Type filter dropdown
+              // Type filter dropdown (temporary - will be replaced by filter dialog in Task 3)
               DropdownMenu<String?>(
-                initialSelection: _currentTypeFilter,
+                initialSelection: _selectedTypes.isEmpty ? null : _selectedTypes.first,
                 hintText: 'All Types',
                 width: 130,
                 textStyle: Theme.of(context).textTheme.bodySmall,
                 onSelected: (String? value) {
                   setState(() {
-                    _currentTypeFilter = value;
+                    if (value == null) {
+                      _selectedTypes = {};
+                    } else {
+                      _selectedTypes = {value};
+                    }
                   });
                 },
                 dropdownMenuEntries: const [
@@ -753,6 +759,17 @@ class _MyHomePageState extends State<MyHomePage> {
     }
   }
 
+  Set<String> _getAllAvailableTags() {
+    final tags = <String>{};
+    for (final item in _history) {
+      final itemTags = item.analysis?['tags'];
+      if (itemTags is List) {
+        tags.addAll(itemTags.cast<String>());
+      }
+    }
+    return tags;
+  }
+
   List<HistoryItem> _getFilteredItems() {
     List<HistoryItem> items = List.from(_history);
 
@@ -760,9 +777,27 @@ class _MyHomePageState extends State<MyHomePage> {
       items = items.where((item) => !item.isHidden).toList();
     }
 
-    // Apply type filter
-    if (_currentTypeFilter != null) {
-      items = items.where((item) => item.type == _currentTypeFilter).toList();
+    // Apply search filter
+    if (_searchQuery.isNotEmpty) {
+      final query = _searchQuery.toLowerCase();
+      items = items.where((item) =>
+        (item.title?.toLowerCase().contains(query) ?? false) ||
+        item.value.toLowerCase().contains(query)
+      ).toList();
+    }
+
+    // Apply type filter (multi-select)
+    if (_selectedTypes.isNotEmpty) {
+      items = items.where((item) => _selectedTypes.contains(item.type)).toList();
+    }
+
+    // Apply tag filter
+    if (_selectedTags.isNotEmpty) {
+      items = items.where((item) {
+        final itemTags = item.analysis?['tags'];
+        if (itemTags is! List) return false;
+        return _selectedTags.any((tag) => itemTags.contains(tag));
+      }).toList();
     }
 
     // Apply view-specific filtering and sorting
@@ -805,8 +840,8 @@ class _MyHomePageState extends State<MyHomePage> {
         icon = Icons.check_circle_outline;
         break;
       case ViewMode.all:
-        if (_currentTypeFilter != null) {
-          message = 'No $_currentTypeFilter items found';
+        if (_selectedTypes.isNotEmpty || _selectedTags.isNotEmpty || _searchQuery.isNotEmpty) {
+          message = 'No matching items found';
           icon = Icons.filter_list_off;
         } else {
           message = 'No items yet';
@@ -836,7 +871,7 @@ class _MyHomePageState extends State<MyHomePage> {
           Text(
               (!_showHidden && _history.any((item) => item.isHidden))
                   ? 'Enable "Show Archive" to view archived items'
-                  : _currentView == ViewMode.all && _currentTypeFilter == null
+                  : _currentView == ViewMode.all && _selectedTypes.isEmpty && _selectedTags.isEmpty && _searchQuery.isEmpty
                       ? 'Share content from other apps to see it here'
                       : 'Try changing your filters',
               style: Theme.of(context).textTheme.bodySmall,
