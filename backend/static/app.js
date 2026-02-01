@@ -58,6 +58,14 @@ const filterTypesEl = document.getElementById('filter-types');
 const filterTagsEl = document.getElementById('filter-tags');
 const filterApplyBtn = document.getElementById('filter-apply-btn');
 const filterClearBtn = document.getElementById('filter-clear-btn');
+const tagEditorBtn = document.getElementById('tag-editor-btn');
+const tagEditorModal = document.getElementById('tag-editor-modal');
+const tagEditorModalBackdrop = document.getElementById('tag-editor-modal-backdrop');
+const tagEditorModalClose = document.getElementById('tag-editor-modal-close');
+const tagSearchInput = document.getElementById('tag-search-input');
+const tagSortSelect = document.getElementById('tag-sort-select');
+const tagEditorCount = document.getElementById('tag-editor-count');
+const tagEditorList = document.getElementById('tag-editor-list');
 
 // State
 let allItems = [];
@@ -73,6 +81,8 @@ let noteCounts = {};
 let searchDebounceTimer;
 let pendingSelectedTypes = new Set();  // Temporary selection in modal
 let pendingSelectedTags = new Set();   // Temporary selection in modal
+let tagSearchQuery = '';               // Tag editor search
+let tagSortMode = 'name';              // Tag editor sort mode
 
 // Initialize the app
 async function init() {
@@ -97,6 +107,7 @@ async function init() {
         setupCreateModal();
         setupDetailModal();
         setupMetricsModal();
+        setupTagEditor();
 
         allItems = await fetchItems();
         await fetchNoteCounts(allItems);
@@ -357,6 +368,214 @@ function openMetricsModal() {
     if (!metricsModal) return;
     metricsModal.style.display = 'flex';
     fetchMetrics();
+}
+
+// Tag Editor functions
+function setupTagEditor() {
+    if (!tagEditorModal) return;
+
+    if (tagEditorBtn) {
+        tagEditorBtn.addEventListener('click', () => {
+            closeUserMenu();
+            openTagEditorModal();
+        });
+    }
+
+    if (tagEditorModalClose) {
+        tagEditorModalClose.addEventListener('click', closeTagEditorModal);
+    }
+
+    if (tagEditorModalBackdrop) {
+        tagEditorModalBackdrop.addEventListener('click', closeTagEditorModal);
+    }
+
+    if (tagSearchInput) {
+        tagSearchInput.addEventListener('input', (e) => {
+            tagSearchQuery = e.target.value.toLowerCase();
+            renderTagEditorList();
+        });
+    }
+
+    if (tagSortSelect) {
+        tagSortSelect.addEventListener('change', (e) => {
+            tagSortMode = e.target.value;
+            renderTagEditorList();
+        });
+    }
+}
+
+function openTagEditorModal() {
+    if (!tagEditorModal) return;
+    // Reset state
+    tagSearchQuery = '';
+    tagSortMode = 'name';
+    if (tagSearchInput) tagSearchInput.value = '';
+    if (tagSortSelect) tagSortSelect.value = 'name';
+
+    tagEditorModal.style.display = 'flex';
+    renderTagEditorList();
+}
+
+function closeTagEditorModal() {
+    if (!tagEditorModal) return;
+    tagEditorModal.style.display = 'none';
+}
+
+function getTagStats() {
+    const tagStats = {};
+
+    allItems.forEach(item => {
+        const itemTags = item.analysis?.tags || [];
+        const itemDate = item.created_at ? new Date(item.created_at) : new Date(0);
+
+        itemTags.forEach(tag => {
+            if (!tagStats[tag]) {
+                tagStats[tag] = {
+                    name: tag,
+                    count: 0,
+                    newestDate: itemDate
+                };
+            }
+            tagStats[tag].count++;
+            if (itemDate > tagStats[tag].newestDate) {
+                tagStats[tag].newestDate = itemDate;
+            }
+        });
+    });
+
+    return tagStats;
+}
+
+function renderTagEditorList() {
+    if (!tagEditorList) return;
+
+    const tagStats = getTagStats();
+    let tags = Object.values(tagStats);
+
+    // Filter by search query
+    if (tagSearchQuery) {
+        tags = tags.filter(tag => tag.name.toLowerCase().includes(tagSearchQuery));
+    }
+
+    // Sort tags
+    switch (tagSortMode) {
+        case 'newest':
+            tags.sort((a, b) => b.newestDate - a.newestDate);
+            break;
+        case 'count':
+            tags.sort((a, b) => b.count - a.count);
+            break;
+        case 'name':
+        default:
+            tags.sort((a, b) => a.name.localeCompare(b.name));
+            break;
+    }
+
+    // Update count
+    if (tagEditorCount) {
+        tagEditorCount.textContent = `${tags.length} tag${tags.length === 1 ? '' : 's'}`;
+    }
+
+    // Render list
+    tagEditorList.innerHTML = '';
+
+    if (tags.length === 0) {
+        const emptyEl = document.createElement('div');
+        emptyEl.className = 'tag-editor-empty';
+        emptyEl.textContent = tagSearchQuery ? 'No tags match your search.' : 'No tags found.';
+        tagEditorList.appendChild(emptyEl);
+        return;
+    }
+
+    tags.forEach(tag => {
+        const row = document.createElement('div');
+        row.className = 'tag-editor-item';
+
+        const iconEl = document.createElement('div');
+        iconEl.className = 'tag-editor-icon';
+        iconEl.textContent = '🏷️';
+        row.appendChild(iconEl);
+
+        const infoEl = document.createElement('div');
+        infoEl.className = 'tag-editor-info';
+
+        const nameEl = document.createElement('div');
+        nameEl.className = 'tag-editor-name';
+        nameEl.textContent = tag.name;
+        infoEl.appendChild(nameEl);
+
+        const countEl = document.createElement('div');
+        countEl.className = 'tag-editor-count-label';
+        countEl.textContent = `${tag.count} item${tag.count === 1 ? '' : 's'}`;
+        infoEl.appendChild(countEl);
+
+        row.appendChild(infoEl);
+
+        const deleteBtn = document.createElement('button');
+        deleteBtn.className = 'tag-editor-delete';
+        deleteBtn.textContent = '🗑️';
+        deleteBtn.type = 'button';
+        deleteBtn.title = 'Delete tag';
+        deleteBtn.addEventListener('click', () => deleteTag(tag.name));
+        row.appendChild(deleteBtn);
+
+        tagEditorList.appendChild(row);
+    });
+}
+
+async function deleteTag(tagName) {
+    const tagStats = getTagStats();
+    const tag = tagStats[tagName];
+    if (!tag) return;
+
+    const confirmMsg = `Delete tag "${tagName}"?\n\nThis will remove the tag from ${tag.count} item${tag.count === 1 ? '' : 's'}.`;
+    if (!confirm(confirmMsg)) return;
+
+    // Find all items with this tag and update them
+    const itemsWithTag = allItems.filter(item => {
+        const itemTags = item.analysis?.tags || [];
+        return itemTags.includes(tagName);
+    });
+
+    try {
+        for (const item of itemsWithTag) {
+            const itemId = getItemId(item);
+            const currentTags = item.analysis?.tags || [];
+            const newTags = currentTags.filter(t => t !== tagName);
+
+            const response = await fetch(`/api/items/${itemId}`, {
+                method: 'PATCH',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ tags: newTags })
+            });
+
+            if (!response.ok) {
+                throw new Error(`Failed to update item ${itemId}`);
+            }
+
+            // Update local state
+            if (item.analysis) {
+                item.analysis.tags = newTags;
+            }
+        }
+
+        // Re-render tag list and main items list
+        renderTagEditorList();
+        renderFilteredItems();
+    } catch (error) {
+        console.error('Delete tag error:', error);
+        alert(error.message || 'Failed to delete tag');
+    }
+}
+
+// Escape HTML to prevent XSS
+function escapeHtml(str) {
+    if (!str) return '';
+    const div = document.createElement('div');
+    div.textContent = str;
+    return div.innerHTML;
 }
 
 function closeMetricsModal() {

@@ -87,7 +87,7 @@ async def process_normalization_async(limit: int = 10, item_id: str = None, forc
             # We raise here to halt the worker as requested.
             raise e
 
-async def _process_normalize_item(db, data, allow_missing_analysis=False):
+async def _process_normalize_item(db, data, context, allow_missing_analysis=False):
     doc_id = data.get('firestore_id') or data.get('id')
     current_title = data.get('title')
     content = data.get('content')

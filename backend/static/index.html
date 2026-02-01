@@ -24,6 +24,7 @@
                             <input type="checkbox" id="show-archive" />
                         </label>
                         <button class="user-menu-item" id="metrics-btn" type="button">Metrics</button>
+                        <button class="user-menu-item" id="tag-editor-btn" type="button">Tag Editor</button>
                         <button class="user-menu-item" id="export-btn" type="button">Export</button>
                         <a href="/logout" class="user-menu-item">Logout</a>
                     </div>
@@ -196,6 +197,27 @@
                     <button class="btn-secondary" id="filter-clear-btn">Clear</button>
                     <button class="btn-primary" id="filter-apply-btn">Apply</button>
                 </div>
+            </div>
+        </div>
+
+        <!-- Tag Editor Modal -->
+        <div id="tag-editor-modal" class="modal" style="display: none;">
+            <div class="modal-backdrop" id="tag-editor-modal-backdrop"></div>
+            <div class="modal-content modal-large">
+                <div class="modal-header">
+                    <h2>Tag Editor</h2>
+                    <button class="modal-close" id="tag-editor-modal-close">&times;</button>
+                </div>
+                <div class="tag-editor-controls">
+                    <input type="text" id="tag-search-input" class="tag-search-input" placeholder="Search tags...">
+                    <select id="tag-sort-select" class="tag-sort-select">
+                        <option value="name">Sort by Name</option>
+                        <option value="newest">Sort by Newest</option>
+                        <option value="count">Sort by Most Used</option>
+                    </select>
+                </div>
+                <div class="tag-editor-count" id="tag-editor-count"></div>
+                <div class="tag-editor-list" id="tag-editor-list"></div>
             </div>
         </div>
 

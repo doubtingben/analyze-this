@@ -84,6 +84,10 @@ class DatabaseInterface(ABC):
         pass
 
     @abstractmethod
+    async def get_user_tags(self, user_email: str) -> List[str]:
+        pass
+
+    @abstractmethod
     async def get_user_item_counts_by_status(self, user_email: str) -> Dict[str, int]:
         pass
 
@@ -312,6 +316,26 @@ class FirestoreDatabase(DatabaseInterface):
 
         loop = asyncio.get_running_loop()
         return await loop.run_in_executor(None, get_counts)
+
+    async def get_user_tags(self, user_email: str) -> List[str]:
+        items_ref = self.db.collection('shared_items')
+        query = items_ref.where(filter=FieldFilter('user_email', '==', user_email))
+
+        def get_tags():
+            tags = set()
+            for doc in query.stream():
+                data = doc.to_dict() or {}
+                analysis = data.get('analysis') or {}
+                raw_tags = analysis.get('tags') or []
+                if isinstance(raw_tags, list):
+                    for tag in raw_tags:
+                        tag_str = str(tag).strip()
+                        if tag_str:
+                            tags.add(tag_str)
+            return sorted(tags, key=str.lower)
+
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(None, get_tags)
 
     async def get_user_item_counts_by_status(self, user_email: str) -> Dict[str, int]:
         def get_counts():
@@ -860,6 +884,24 @@ class SQLiteDatabase(DatabaseInterface):
                 counts[item_id] = count
 
             return counts
+
+    async def get_user_tags(self, user_email: str) -> List[str]:
+        async with self.SessionLocal() as session:
+            result = await session.execute(
+                select(DBSharedItem.analysis)
+                .where(DBSharedItem.user_email == user_email)
+            )
+            rows = result.all()
+            tags = set()
+            for (analysis,) in rows:
+                analysis = analysis or {}
+                raw_tags = analysis.get('tags') or []
+                if isinstance(raw_tags, list):
+                    for tag in raw_tags:
+                        tag_str = str(tag).strip()
+                        if tag_str:
+                            tags.add(tag_str)
+            return sorted(tags, key=str.lower)
 
     async def get_user_item_counts_by_status(self, user_email: str) -> Dict[str, int]:
         async with self.SessionLocal() as session:
