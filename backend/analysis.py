@@ -30,8 +30,8 @@ if OPENROUTER_API_KEY:
 def get_analysis_prompt():
     """Reads the analysis prompt from the prompts directory."""
     try:
-        # Assuming the prompt file is located at ../prompts/analyze-this.md relative to backend/
-        prompt_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'prompts', 'analyze-this.md')
+        # Assuming the prompt file is located at ./prompts/analyze-this.md relative to backend/
+        prompt_path = os.path.join(os.path.dirname(__file__), 'prompts', 'analyze-this.md')
         with open(prompt_path, 'r') as f:
             return f.read()
     except Exception as e:

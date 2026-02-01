@@ -111,6 +111,7 @@ def main():
     parser.add_argument("--force", action="store_true", help="Force re-normalization (works with --id or batch mode)")
     parser.add_argument("--queue", action="store_true", help="Process jobs from the worker queue")
     parser.add_argument("--lease-seconds", type=int, default=600, help="Lease duration for queued jobs (seconds)")
+    parser.add_argument("--loop", action="store_true", help="Run in continuous loop mode (only with --queue)")
     
     args = parser.parse_args()
     
@@ -123,6 +124,7 @@ def main():
             process_item_fn=_process_normalize_item,
             logger=logger,
             halt_on_error=True,
+            continuous=args.loop,
         ))
         return
 

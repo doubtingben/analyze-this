@@ -336,6 +336,7 @@ class FirestoreDatabase(DatabaseInterface):
             for doc in query.stream():
                 transaction = self.db.transaction()
 
+                @firestore.transactional
                 def _claim(transaction):
                     snapshot = doc.reference.get(transaction=transaction)
                     data = snapshot.to_dict() or {}
@@ -356,7 +357,7 @@ class FirestoreDatabase(DatabaseInterface):
                     data['attempts'] = attempts
                     jobs.append(data)
 
-                transaction.call(_claim)
+                _claim(transaction)
 
             return jobs
 

@@ -29,9 +29,8 @@ def get_normalization_prompt():
     """Reads the normalization prompt from the prompts directory."""
     try:
         from pathlib import Path
-        # Resolve path relative to this file: ../prompts/normalize-this.md
-        # This file is in backend/normalization.py -> parent is backend -> parent is root -> prompts -> file
-        base_path = Path(__file__).resolve().parent.parent
+        # Resolve path relative to this file: ./prompts/normalize-this.md
+        base_path = Path(__file__).resolve().parent
         prompt_path = base_path / 'prompts' / 'normalize-this.md'
         
         with open(prompt_path, 'r') as f:

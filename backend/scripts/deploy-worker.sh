@@ -65,7 +65,7 @@ gcloud run jobs deploy $JOB_NAME \
   --region $REGION \
   --project $PROJECT_ID \
   --command python \
-  --args "$SCRIPT_NAME" --queue \
+  --args "$SCRIPT_NAME","--queue","--loop" \
   --service-account "$SERVICE_ACCOUNT_EMAIL" \
   --set-env-vars "APP_ENV=production" \
   --set-secrets "FIREBASE_STORAGE_BUCKET=FIREBASE_STORAGE_BUCKET:latest" \
