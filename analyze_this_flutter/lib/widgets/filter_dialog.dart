@@ -83,127 +83,147 @@ class _FilterDialogState extends State<FilterDialog> {
 
   @override
   Widget build(BuildContext context) {
-    return SafeArea(
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(
-          AppSpacing.lg,
-          0,
-          AppSpacing.lg,
-          AppSpacing.lg,
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // Header
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Text(
-                  'Filter',
-                  style: Theme.of(context).textTheme.titleLarge,
-                ),
-                if (_hasFilters)
-                  TextButton(
-                    onPressed: _clearAll,
-                    child: const Text('Clear all'),
-                  ),
-              ],
-            ),
-            const SizedBox(height: AppSpacing.lg),
+    // Sort tags alphabetically (case-insensitive)
+    final sortedTags = widget.availableTags.toList()
+      ..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
 
-            // Types section
-            Text(
-              'Types',
-              style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                color: AppColors.textSecondary,
+    return SafeArea(
+      child: ConstrainedBox(
+        constraints: BoxConstraints(
+          maxHeight: MediaQuery.of(context).size.height * 0.75,
+        ),
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(
+            AppSpacing.lg,
+            0,
+            AppSpacing.lg,
+            AppSpacing.lg,
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // Header
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text(
+                    'Filter',
+                    style: Theme.of(context).textTheme.titleLarge,
+                  ),
+                  if (_hasFilters)
+                    TextButton(
+                      onPressed: _clearAll,
+                      child: const Text('Clear all'),
+                    ),
+                ],
               ),
-            ),
-            const SizedBox(height: AppSpacing.sm),
-            Wrap(
-              spacing: AppSpacing.sm,
-              runSpacing: AppSpacing.sm,
-              children: _allTypes.map((type) {
-                final isSelected = _types.contains(type.value);
-                return FilterChip(
-                  label: Row(
-                    mainAxisSize: MainAxisSize.min,
+              const SizedBox(height: AppSpacing.lg),
+
+              // Scrollable content
+              Flexible(
+                child: SingleChildScrollView(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Icon(
-                        type.icon,
-                        size: 16,
-                        color: isSelected ? AppColors.primary : AppColors.textSecondary,
+                      // Types section
+                      Text(
+                        'Types',
+                        style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                          color: AppColors.textSecondary,
+                        ),
                       ),
-                      const SizedBox(width: AppSpacing.xs),
-                      Text(type.label),
+                      const SizedBox(height: AppSpacing.sm),
+                      Wrap(
+                        spacing: AppSpacing.sm,
+                        runSpacing: AppSpacing.sm,
+                        children: _allTypes.map((type) {
+                          final isSelected = _types.contains(type.value);
+                          return FilterChip(
+                            label: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(
+                                  type.icon,
+                                  size: 16,
+                                  color: isSelected ? AppColors.primary : AppColors.textSecondary,
+                                ),
+                                const SizedBox(width: AppSpacing.xs),
+                                Text(type.label),
+                              ],
+                            ),
+                            selected: isSelected,
+                            onSelected: (selected) {
+                              setState(() {
+                                if (selected) {
+                                  _types.add(type.value);
+                                } else {
+                                  _types.remove(type.value);
+                                }
+                              });
+                            },
+                          );
+                        }).toList(),
+                      ),
+                      const SizedBox(height: AppSpacing.xl),
+
+                      // Tags section
+                      if (sortedTags.isNotEmpty) ...[
+                        Text(
+                          'Tags',
+                          style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                            color: AppColors.textSecondary,
+                          ),
+                        ),
+                        const SizedBox(height: AppSpacing.sm),
+                        Wrap(
+                          spacing: AppSpacing.sm,
+                          runSpacing: AppSpacing.sm,
+                          children: sortedTags.map((tag) {
+                            final isSelected = _tags.contains(tag);
+                            return FilterChip(
+                              label: Text(tag),
+                              selected: isSelected,
+                              onSelected: (selected) {
+                                setState(() {
+                                  if (selected) {
+                                    _tags.add(tag);
+                                  } else {
+                                    _tags.remove(tag);
+                                  }
+                                });
+                              },
+                            );
+                          }).toList(),
+                        ),
+                        const SizedBox(height: AppSpacing.xl),
+                      ],
                     ],
                   ),
-                  selected: isSelected,
-                  onSelected: (selected) {
-                    setState(() {
-                      if (selected) {
-                        _types.add(type.value);
-                      } else {
-                        _types.remove(type.value);
-                      }
-                    });
-                  },
-                );
-              }).toList(),
-            ),
-            const SizedBox(height: AppSpacing.xl),
-
-            // Tags section
-            if (widget.availableTags.isNotEmpty) ...[
-              Text(
-                'Tags',
-                style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                  color: AppColors.textSecondary,
                 ),
               ),
-              const SizedBox(height: AppSpacing.sm),
-              Wrap(
-                spacing: AppSpacing.sm,
-                runSpacing: AppSpacing.sm,
-                children: widget.availableTags.map((tag) {
-                  final isSelected = _tags.contains(tag);
-                  return FilterChip(
-                    label: Text(tag),
-                    selected: isSelected,
-                    onSelected: (selected) {
-                      setState(() {
-                        if (selected) {
-                          _tags.add(tag);
-                        } else {
-                          _tags.remove(tag);
-                        }
-                      });
-                    },
-                  );
-                }).toList(),
+
+              // Action buttons (fixed at bottom)
+              const SizedBox(height: AppSpacing.md),
+              Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton(
+                      onPressed: () => Navigator.of(context).pop(),
+                      child: const Text('Cancel'),
+                    ),
+                  ),
+                  const SizedBox(width: AppSpacing.md),
+                  Expanded(
+                    child: FilledButton(
+                      onPressed: _apply,
+                      child: const Text('Apply'),
+                    ),
+                  ),
+                ],
               ),
-              const SizedBox(height: AppSpacing.xl),
             ],
-
-            // Action buttons
-            Row(
-              children: [
-                Expanded(
-                  child: OutlinedButton(
-                    onPressed: () => Navigator.of(context).pop(),
-                    child: const Text('Cancel'),
-                  ),
-                ),
-                const SizedBox(width: AppSpacing.md),
-                Expanded(
-                  child: FilledButton(
-                    onPressed: _apply,
-                    child: const Text('Apply'),
-                  ),
-                ),
-              ],
-            ),
-          ],
+          ),
         ),
       ),
     );

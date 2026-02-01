@@ -61,12 +61,14 @@ class _MyHomePageState extends State<MyHomePage> {
   Set<String> _selectedTags = {};      // Empty = no tag filter
   String _searchQuery = '';            // Empty = no search
   bool _showHidden = false;
+  bool _searchExpanded = false;
 
   // Active filter count for badge
   int get _activeFilterCount => _selectedTypes.length + _selectedTags.length;
 
   // Search controller
   final TextEditingController _searchController = TextEditingController();
+  final FocusNode _searchFocusNode = FocusNode();
 
   // Timeline scroll state
   final ScrollController _timelineScrollController = ScrollController();
@@ -328,6 +330,7 @@ class _MyHomePageState extends State<MyHomePage> {
     _intentDataStreamSubscription?.cancel();
     _timelineScrollController.dispose();
     _searchController.dispose();
+    _searchFocusNode.dispose();
     super.dispose();
   }
 
@@ -428,10 +431,18 @@ class _MyHomePageState extends State<MyHomePage> {
     );
   }
 
-  void _clearSearch() {
-    _searchController.clear();
+  void _toggleSearch() {
     setState(() {
-      _searchQuery = '';
+      if (_searchExpanded) {
+        // Collapse: clear search and close
+        _searchController.clear();
+        _searchQuery = '';
+        _searchExpanded = false;
+      } else {
+        // Expand and focus
+        _searchExpanded = true;
+        Future.microtask(() => _searchFocusNode.requestFocus());
+      }
     });
   }
 
@@ -555,15 +566,61 @@ class _MyHomePageState extends State<MyHomePage> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Text(widget.title),
-        actions: [
-          if (_currentUser != null)
-            IconButton(
-              icon: const Icon(Icons.refresh),
-              onPressed: _loadHistory,
-              tooltip: 'Refresh',
-            ),
-        ],
+        leading: _currentUser != null
+            ? Padding(
+                padding: const EdgeInsets.all(8.0),
+                child: GestureDetector(
+                  onTap: _showUserMenu,
+                  child: _currentUser!.photoUrl != null
+                      ? CircleAvatar(
+                          backgroundImage: NetworkImage(_currentUser!.photoUrl!),
+                        )
+                      : const CircleAvatar(child: Icon(Icons.person, size: 20)),
+                ),
+              )
+            : null,
+        title: _searchExpanded
+            ? TextField(
+                controller: _searchController,
+                focusNode: _searchFocusNode,
+                decoration: InputDecoration(
+                  hintText: 'Search...',
+                  border: InputBorder.none,
+                  suffixIcon: IconButton(
+                    icon: const Icon(Icons.close),
+                    onPressed: _toggleSearch,
+                  ),
+                ),
+                onChanged: (value) => setState(() => _searchQuery = value),
+              )
+            : Text(widget.title),
+        actions: _currentUser != null
+            ? [
+                if (!_searchExpanded)
+                  IconButton(
+                    icon: Icon(
+                      Icons.search,
+                      color: _searchQuery.isNotEmpty ? AppColors.primary : null,
+                    ),
+                    onPressed: _toggleSearch,
+                    tooltip: 'Search',
+                  ),
+                Badge(
+                  isLabelVisible: _activeFilterCount > 0,
+                  label: Text('$_activeFilterCount'),
+                  child: IconButton(
+                    icon: const Icon(Icons.filter_list),
+                    onPressed: _showFilterDialog,
+                    tooltip: 'Filter',
+                  ),
+                ),
+                IconButton(
+                  icon: const Icon(Icons.refresh),
+                  onPressed: _loadHistory,
+                  tooltip: 'Refresh',
+                ),
+              ]
+            : null,
       ),
       body: _currentUser == null ? _buildSignInView() : _buildMainView(),
     );
@@ -609,126 +666,7 @@ class _MyHomePageState extends State<MyHomePage> {
   Widget _buildMainView() {
     return Column(
       children: [
-        // User header with type filter
-        Container(
-          padding: const EdgeInsets.all(AppSpacing.lg),
-          color: AppColors.surface,
-          child: Row(
-            children: [
-              Expanded(
-                child: Material(
-                  color: Colors.transparent,
-                  child: InkWell(
-                    onTap: _showUserMenu,
-                    borderRadius: BorderRadius.circular(12),
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(
-                        vertical: AppSpacing.sm,
-                        horizontal: AppSpacing.xs,
-                      ),
-                      child: Row(
-                        children: [
-                          if (_currentUser!.photoUrl != null)
-                            CircleAvatar(
-                              radius: 20,
-                              backgroundImage: NetworkImage(_currentUser!.photoUrl!),
-                            )
-                          else
-                            const CircleAvatar(
-                              radius: 20,
-                              child: Icon(Icons.person),
-                            ),
-                          const SizedBox(width: AppSpacing.md),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  'Welcome back,',
-                                  style: Theme.of(context).textTheme.bodySmall,
-                                ),
-                                Text(
-                                  _currentUser!.displayName ?? 'User',
-                                  style: Theme.of(context).textTheme.titleMedium,
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                ),
-                              ],
-                            ),
-                          ),
-                          Icon(
-                            Icons.expand_more,
-                            color: AppColors.textSecondary,
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ),
-        const Divider(height: 1),
-        // Search field and filter button
-        Container(
-          padding: const EdgeInsets.symmetric(
-            horizontal: AppSpacing.lg,
-            vertical: AppSpacing.sm,
-          ),
-          color: AppColors.surface,
-          child: Row(
-            children: [
-              // Search field
-              Expanded(
-                child: TextField(
-                  controller: _searchController,
-                  decoration: InputDecoration(
-                    hintText: 'Search...',
-                    prefixIcon: const Icon(Icons.search),
-                    suffixIcon: _searchQuery.isNotEmpty
-                        ? IconButton(
-                            icon: const Icon(Icons.clear),
-                            onPressed: _clearSearch,
-                          )
-                        : null,
-                    isDense: true,
-                    contentPadding: const EdgeInsets.symmetric(
-                      horizontal: AppSpacing.md,
-                      vertical: AppSpacing.sm,
-                    ),
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(8),
-                      borderSide: BorderSide(color: Colors.grey.shade300),
-                    ),
-                    enabledBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(8),
-                      borderSide: BorderSide(color: Colors.grey.shade300),
-                    ),
-                    focusedBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(8),
-                      borderSide: BorderSide(color: AppColors.primary),
-                    ),
-                  ),
-                  onChanged: (value) => setState(() => _searchQuery = value),
-                ),
-              ),
-              const SizedBox(width: AppSpacing.sm),
-              // Filter button with badge
-              Badge(
-                isLabelVisible: _activeFilterCount > 0,
-                label: Text('$_activeFilterCount'),
-                child: IconButton(
-                  icon: const Icon(Icons.filter_list),
-                  onPressed: _showFilterDialog,
-                ),
-              ),
-            ],
-          ),
-        ),
-        const Divider(height: 1),
-
-        // Filter controls
+        // Filter controls (view mode tabs)
         _buildFilterControls(),
 
         // Content
