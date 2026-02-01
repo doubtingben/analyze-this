@@ -4,6 +4,24 @@ from uuid import uuid4
 import asyncio
 
 
+async def start_health_check_server():
+    """Starts a simple HTTP server for Cloud Run health checks."""
+    port = int(os.getenv("PORT", 8080))
+    
+    async def handle_client(reader, writer):
+        data = await reader.read(100)
+        # We don't really care about the request data, just respond OK
+        response = "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: 2\r\n\r\nOK"
+        writer.write(response.encode('utf-8'))
+        await writer.drain()
+        writer.close()
+
+    server = await asyncio.start_server(handle_client, '0.0.0.0', port)
+    print(f"Health check server listening on port {port}")
+    async with server:
+        await server.serve_forever()
+
+
 async def process_queue_jobs(
     job_type,
     limit,
@@ -20,6 +38,10 @@ async def process_queue_jobs(
     # Generate a stable worker ID for this session
     worker_id = os.getenv("WORKER_ID") or f"{socket.gethostname()}-{os.getpid()}-{uuid4().hex[:6]}"
     logger.info(f"Worker {worker_id} started for {job_type} jobs. Continuous: {continuous}")
+    
+    if continuous:
+        # Start health check server in background
+        asyncio.create_task(start_health_check_server())
 
     while True:
         jobs = await db.lease_worker_jobs(job_type, worker_id=worker_id, limit=limit, lease_seconds=lease_seconds)

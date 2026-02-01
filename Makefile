@@ -41,7 +41,7 @@ backend-deploy: ## Deploy backend to Google Cloud Run
 	./backend/scripts/deploy.sh
 
 .PHONY: worker-deploy
-worker-deploy: ## Deploy worker to Google Cloud Run Jobs
+worker-deploy: ## Deploy worker to Google Cloud Run (Service)
 	./backend/scripts/deploy-worker.sh
 
 # ================================

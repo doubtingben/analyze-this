@@ -38,7 +38,7 @@ fi
 JOB_NAME="worker-$JOB_TYPE"
 SCRIPT_NAME="worker_${JOB_TYPE}.py"
 
-echo "Deploying $JOB_NAME to Google Cloud Run Jobs..."
+echo "Deploying $JOB_NAME to Google Cloud Run (Service)..."
 
 # Helper function to check if secret exists
 check_secret() {
@@ -58,9 +58,10 @@ check_secret "FIREBASE_STORAGE_BUCKET"
 check_secret "OPENROUTER_API_KEY"
 check_secret "OPENROUTER_MODEL"
 
-# Deploy from source
-# Note: Using :latest for secrets. In production, pinning versions is better.
-gcloud run jobs deploy $JOB_NAME \
+# Deploy as Cloud Run Service
+# We use --no-cpu-throttling so the background loop runs even when not processing requests
+# We use --min-instances 1 to keep at least one worker alive
+gcloud run deploy $JOB_NAME \
   --source . \
   --region $REGION \
   --project $PROJECT_ID \
@@ -70,7 +71,11 @@ gcloud run jobs deploy $JOB_NAME \
   --set-env-vars "APP_ENV=production" \
   --set-secrets "FIREBASE_STORAGE_BUCKET=FIREBASE_STORAGE_BUCKET:latest" \
   --set-secrets "OPENROUTER_API_KEY=OPENROUTER_API_KEY:latest" \
-  --set-secrets "OPENROUTER_MODEL=OPENROUTER_MODEL:latest"
+  --set-secrets "OPENROUTER_MODEL=OPENROUTER_MODEL:latest" \
+  --no-cpu-throttling \
+  --min-instances 1 \
+  --max-instances 1 \
+  --allow-unauthenticated
 
 echo "Deployment complete."
-echo "You can run the job with: gcloud run jobs execute $JOB_NAME --region $REGION"
+echo "Service URL: $(gcloud run services describe $JOB_NAME --region $REGION --format 'value(status.url)')"
