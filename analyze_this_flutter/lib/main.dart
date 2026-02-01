@@ -16,6 +16,7 @@ import 'widgets/history_card.dart';
 import 'widgets/filter_dialog.dart';
 import 'screens/item_detail_screen.dart';
 import 'screens/metrics_screen.dart';
+import 'screens/tag_editor_screen.dart';
 
 import 'services/sharing_service.dart' as custom_sharing;
 
@@ -431,6 +432,22 @@ class _MyHomePageState extends State<MyHomePage> {
     );
   }
 
+  void _openTagEditor() {
+    if (_authToken == null) return;
+    Navigator.pop(context); // Close the menu
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => TagEditorScreen(
+          authToken: _authToken!,
+          items: _history,
+        ),
+      ),
+    ).then((_) {
+      _loadHistory(); // Refresh in case tags were deleted
+    });
+  }
+
   void _toggleSearch() {
     setState(() {
       if (_searchExpanded) {
@@ -535,6 +552,12 @@ class _MyHomePageState extends State<MyHomePage> {
                     Navigator.pop(context);
                     _openMetrics();
                   },
+                ),
+                ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: const Icon(Icons.label_outline),
+                  title: const Text('Tag Editor'),
+                  onTap: _openTagEditor,
                 ),
                 ListTile(
                   contentPadding: EdgeInsets.zero,

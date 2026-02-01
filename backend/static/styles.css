@@ -1376,6 +1376,109 @@ body {
     color: #dc2626;
 }
 
+/* Tag Editor Modal */
+.modal-large {
+    max-width: 600px;
+}
+
+.tag-editor-controls {
+    display: flex;
+    gap: 12px;
+    padding: 16px;
+    border-bottom: 1px solid #e0e0e0;
+}
+
+.tag-search-input {
+    flex: 1;
+    padding: 8px 12px;
+    border: 1px solid #ccc;
+    border-radius: 6px;
+    font-size: 14px;
+}
+
+.tag-search-input:focus {
+    outline: none;
+    border-color: #4285f4;
+}
+
+.tag-sort-select {
+    padding: 8px 12px;
+    border: 1px solid #ccc;
+    border-radius: 6px;
+    font-size: 14px;
+    background: white;
+    cursor: pointer;
+}
+
+.tag-editor-count {
+    padding: 8px 16px;
+    font-size: 12px;
+    color: #666;
+}
+
+.tag-editor-list {
+    max-height: 400px;
+    overflow-y: auto;
+}
+
+.tag-editor-item {
+    display: flex;
+    align-items: center;
+    padding: 12px 16px;
+    border-bottom: 1px solid #f0f0f0;
+}
+
+.tag-editor-item:hover {
+    background: #f9f9f9;
+}
+
+.tag-editor-icon {
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    background: #e8f0fe;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-right: 12px;
+    color: #4285f4;
+}
+
+.tag-editor-info {
+    flex: 1;
+}
+
+.tag-editor-name {
+    font-weight: 500;
+    margin-bottom: 2px;
+}
+
+.tag-editor-count-label {
+    font-size: 12px;
+    color: #666;
+}
+
+.tag-editor-delete {
+    background: none;
+    border: none;
+    color: #d93025;
+    cursor: pointer;
+    padding: 8px;
+    border-radius: 4px;
+    opacity: 0.7;
+}
+
+.tag-editor-delete:hover {
+    background: #fce8e6;
+    opacity: 1;
+}
+
+.tag-editor-empty {
+    padding: 40px;
+    text-align: center;
+    color: #666;
+}
+
 @media (max-width: 600px) {
     .container {
         padding: 16px;
