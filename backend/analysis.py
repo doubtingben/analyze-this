@@ -86,7 +86,17 @@ def get_image_data_url(content: str) -> str | None:
         logger.error(f"Failed to fetch image from storage: {e}")
         return None
 
-def analyze_content(content: str, item_type: str = 'text'):
+def build_analysis_prompt(preferred_tags: list[str] | None) -> str:
+    prompt_text = get_analysis_prompt()
+    if not preferred_tags:
+        return prompt_text
+
+    tag_lines = "\n".join([f"- {tag}" for tag in preferred_tags])
+    tag_block = f"\n\nPreferred tags (use when appropriate):\n{tag_lines}\n"
+    return prompt_text.rstrip() + tag_block
+
+
+def analyze_content(content: str, item_type: str = 'text', preferred_tags: list[str] | None = None):
     """
     Analyzes the given content using OpenRouter and returns the structured JSON response.
     """
@@ -94,7 +104,7 @@ def analyze_content(content: str, item_type: str = 'text'):
         logger.warning("OpenRouter client not initialized. Skipping analysis.")
         return None
 
-    prompt_text = get_analysis_prompt()
+    prompt_text = build_analysis_prompt(preferred_tags)
     
     messages = [{"role": "system", "content": prompt_text}]
 

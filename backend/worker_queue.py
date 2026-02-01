@@ -30,6 +30,7 @@ async def process_queue_jobs(
     process_item_fn,
     logger,
     halt_on_error=False,
+    prepare_fn=None,
     continuous=False,
     sleep_interval=10,
 ):
@@ -58,6 +59,10 @@ async def process_queue_jobs(
 
         logger.info(f"Leased {len(jobs)} {job_type} jobs.")
 
+        context = {}
+        if prepare_fn:
+            context = await prepare_fn(db, jobs)
+
         for job in jobs:
             job_id = job.get('firestore_id') or job.get('id')
             item_id = job.get('item_id')
@@ -78,7 +83,7 @@ async def process_queue_jobs(
             logger.info(f"Processing queued {job_type} job {job_id} for item {doc_id}...")
 
             try:
-                success, error = await process_item_fn(db, data)
+                success, error = await process_item_fn(db, data, context)
                 if success:
                     if job_id:
                         await db.complete_worker_job(job_id)

@@ -11,6 +11,9 @@ We looking for:
 - location information
 - people and organizations
 
+## Tags
+If a preferred tag list is provided at runtime, favor those tags when they are a good fit. Only create a new tag if there is a clear, specific reason.
+
 ### Timeline items
 If all these fields are found with high confidence, set the item.status to "timeline" and generate a json object with the following format:
 
@@ -39,4 +42,3 @@ If analysis does not produce a high confidence timeline item, set the item.statu
   "tags": [... optional tags ...]
 }
 ```
-

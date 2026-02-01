@@ -57,6 +57,11 @@ async def process_items_async(limit: int = 10, item_id: str = None, force: bool 
         docs_to_process = await db.get_items_by_status("new", limit)
         logger.info(f"Found {len(docs_to_process)} items to process.")
 
+    tags_by_user = {}
+    user_emails = {data.get('user_email') for data in docs_to_process if data.get('user_email')}
+    for email in user_emails:
+        tags_by_user[email] = await db.get_user_tags(email)
+
     for data in docs_to_process:
         doc_id = data.get('firestore_id')
         logger.info(f"Processing item {doc_id} ({data.get('type')})...")
@@ -83,7 +88,8 @@ async def process_items_async(limit: int = 10, item_id: str = None, force: bool 
 
             loop = asyncio.get_running_loop()
             # If analyze_content is CPU bound blocking:
-            analysis_result = await loop.run_in_executor(None, analyze_content, content, item_type)
+            preferred_tags = tags_by_user.get(data.get('user_email'))
+            analysis_result = await loop.run_in_executor(None, analyze_content, content, item_type, preferred_tags)
 
             if analysis_result and not analysis_result.get('error'):
                 # Determine status based on analysis result content
@@ -116,8 +122,12 @@ async def process_items_async(limit: int = 10, item_id: str = None, force: bool 
             logger.error(f"Failed to analyze item {doc_id}: {e}")
             await db.update_shared_item(doc_id, {'status': 'error', 'next_step': 'error'})
 
-async def _process_analysis_item(db, data):
+async def _process_analysis_item(db, data, context):
     doc_id = data.get('firestore_id') or data.get('id')
+    user_email = data.get('user_email')
+    preferred_tags = None
+    if context and user_email:
+        preferred_tags = context.get('tags_by_user', {}).get(user_email)
 
     # 1. Mark as Analyzing
     try:
@@ -135,7 +145,7 @@ async def _process_analysis_item(db, data):
 
     try:
         loop = asyncio.get_running_loop()
-        analysis_result = await loop.run_in_executor(None, analyze_content, content, item_type)
+        analysis_result = await loop.run_in_executor(None, analyze_content, content, item_type, preferred_tags)
 
         if analysis_result and not analysis_result.get('error'):
             new_status = 'analyzed'
@@ -180,6 +190,13 @@ def main():
     args = parser.parse_args()
 
     if args.queue:
+        async def prepare_tags(db, jobs):
+            user_emails = {job.get('user_email') for job in jobs if job.get('user_email')}
+            tags_by_user = {}
+            for email in user_emails:
+                tags_by_user[email] = await db.get_user_tags(email)
+            return {"tags_by_user": tags_by_user}
+
         asyncio.run(process_queue_jobs(
             job_type="analysis",
             limit=args.limit,
@@ -188,6 +205,7 @@ def main():
             process_item_fn=_process_analysis_item,
             logger=logger,
             halt_on_error=False,
+            prepare_fn=prepare_tags,
             continuous=args.loop,
         ))
         return
