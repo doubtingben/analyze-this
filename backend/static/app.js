@@ -36,6 +36,8 @@ const detailNotesLoading = document.getElementById('detail-notes-loading');
 const detailNoteForm = document.getElementById('detail-note-form');
 const detailNoteText = document.getElementById('detail-note-text');
 const detailItemIdEl = document.getElementById('detail-item-id');
+const detailFollowUpEl = document.getElementById('detail-follow-up');
+const detailFollowUpContentEl = document.getElementById('detail-follow-up-content');
 const metricsBtnEl = document.getElementById('metrics-btn');
 const metricsModal = document.getElementById('metrics-modal');
 const metricsModalBackdrop = document.getElementById('metrics-modal-backdrop');
@@ -1460,6 +1462,18 @@ function openDetailModal(item) {
 
     editableTags = item.analysis?.tags ? [...item.analysis.tags] : [];
     renderDetailTags();
+
+    // Display follow-up content if available
+    const followUp = item.analysis?.follow_up;
+    if (detailFollowUpEl && detailFollowUpContentEl) {
+        if (followUp && followUp.trim()) {
+            detailFollowUpContentEl.textContent = followUp;
+            detailFollowUpEl.style.display = 'block';
+        } else {
+            detailFollowUpEl.style.display = 'none';
+        }
+    }
+
     setDetailEditMode(false);
     loadDetailNotes();
 }

@@ -1005,6 +1005,39 @@ body {
     margin-top: 16px;
 }
 
+.detail-follow-up {
+    margin: 24px 20px 0;
+    border-top: 1px solid #e5e7eb;
+    padding-top: 16px;
+}
+
+.detail-follow-up-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 12px;
+}
+
+.detail-follow-up-header h3 {
+    margin: 0;
+    font-size: 14px;
+    font-weight: 600;
+}
+
+.detail-follow-up-icon {
+    font-size: 16px;
+}
+
+.detail-follow-up-content {
+    background: #f9fafb;
+    border: 1px solid #e5e7eb;
+    border-radius: 8px;
+    padding: 12px;
+    font-size: 14px;
+    line-height: 1.5;
+    white-space: pre-wrap;
+}
+
 .detail-notes {
     margin: 24px 20px 20px;
     border-top: 1px solid #e5e7eb;
