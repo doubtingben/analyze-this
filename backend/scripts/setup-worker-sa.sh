@@ -7,7 +7,7 @@ BACKEND_DIR="$(dirname "$SCRIPT_DIR")"
 
 # Configuration
 PROJECT_ID="analyze-this-2026"
-SERVICE_ACCOUNT_NAME="worker-analysis-sa"
+SERVICE_ACCOUNT_NAME="worker-sa"
 SERVICE_ACCOUNT_EMAIL="${SERVICE_ACCOUNT_NAME}@${PROJECT_ID}.iam.gserviceaccount.com"
 
 echo "Setting up Service Account for project: $PROJECT_ID"
@@ -17,7 +17,7 @@ echo "Checking for service account $SERVICE_ACCOUNT_EMAIL..."
 if ! gcloud iam service-accounts describe "$SERVICE_ACCOUNT_EMAIL" --project "$PROJECT_ID" > /dev/null 2>&1; then
     echo "Creating service account $SERVICE_ACCOUNT_NAME..."
     gcloud iam service-accounts create "$SERVICE_ACCOUNT_NAME" \
-        --display-name "Worker Analysis Service Account" \
+        --display-name "Worker Service Account" \
         --project "$PROJECT_ID"
 else
     echo "Service account $SERVICE_ACCOUNT_EMAIL already exists."

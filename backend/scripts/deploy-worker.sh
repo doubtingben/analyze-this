@@ -13,12 +13,12 @@ REGION="us-central1"
 PROJECT_ID="analyze-this-2026"
 
 # Service Account Configuration
-SERVICE_ACCOUNT_NAME="worker-analysis-sa"
+SERVICE_ACCOUNT_NAME="worker-sa"
 SERVICE_ACCOUNT_EMAIL="${SERVICE_ACCOUNT_NAME}@${PROJECT_ID}.iam.gserviceaccount.com"
 
 echo "Using Service Account: $SERVICE_ACCOUNT_EMAIL"
 echo "Note: Ensure this service account is created and has 'Secret Manager Secret Accessor' role."
-echo "Run './backend/scripts/setup-sa.sh' to configure it if needed."
+echo "Run './backend/scripts/setup-worker-sa.sh' to configure it if needed."
 
 if [ -z "$1" ]; then
   echo "Usage: ./backend/scripts/deploy-worker.sh <analysis|normalize> [region]"
