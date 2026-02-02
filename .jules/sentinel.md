@@ -17,3 +17,8 @@
 **Vulnerability:** The backend accepted any valid Google Access Token via the `userinfo` endpoint without verifying the token was issued to the application (Client ID). This allowed a "Confused Deputy" attack where a malicious app could trick a user into logging in, then use the user's token to impersonate them on our backend.
 **Learning:** Google's `userinfo` endpoint validates the token signature but DOES NOT restrict which app the token was issued to. Access Tokens are opaque bearers of authority; verifying their *origin/audience* is critical when used for authentication.
 **Prevention:** For Access Tokens, always use the `tokeninfo` endpoint to verify the `aud` claim matches your Client ID before trusting the token. Prefer ID Tokens (verified locally) where possible.
+
+## 2026-02-02 - Frontend DOM Injection Pattern
+**Vulnerability:** Stored XSS in the frontend (`backend/static/app.js`) due to unsafe use of `innerHTML` to render user-controlled data (content links, tags, and IDs) into modals and list items.
+**Learning:** Even simple DOM updates can be vulnerable if developers rely on string interpolation for HTML structure. Checking `startsWith('http')` is insufficient for sanitization if the string is then injected into `innerHTML`, as malicious attributes or trailing tags can be injected.
+**Prevention:** Avoid `innerHTML` whenever possible. Use `document.createElement()`, `textContent`, and `appendChild()` to build DOM elements programmatically. This ensures content is treated as text, not markup.
