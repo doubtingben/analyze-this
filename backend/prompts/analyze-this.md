@@ -31,6 +31,14 @@ If all these fields are found with high confidence, set the item.status to "time
 }
 ```
 
+### Media items
+
+If the shared item is a piece of media like a link to an article, a book, a podcast, a forth coming movie, then the follow up would be assuming the user wants to consume the media at a future time. If the media isn't out yet, put it on the timeline! Give it a tag like "to_read", "to_watch", "to_listen".
+
+### Meme items
+
+If the shared item is a meme, then the follow up would be assuming the user wants to share the meme with someone. Give it a tag like "meme".
+
 ### Follow-up items
 
 If analysis does not produce a high confidence timeline item, set the item.status to "follow_up" and generate a json object with the following format:
