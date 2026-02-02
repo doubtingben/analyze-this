@@ -1244,7 +1244,15 @@ function renderItem(item) {
     if (item.title) {
         const title = document.createElement('div');
         title.className = 'item-title';
-        title.textContent = item.title;
+        // Show bullet indicator for unnormalized titles
+        if (!item.is_normalized) {
+            const indicator = document.createElement('span');
+            indicator.className = 'normalization-indicator';
+            indicator.textContent = '• ';
+            indicator.title = 'Title pending normalization';
+            title.appendChild(indicator);
+        }
+        title.appendChild(document.createTextNode(item.title));
         titleSection.appendChild(title);
     }
 

@@ -445,6 +445,11 @@ body {
     overflow: hidden;
 }
 
+.normalization-indicator {
+    color: #9ca3af;
+    font-weight: normal;
+}
+
 .item-meta {
     display: flex;
     align-items: center;

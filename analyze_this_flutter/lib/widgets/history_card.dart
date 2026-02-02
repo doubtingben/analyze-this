@@ -104,12 +104,29 @@ class HistoryCard extends StatelessWidget {
                   ),
                   const SizedBox(height: AppSpacing.md),
 
-                  // Title
-                  Text(
-                    item.title ?? item.value,
-                    style: theme.textTheme.titleMedium,
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
+                  // Title (with indicator for unnormalized titles)
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      if (!item.isNormalized)
+                        Padding(
+                          padding: const EdgeInsets.only(right: 4),
+                          child: Text(
+                            '•',
+                            style: theme.textTheme.titleMedium?.copyWith(
+                              color: Colors.grey,
+                            ),
+                          ),
+                        ),
+                      Expanded(
+                        child: Text(
+                          item.title ?? item.value,
+                          style: theme.textTheme.titleMedium,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                    ],
                   ),
                   const SizedBox(height: AppSpacing.sm),
 
