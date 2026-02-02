@@ -149,14 +149,25 @@ class ApiService {
     }
   }
 
-  /// Update item (title and/or tags)
-  Future<void> updateItem(String token, String itemId, {String? title, List<String>? tags}) async {
+  /// Update item (title, tags, status, next_step, follow_up)
+  Future<void> updateItem(
+    String token,
+    String itemId, {
+    String? title,
+    List<String>? tags,
+    String? status,
+    String? nextStep,
+    String? followUp,
+  }) async {
     final body = <String, dynamic>{};
     if (title != null) body['title'] = title;
     if (tags != null) body['tags'] = tags;
+    if (status != null) body['status'] = status;
+    if (nextStep != null) body['next_step'] = nextStep;
+    if (followUp != null) body['follow_up'] = followUp;
 
     if (body.isEmpty) {
-      throw ArgumentError('At least one of title or tags must be provided');
+      throw ArgumentError('At least one field must be provided');
     }
 
     final response = await http.patch(

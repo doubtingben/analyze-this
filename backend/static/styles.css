@@ -1022,6 +1022,20 @@ body {
     margin: 0;
     font-size: 14px;
     font-weight: 600;
+    flex: 1;
+}
+
+.detail-follow-up-header .btn-danger {
+    color: #ef4444;
+    background: none;
+    border: none;
+    padding: 4px;
+    cursor: pointer;
+    border-radius: 4px;
+}
+
+.detail-follow-up-header .btn-danger:hover {
+    background: rgba(239, 68, 68, 0.1);
 }
 
 .detail-follow-up-icon {

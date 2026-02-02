@@ -909,6 +909,9 @@ class NoteCountRequest(BaseModel):
 class ItemUpdateRequest(BaseModel):
     title: Optional[str] = Field(None, max_length=MAX_TITLE_LENGTH)
     tags: Optional[List[str]] = None
+    status: Optional[str] = None
+    next_step: Optional[str] = None
+    follow_up: Optional[str] = None  # Set to "" to clear
 
 
 @app.post("/api/items/{item_id}/notes", dependencies=[Depends(check_csrf)])
@@ -1085,7 +1088,7 @@ async def delete_item_note(note_id: str, request: Request):
 
 @app.patch("/api/items/{item_id}", dependencies=[Depends(check_csrf)])
 async def update_item(item_id: str, request: Request, body: ItemUpdateRequest):
-    """Update item (title, tags)"""
+    """Update item (title, tags, status, next_step, follow_up)"""
     user_email = await get_authenticated_email(request)
 
     # Verify the item exists and belongs to the user
@@ -1101,14 +1104,34 @@ async def update_item(item_id: str, request: Request, body: ItemUpdateRequest):
     if body.title is not None:
         updates['title'] = body.title
 
+    # Update status directly
+    if body.status is not None:
+        updates['status'] = body.status
+
+    # Update next_step directly
+    if body.next_step is not None:
+        updates['next_step'] = body.next_step
+
+    # Handle analysis fields (tags, follow_up)
+    current_analysis = item.get('analysis') or {}
+    if not isinstance(current_analysis, dict):
+        current_analysis = {}
+    analysis_updated = False
+
     # Update tags within analysis object
     if body.tags is not None:
-        current_analysis = item.get('analysis') or {}
-        if isinstance(current_analysis, dict):
-            current_analysis['tags'] = body.tags
+        current_analysis['tags'] = body.tags
+        analysis_updated = True
+
+    # Update follow_up within analysis object (empty string clears it)
+    if body.follow_up is not None:
+        if body.follow_up == "":
+            current_analysis.pop('follow_up', None)
         else:
-            # If analysis is not a dict, create a new one with tags
-            current_analysis = {'tags': body.tags}
+            current_analysis['follow_up'] = body.follow_up
+        analysis_updated = True
+
+    if analysis_updated:
         updates['analysis'] = current_analysis
 
     if not updates:

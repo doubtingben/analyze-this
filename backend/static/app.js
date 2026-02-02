@@ -38,6 +38,7 @@ const detailNoteText = document.getElementById('detail-note-text');
 const detailItemIdEl = document.getElementById('detail-item-id');
 const detailFollowUpEl = document.getElementById('detail-follow-up');
 const detailFollowUpContentEl = document.getElementById('detail-follow-up-content');
+const detailFollowUpDeleteBtn = document.getElementById('detail-follow-up-delete');
 const metricsBtnEl = document.getElementById('metrics-btn');
 const metricsModal = document.getElementById('metrics-modal');
 const metricsModalBackdrop = document.getElementById('metrics-modal-backdrop');
@@ -158,6 +159,10 @@ function setupDetailModal() {
         }
         detailTagInput.value = '';
     });
+
+    if (detailFollowUpDeleteBtn) {
+        detailFollowUpDeleteBtn.addEventListener('click', confirmDeleteFollowUp);
+    }
 
     detailNoteForm.addEventListener('submit', async (event) => {
         event.preventDefault();
@@ -1482,6 +1487,63 @@ function closeDetailModal() {
     if (!detailModal) return;
     detailModal.style.display = 'none';
     currentDetailItem = null;
+}
+
+function confirmDeleteFollowUp() {
+    if (!currentDetailItem) return;
+
+    if (confirm('This will remove the follow-up and mark the item as processed. Continue?')) {
+        deleteFollowUp();
+    }
+}
+
+async function deleteFollowUp() {
+    if (!currentDetailItem) return;
+
+    const itemId = getItemId(currentDetailItem);
+
+    try {
+        const response = await fetch(`/api/items/${itemId}`, {
+            method: 'PATCH',
+            headers: {
+                'Content-Type': 'application/json',
+                ...getCsrfHeaders()
+            },
+            body: JSON.stringify({
+                status: 'processed',
+                next_step: 'none',
+                follow_up: ''  // Empty string clears the follow_up
+            })
+        });
+
+        if (!response.ok) {
+            throw new Error('Failed to delete follow-up');
+        }
+
+        // Update local item data
+        currentDetailItem.status = 'processed';
+        currentDetailItem.next_step = 'none';
+        if (currentDetailItem.analysis) {
+            delete currentDetailItem.analysis.follow_up;
+        }
+
+        // Update the item in allItems array
+        const idx = allItems.findIndex(i => getItemId(i) === itemId);
+        if (idx !== -1) {
+            allItems[idx] = { ...currentDetailItem };
+        }
+
+        // Hide follow-up section
+        if (detailFollowUpEl) {
+            detailFollowUpEl.style.display = 'none';
+        }
+
+        // Refresh the list
+        renderFilteredItems();
+
+    } catch (error) {
+        alert('Failed to delete follow-up: ' + error.message);
+    }
 }
 
 function setDetailEditMode(enabled) {

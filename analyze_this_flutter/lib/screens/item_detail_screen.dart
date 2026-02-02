@@ -927,6 +927,16 @@ class _ItemDetailPageState extends State<_ItemDetailPage> {
               const Text('🚩', style: TextStyle(fontSize: 16)),
               const SizedBox(width: AppSpacing.sm),
               Text('Follow-up', style: theme.textTheme.titleMedium),
+              const Spacer(),
+              IconButton(
+                icon: const Icon(Icons.delete_outline),
+                iconSize: 20,
+                color: AppColors.error,
+                padding: EdgeInsets.zero,
+                constraints: const BoxConstraints(),
+                onPressed: () => _confirmDeleteFollowUp(context),
+                tooltip: 'Delete follow-up',
+              ),
             ],
           ),
           const SizedBox(height: AppSpacing.md),
@@ -948,6 +958,77 @@ class _ItemDetailPageState extends State<_ItemDetailPage> {
         ],
       ),
     );
+  }
+
+  Future<void> _confirmDeleteFollowUp(BuildContext context) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Delete Follow-up'),
+        content: const Text(
+          'This will remove the follow-up and mark the item as processed. Continue?',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            style: TextButton.styleFrom(foregroundColor: AppColors.error),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed == true) {
+      await _deleteFollowUp();
+    }
+  }
+
+  Future<void> _deleteFollowUp() async {
+    if (widget.authToken == null) return;
+
+    setState(() => _isSaving = true);
+
+    try {
+      await _apiService.updateItem(
+        widget.authToken!,
+        widget.item.id,
+        status: 'processed',
+        nextStep: 'none',
+        followUp: '',  // Empty string clears the follow_up
+      );
+
+      // Update the local item state
+      final updatedAnalysis = Map<String, dynamic>.from(widget.item.analysis ?? {});
+      updatedAnalysis.remove('follow_up');
+
+      final updatedItem = widget.item.copyWith(
+        status: 'processed',
+        nextStep: 'none',
+        analysis: updatedAnalysis,
+      );
+
+      widget.onItemUpdated?.call(updatedItem);
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Follow-up deleted')),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to delete follow-up: $e')),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _isSaving = false);
+      }
+    }
   }
 
   Widget _buildNotesSection(BuildContext context) {
