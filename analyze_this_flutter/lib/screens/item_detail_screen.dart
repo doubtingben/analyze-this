@@ -532,6 +532,9 @@ class _ItemDetailPageState extends State<_ItemDetailPage> {
                         _buildAnalysisSection(context),
                       ],
 
+                      // Follow-up section (if available)
+                      _buildFollowUpSection(context),
+
                       // Notes section
                       const SizedBox(height: AppSpacing.xl),
                       _buildNotesSection(context),
@@ -903,6 +906,47 @@ class _ItemDetailPageState extends State<_ItemDetailPage> {
           ],
         ),
       ],
+    );
+  }
+
+  Widget _buildFollowUpSection(BuildContext context) {
+    final theme = Theme.of(context);
+    final followUp = widget.item.analysis?['follow_up'] as String?;
+
+    if (followUp == null || followUp.isEmpty) {
+      return const SizedBox.shrink();
+    }
+
+    return Padding(
+      padding: const EdgeInsets.only(top: AppSpacing.xl),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Text('🚩', style: TextStyle(fontSize: 16)),
+              const SizedBox(width: AppSpacing.sm),
+              Text('Follow-up', style: theme.textTheme.titleMedium),
+            ],
+          ),
+          const SizedBox(height: AppSpacing.md),
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(AppSpacing.md),
+            decoration: BoxDecoration(
+              color: AppColors.badgeBackground,
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(
+                color: AppColors.textSecondary.withValues(alpha: 0.2),
+              ),
+            ),
+            child: Text(
+              followUp,
+              style: theme.textTheme.bodyMedium,
+            ),
+          ),
+        ],
+      ),
     );
   }
 
