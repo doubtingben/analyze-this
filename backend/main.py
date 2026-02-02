@@ -4,6 +4,7 @@ import asyncio
 import functools
 import datetime
 import json
+import secrets
 import tempfile
 import zipfile
 from pathlib import Path
@@ -40,6 +41,7 @@ APP_ENV = os.getenv("APP_ENV", "production").strip()
 
 MAX_TITLE_LENGTH = 255
 MAX_TEXT_LENGTH = 10000
+CSRF_KEY = "csrf_token"
 
 # Read Version
 try:
@@ -110,10 +112,30 @@ oauth.register(
 
 # --- Routes ---
 
+async def check_csrf(request: Request):
+    auth_header = request.headers.get("Authorization")
+    if auth_header and auth_header.startswith("Bearer "):
+        return
+
+    if "user" in request.session:
+        session_token = request.session.get(CSRF_KEY)
+        header_token = request.headers.get("X-CSRF-Token")
+
+        if not session_token or not header_token or session_token != header_token:
+            raise HTTPException(status_code=403, detail="CSRF token mismatch or missing")
+
 @app.get("/")
 async def read_root(request: Request):
+    user = request.session.get('user')
+    csrf_token = None
+
+    if user:
+        csrf_token = request.session.get(CSRF_KEY)
+        if not csrf_token:
+            csrf_token = secrets.token_hex(32)
+            request.session[CSRF_KEY] = csrf_token
+
     if APP_ENV == "development":
-        user = request.session.get('user')
         if user:
             # Firestore Query
             items = await db.get_shared_items(user['email'])
@@ -125,12 +147,16 @@ async def read_root(request: Request):
                     <title>Analyze This Dashboard</title>
                     <link rel="icon" href="/static/favicon.png">
                     <script>
+                        const CSRF_TOKEN = "{{ csrf_token }}";
                         async function deleteItem(itemId) {
                             if (!confirm('Are you sure you want to delete this item?')) return;
                             
                             try {
                                 const response = await fetch('/api/items/' + itemId, {
-                                    method: 'DELETE'
+                                    method: 'DELETE',
+                                    headers: {
+                                        'X-CSRF-Token': CSRF_TOKEN
+                                    }
                                 });
                                 
                                 if (response.ok) {
@@ -182,10 +208,16 @@ async def read_root(request: Request):
             """
 
             from jinja2 import Template
-            return HTMLResponse(Template(template, autoescape=True).render(user=user, items=items))
+            response = HTMLResponse(Template(template, autoescape=True).render(user=user, items=items, csrf_token=csrf_token))
+            if csrf_token:
+                 response.set_cookie(key="csrf_token", value=csrf_token, httponly=False, samesite="lax")
+            return response
         return HTMLResponse('<a href="/login">Login with Google</a>')
     
-    return FileResponse("static/index.html")
+    response = FileResponse("static/index.html")
+    if csrf_token:
+         response.set_cookie(key="csrf_token", value=csrf_token, httponly=False, samesite="lax")
+    return response
 
 @app.get("/login")
 async def login(request: Request):
@@ -393,7 +425,7 @@ def normalize_share_type(raw_type: Optional[str], content: Optional[str], file: 
 
     return ShareType.text
 
-@app.post("/api/share")
+@app.post("/api/share", dependencies=[Depends(check_csrf)])
 async def share_item(
     request: Request,
     title: str = Form(None),
@@ -844,15 +876,15 @@ async def set_item_hidden_status(item_id: str, request: Request, hidden: bool):
 
     return {"status": "success", "item_id": item_id, "hidden": hidden}
 
-@app.patch("/api/items/{item_id}/hide")
+@app.patch("/api/items/{item_id}/hide", dependencies=[Depends(check_csrf)])
 async def hide_item(item_id: str, request: Request):
     return await set_item_hidden_status(item_id, request, True)
 
-@app.patch("/api/items/{item_id}/unhide")
+@app.patch("/api/items/{item_id}/unhide", dependencies=[Depends(check_csrf)])
 async def unhide_item(item_id: str, request: Request):
     return await set_item_hidden_status(item_id, request, False)
 
-@app.delete("/api/items/{item_id}")
+@app.delete("/api/items/{item_id}", dependencies=[Depends(check_csrf)])
 async def delete_item(item_id: str, request: Request):
     user_email = await get_authenticated_email(request)
 
@@ -879,7 +911,7 @@ class ItemUpdateRequest(BaseModel):
     tags: Optional[List[str]] = None
 
 
-@app.post("/api/items/{item_id}/notes")
+@app.post("/api/items/{item_id}/notes", dependencies=[Depends(check_csrf)])
 async def create_item_note(
     item_id: str,
     request: Request,
@@ -998,7 +1030,7 @@ async def get_item_notes(item_id: str, request: Request):
     return notes
 
 
-@app.patch("/api/notes/{note_id}")
+@app.patch("/api/notes/{note_id}", dependencies=[Depends(check_csrf)])
 async def update_item_note(note_id: str, request: Request):
     """Update a note"""
     user_email = await get_authenticated_email(request)
@@ -1036,7 +1068,7 @@ async def update_item_note(note_id: str, request: Request):
     return {"status": "success", "note_id": note_id}
 
 
-@app.delete("/api/notes/{note_id}")
+@app.delete("/api/notes/{note_id}", dependencies=[Depends(check_csrf)])
 async def delete_item_note(note_id: str, request: Request):
     """Delete a note"""
     user_email = await get_authenticated_email(request)
@@ -1051,7 +1083,7 @@ async def delete_item_note(note_id: str, request: Request):
     return {"status": "success", "deleted_id": note_id}
 
 
-@app.patch("/api/items/{item_id}")
+@app.patch("/api/items/{item_id}", dependencies=[Depends(check_csrf)])
 async def update_item(item_id: str, request: Request, body: ItemUpdateRequest):
     """Update item (title, tags)"""
     user_email = await get_authenticated_email(request)
@@ -1089,7 +1121,7 @@ async def update_item(item_id: str, request: Request, body: ItemUpdateRequest):
     return {"status": "success", "item_id": item_id}
 
 
-@app.post("/api/items/note-counts")
+@app.post("/api/items/note-counts", dependencies=[Depends(check_csrf)])
 async def get_note_counts(request: Request, body: NoteCountRequest):
     """Batch get note counts for multiple items"""
     user_email = await get_authenticated_email(request)

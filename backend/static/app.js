@@ -84,6 +84,19 @@ let pendingSelectedTags = new Set();   // Temporary selection in modal
 let tagSearchQuery = '';               // Tag editor search
 let tagSortMode = 'name';              // Tag editor sort mode
 
+// Helper to get cookies
+function getCookie(name) {
+    const value = `; ${document.cookie}`;
+    const parts = value.split(`; ${name}=`);
+    if (parts.length === 2) return parts.pop().split(';').shift();
+}
+
+function getCsrfHeaders() {
+    const token = getCookie('csrf_token');
+    return token ? { 'X-CSRF-Token': token } : {};
+}
+
+
 // Initialize the app
 async function init() {
     try {
@@ -158,6 +171,9 @@ function setupDetailModal() {
         try {
             const response = await fetch(`/api/items/${itemId}/notes`, {
                 method: 'POST',
+                headers: {
+                    ...getCsrfHeaders()
+                },
                 body: formData
             });
             if (!response.ok) {
@@ -271,6 +287,9 @@ async function handleCreateSubmit(e) {
 
         const response = await fetch('/api/share', {
             method: 'POST',
+            headers: {
+                ...getCsrfHeaders()
+            },
             body: formData
         });
 
@@ -546,7 +565,8 @@ async function deleteTag(tagName) {
             const response = await fetch(`/api/items/${itemId}`, {
                 method: 'PATCH',
                 headers: {
-                    'Content-Type': 'application/json'
+                    'Content-Type': 'application/json',
+                    ...getCsrfHeaders()
                 },
                 body: JSON.stringify({ tags: newTags })
             });
@@ -1495,7 +1515,8 @@ async function saveDetailEdits() {
         const response = await fetch(`/api/items/${itemId}`, {
             method: 'PATCH',
             headers: {
-                'Content-Type': 'application/json'
+                'Content-Type': 'application/json',
+                ...getCsrfHeaders()
             },
             body: JSON.stringify({
                 title: newTitle,
@@ -1600,7 +1621,8 @@ async function updateNote(noteId, text) {
         const response = await fetch(`/api/notes/${noteId}`, {
             method: 'PATCH',
             headers: {
-                'Content-Type': 'application/json'
+                'Content-Type': 'application/json',
+                ...getCsrfHeaders()
             },
             body: JSON.stringify({ text })
         });
@@ -1616,7 +1638,10 @@ async function updateNote(noteId, text) {
 async function deleteNote(noteId) {
     try {
         const response = await fetch(`/api/notes/${noteId}`, {
-            method: 'DELETE'
+            method: 'DELETE',
+            headers: {
+                ...getCsrfHeaders()
+            }
         });
         if (!response.ok) {
             throw new Error('Failed to delete note');
@@ -1763,7 +1788,10 @@ async function deleteItem(id) {
 
     try {
         const response = await fetch(`/api/items/${id}`, {
-            method: 'DELETE'
+            method: 'DELETE',
+            headers: {
+                ...getCsrfHeaders()
+            }
         });
 
         if (response.ok) {
@@ -1784,7 +1812,10 @@ async function setItemHidden(id, hidden) {
 
     try {
         const response = await fetch(`/api/items/${id}/${action}`, {
-            method: 'PATCH'
+            method: 'PATCH',
+            headers: {
+                ...getCsrfHeaders()
+            }
         });
 
         if (response.ok) {

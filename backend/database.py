@@ -11,13 +11,16 @@ from models import User, SharedItem, ItemNote, WorkerJobStatus
 # Firestore imports
 import firebase_admin
 from firebase_admin import credentials, firestore
+from firebase_admin import credentials, firestore
 from google.cloud.firestore import Client as FirestoreClient
 from google.cloud.firestore_v1.base_query import FieldFilter
+from google.cloud.firestore_v1.batch import WriteBatch
 
 # SQLAlchemy imports
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
 from sqlalchemy.orm import sessionmaker, declarative_base
 from sqlalchemy import Column, String, DateTime, JSON, Boolean, Integer, inspect, text, func
+from sqlalchemy import Column, String, DateTime, JSON, Boolean, Integer, inspect, text, func, update
 from sqlalchemy.future import select
 
 # --- Interface ---
@@ -109,6 +112,10 @@ class DatabaseInterface(ABC):
 
     @abstractmethod
     async def fail_worker_job(self, job_id: str, error: str) -> bool:
+        pass
+
+    @abstractmethod
+    async def reset_failed_jobs(self, job_type: str, error_msg: str) -> int:
         pass
 
 
@@ -448,6 +455,37 @@ class FirestoreDatabase(DatabaseInterface):
             'updated_at': firestore.SERVER_TIMESTAMP
         })
         return True
+
+    async def reset_failed_jobs(self, job_type: str, error_msg: str) -> int:
+        job_ref = self.db.collection('worker_queue')
+        query = (
+            job_ref
+            .where(filter=FieldFilter('job_type', '==', job_type))
+            .where(filter=FieldFilter('status', '==', WorkerJobStatus.failed.value))
+            .where(filter=FieldFilter('error', '==', error_msg))
+        )
+
+        count = 0
+        batch = self.db.batch()
+
+        for doc in query.stream():
+            batch.update(doc.reference, {
+                'status': WorkerJobStatus.queued.value,
+                'error': firestore.DELETE_FIELD,
+                'attempts': 0,
+                'updated_at': firestore.SERVER_TIMESTAMP
+            })
+            count += 1
+            if count % 400 == 0:
+                batch.commit()
+                batch = self.db.batch()
+
+        if count % 400 != 0 or count == 0:
+            # Commit remaining or if we had a batch that wasn't committed yet (though count==0 means empty batch)
+            # Safe to commit empty batch? Yes.
+            batch.commit()
+
+        return count
 
 
 # --- SQLite Implementation ---
@@ -804,6 +842,24 @@ class SQLiteDatabase(DatabaseInterface):
             session.add(db_note)
             await session.commit()
             return note
+
+    async def reset_failed_jobs(self, job_type: str, error_msg: str) -> int:
+        async with self.SessionLocal() as session:
+            stmt = (
+                update(DBWorkerJob)
+                .where(DBWorkerJob.job_type == job_type)
+                .where(DBWorkerJob.status == 'failed')
+                .where(DBWorkerJob.error == error_msg)
+                .values(
+                    status='queued',
+                    error=None,
+                    attempts=0,
+                    updated_at=datetime.datetime.utcnow()
+                )
+            )
+            result = await session.execute(stmt)
+            await session.commit()
+            return result.rowcount
 
     async def get_item_notes(self, item_id: str) -> List[dict]:
         async with self.SessionLocal() as session:

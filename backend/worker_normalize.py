@@ -95,12 +95,8 @@ async def _process_normalize_item(db, data, context, allow_missing_analysis=Fals
     analysis_data = data.get('analysis')
 
     if not analysis_data and not allow_missing_analysis:
-        logger.warning(f"Skipping item {doc_id}: Analysis is missing and --allow-no-analysis is not set.")
-        return False, "missing_analysis"  # Return false to keep it in queue or fail job depending on logic.
-        # Actually returning False here will mark the job as failed in process_queue_jobs.
-        # If we want to retry later, maybe we should fail it so it gets retried? 
-        # But 'missing_analysis' sounds like a "not ready" state.
-        # Let's fail it for now so it's visible.
+        logger.warning(f"Skipping item {doc_id}: Analysis is missing and --allow-no-analysis is not set. Marking as skipped.")
+        return True, None  # Return True (success) so it doesn't stay in Error state.
 
     loop = asyncio.get_running_loop()
     new_title = await loop.run_in_executor(None, normalize_item_title, content, item_type, current_title, analysis_data)
@@ -136,18 +132,32 @@ def main():
     
     if args.queue:
         from functools import partial
-        process_fn = partial(_process_normalize_item, allow_missing_analysis=args.allow_no_analysis)
         
-        asyncio.run(process_queue_jobs(
-            job_type="normalize",
-            limit=args.limit,
-            lease_seconds=args.lease_seconds,
-            get_db=get_db,
-            process_item_fn=process_fn,
-            logger=logger,
-            halt_on_error=True,
-            continuous=args.loop,
-        ))
+        async def run_queue_mode():
+            # Automatically retry items that failed due to "missing_analysis"
+            # This ensures that if we have fixed the logic or the data, they get processed.
+            try:
+                db_instance = await get_db()
+                count = await db_instance.reset_failed_jobs('normalize', 'missing_analysis')
+                if count > 0:
+                    logger.info(f"Reset {count} failed jobs with 'missing_analysis' error to 'queued' state.")
+            except Exception as e:
+                logger.warning(f"Failed to reset failed jobs: {e}")
+
+            process_fn = partial(_process_normalize_item, allow_missing_analysis=args.allow_no_analysis)
+
+            await process_queue_jobs(
+                job_type="normalize",
+                limit=args.limit,
+                lease_seconds=args.lease_seconds,
+                get_db=get_db,
+                process_item_fn=process_fn,
+                logger=logger,
+                halt_on_error=True,
+                continuous=args.loop,
+            )
+
+        asyncio.run(run_queue_mode())
         return
 
     asyncio.run(process_normalization_async(

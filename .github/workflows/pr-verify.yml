@@ -21,7 +21,7 @@ jobs:
               - 'Makefile'
               - '.github/workflows/pr-verify.yml'
             mobile:
-              - 'analyze_this_flutter/**'
+              - 'flutter/**'
               - 'Makefile'
               - '.github/workflows/pr-verify.yml'
 
@@ -73,7 +73,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/.pub-cache
-          key: ${{ runner.os }}-pub-cache-${{ hashFiles('analyze_this_flutter/pubspec.lock') }}
+          key: ${{ runner.os }}-pub-cache-${{ hashFiles('flutter/pubspec.lock') }}
           restore-keys: |
             ${{ runner.os }}-pub-cache-
 
@@ -122,7 +122,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/.pub-cache
-          key: ${{ runner.os }}-pub-cache-${{ hashFiles('analyze_this_flutter/pubspec.lock') }}
+          key: ${{ runner.os }}-pub-cache-${{ hashFiles('flutter/pubspec.lock') }}
           restore-keys: |
             ${{ runner.os }}-pub-cache-
 
@@ -133,7 +133,7 @@ jobs:
           path: |
             ~/.gradle/caches
             ~/.gradle/wrapper
-          key: ${{ runner.os }}-gradle-${{ hashFiles('analyze_this_flutter/android/**/*.gradle*', 'analyze_this_flutter/android/**/gradle-wrapper.properties') }}
+          key: ${{ runner.os }}-gradle-${{ hashFiles('flutter/android/**/*.gradle*', 'flutter/android/**/gradle-wrapper.properties') }}
           restore-keys: |
             ${{ runner.os }}-gradle-
 
