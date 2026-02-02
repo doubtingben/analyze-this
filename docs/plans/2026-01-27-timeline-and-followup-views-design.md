@@ -11,7 +11,7 @@ Add timeline view to Flutter app (matching web dashboard) and add follow-up sele
 | Web | Has "All \| Timeline" toggle | Add "Follow-up" as third option |
 | Flutter | No filtering, flat list | Add "All \| Timeline \| Follow-up" toggles + type filter + timeline view |
 
-React Native app is out of scope for this change.
+Legacy mobile app is out of scope for this change.
 
 ## Data Filtering Logic
 
@@ -50,7 +50,7 @@ if (currentView === 'follow_up') {
 
 ## Flutter App Changes
 
-**Files:** `analyze_this_flutter/lib/main.dart` (and potentially new widget files)
+**Files:** `flutter/lib/main.dart` (and potentially new widget files)
 
 ### UI Layout
 

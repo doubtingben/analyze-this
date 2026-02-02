@@ -87,7 +87,7 @@ echo "  # Add other secrets used in deploy.sh: SECRET_KEY, CLIENT_IDs, etc."
 echo ""
 echo "To use a keystore for Android (if not using EAS credentials):"
 echo "  # Make sure your upload-keystore.jks is in the current directory or provide path"
-echo "  base64 -i analyze_this_flutter/android/app/upload-keystore.jks | gcloud secrets create android-keystore --data-file=-"
+echo "  base64 -i flutter/android/app/upload-keystore.jks | gcloud secrets create android-keystore --data-file=-"
 echo ""
 
 # 7. Instructions for Trigger

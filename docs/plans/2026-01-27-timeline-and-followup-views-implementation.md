@@ -100,7 +100,7 @@ git commit -m "feat(web): add follow-up view toggle to dashboard"
 ## Task 2: Flutter - Add ViewMode Enum and State
 
 **Files:**
-- Modify: `analyze_this_flutter/lib/main.dart:41-50`
+- Modify: `flutter/lib/main.dart:41-50`
 
 **Step 1: Add ViewMode enum and state variables**
 
@@ -120,7 +120,7 @@ String? _currentTypeFilter;
 **Step 2: Commit**
 
 ```bash
-git add analyze_this_flutter/lib/main.dart
+git add flutter/lib/main.dart
 git commit -m "feat(flutter): add ViewMode enum and filter state"
 ```
 
@@ -129,7 +129,7 @@ git commit -m "feat(flutter): add ViewMode enum and filter state"
 ## Task 3: Flutter - Add Filter Controls UI
 
 **Files:**
-- Modify: `analyze_this_flutter/lib/main.dart:286-334`
+- Modify: `flutter/lib/main.dart:286-334`
 
 **Step 1: Create filter controls widget method**
 
@@ -255,7 +255,7 @@ Widget _buildMainView() {
 **Step 3: Commit**
 
 ```bash
-git add analyze_this_flutter/lib/main.dart
+git add flutter/lib/main.dart
 git commit -m "feat(flutter): add view toggle and type filter UI"
 ```
 
@@ -264,7 +264,7 @@ git commit -m "feat(flutter): add view toggle and type filter UI"
 ## Task 4: Flutter - Implement Filtering Logic
 
 **Files:**
-- Modify: `analyze_this_flutter/lib/main.dart`
+- Modify: `flutter/lib/main.dart`
 
 **Step 1: Add helper to get event datetime from item**
 
@@ -384,7 +384,7 @@ void _openDetailFiltered(List<HistoryItem> items, int index) {
 **Step 5: Commit**
 
 ```bash
-git add analyze_this_flutter/lib/main.dart
+git add flutter/lib/main.dart
 git commit -m "feat(flutter): implement view filtering logic"
 ```
 
@@ -393,7 +393,7 @@ git commit -m "feat(flutter): implement view filtering logic"
 ## Task 5: Flutter - Add Timeline View with Now Divider
 
 **Files:**
-- Modify: `analyze_this_flutter/lib/main.dart`
+- Modify: `flutter/lib/main.dart`
 
 **Step 1: Add Now divider widget method**
 
@@ -552,7 +552,7 @@ import 'package:intl/intl.dart';
 **Step 5: Commit**
 
 ```bash
-git add analyze_this_flutter/lib/main.dart
+git add flutter/lib/main.dart
 git commit -m "feat(flutter): add timeline view with Now divider"
 ```
 
@@ -561,7 +561,7 @@ git commit -m "feat(flutter): add timeline view with Now divider"
 ## Task 6: Flutter - Update Empty State Messages
 
 **Files:**
-- Modify: `analyze_this_flutter/lib/main.dart`
+- Modify: `flutter/lib/main.dart`
 
 **Step 1: Update _buildEmptyState to be view-aware**
 
@@ -627,7 +627,7 @@ Widget _buildEmptyState() {
 **Step 2: Commit**
 
 ```bash
-git add analyze_this_flutter/lib/main.dart
+git add flutter/lib/main.dart
 git commit -m "feat(flutter): update empty state for different views"
 ```
 
@@ -645,7 +645,7 @@ git commit -m "feat(flutter): update empty state for different views"
 
 **Step 2: Test Flutter app**
 
-1. Run Flutter app: `cd analyze_this_flutter && flutter run`
+1. Run Flutter app: `cd flutter && flutter run`
 2. Sign in with Google
 3. Test All | Timeline | Follow-up segmented button
 4. Test type filter dropdown

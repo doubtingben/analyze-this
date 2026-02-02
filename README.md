@@ -8,16 +8,14 @@ In the default case, provided a date and time are provided, the tool will update
 
 ## Setup
 
-### Mobile App
+### Mobile App (Flutter)
 
-The mobile application is located in the `mobile/` directory and uses React Native (Expo).
+The mobile application is located in the `flutter/` directory.
 
-1.  **Navigate to directory**: `cd mobile`
-2.  **Install dependencies**: `npm install`
-3.  **Run on iOS**: `npx expo run:ios` (Requires Xcode)
-4.  **Run on Android**: `npx expo run:android` (Requires Android Studio)
-
-**Important**: Testing the "Share" intent requires a Development Build (`npx expo run:ios/android`). It will not work in standard Expo Go.
+1.  **Navigate to directory**: `cd flutter`
+2.  **Install dependencies**: `flutter pub get`
+3.  **Run on iOS**: `flutter run -d ios` (Requires Xcode)
+4.  **Run on Android**: `flutter run -d android` (Requires Android Studio)
 
 
 
@@ -43,9 +41,9 @@ To run the project locally without modifying the production environment:
     ```
     This will use a local SQLite database (`development.db`) instead of Firestore, and bypass Google Auth validation (accepting `dev-token`).
 
-### Mobile App
+### Mobile App (Flutter)
 
-1.  Run the app: `npx expo start`.
+1.  Run the app: `flutter run`.
 2.  In the Dashboard, tap the **Dev Login** button (visible only in dev builds). This authenticates you as a test user ("Developer") without needing Google Sign-In.
 
 ### Chrome Extension

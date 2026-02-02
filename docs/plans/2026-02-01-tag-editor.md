@@ -13,7 +13,7 @@
 ## Task 1: Flutter - Create Tag Editor Screen
 
 **Files:**
-- Create: `analyze_this_flutter/lib/screens/tag_editor_screen.dart`
+- Create: `flutter/lib/screens/tag_editor_screen.dart`
 
 **Implementation:**
 
@@ -328,7 +328,7 @@ class TagInfo {
 ## Task 2: Flutter - Add Tag Editor to User Menu
 
 **Files:**
-- Modify: `analyze_this_flutter/lib/main.dart`
+- Modify: `flutter/lib/main.dart`
 
 **Changes:**
 
@@ -714,7 +714,7 @@ setupTagEditor();
 
 **Flutter tests:**
 ```bash
-cd analyze_this_flutter && flutter analyze
+cd flutter && flutter analyze
 ```
 
 **Manual verification:**

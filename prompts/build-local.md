@@ -25,7 +25,7 @@ The remaining steps can be run in parallel.
 ## Clone the repository
 - Clone the REPO_URL using the GITHUB_TOKEN to a temporary directory
 ## Bump the version
-- Update analyze_this_flutter/pubspec.yaml to increment the build number by 1
+- Update flutter/pubspec.yaml to increment the build number by 1
 ## Deploy the backend
 - Generate a view of the existing Google Cloud Run service before we modify it and save it for later comparison
 - Use the Makefile to deploy the backend, `make backend-deploy`
