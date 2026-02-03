@@ -66,6 +66,7 @@ class _MyHomePageState extends State<MyHomePage> {
   Set<String> _selectedTags = {};      // Empty = no tag filter
   String _searchQuery = '';            // Empty = no search
   bool _showHidden = false;
+  bool _showFavoritesOnly = false;
   bool _searchExpanded = false;
 
   // Active filter count for badge
@@ -561,6 +562,23 @@ class _MyHomePageState extends State<MyHomePage> {
                   title: Text(_currentUser!.displayName ?? 'User'),
                   subtitle: Text(_currentUser!.email),
                 ),
+                ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: Icon(
+                    Icons.star,
+                    color: _showFavoritesOnly ? Colors.amber : null,
+                  ),
+                  title: const Text('Favorites'),
+                  trailing: _showFavoritesOnly
+                      ? const Icon(Icons.check, size: 18)
+                      : null,
+                  onTap: () {
+                    setState(() {
+                      _showFavoritesOnly = !_showFavoritesOnly;
+                    });
+                    Navigator.pop(context);
+                  },
+                ),
                 SwitchListTile(
                   contentPadding: EdgeInsets.zero,
                   title: const Text('Show Archive'),
@@ -832,6 +850,11 @@ class _MyHomePageState extends State<MyHomePage> {
 
   List<HistoryItem> _getFilteredItems() {
     List<HistoryItem> items = List.from(_history);
+
+    // Favorites mode overrides all other filters/views
+    if (_showFavoritesOnly) {
+      return items.where((item) => item.isFavorite).toList();
+    }
 
     if (!_showHidden) {
       items = items.where((item) => !item.isHidden).toList();

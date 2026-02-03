@@ -19,6 +19,9 @@
                         <span class="user-menu-caret">▾</span>
                     </button>
                     <div class="user-menu" id="user-menu" aria-hidden="true">
+                        <button class="user-menu-item" id="favorites-btn" type="button">
+                            <span class="favorites-star">★</span> Favorites
+                        </button>
                         <label class="user-menu-toggle">
                             <span>Show Archive</span>
                             <input type="checkbox" id="show-archive" />
@@ -125,6 +128,9 @@
                 <div class="modal-header">
                     <h2 id="detail-modal-title">Item Details</h2>
                     <div class="modal-header-actions">
+                        <button class="btn-icon detail-favorite-btn" id="detail-favorite-btn" type="button" title="Toggle favorite">
+                            <span class="detail-favorite-star">☆</span>
+                        </button>
                         <button class="btn-secondary" id="detail-edit-btn" type="button">Edit</button>
                         <button class="modal-close" id="detail-modal-close" type="button">&times;</button>
                     </div>

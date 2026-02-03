@@ -558,6 +558,7 @@ class DBSharedItem(Base):
     next_step = Column(String, nullable=True)
     is_normalized = Column(Boolean, default=False)
     hidden = Column(Boolean, default=False)
+    is_favorite = Column(Boolean, default=False)
 
 class DBItemNote(Base):
     __tablename__ = 'item_notes'
@@ -749,7 +750,8 @@ class SQLiteDatabase(DatabaseInterface):
                     'status': item.status,
                     'next_step': item.next_step,
                     'is_normalized': item.is_normalized,
-                    'hidden': item.hidden
+                    'hidden': item.hidden,
+                    'is_favorite': item.is_favorite
                 }
                 for item in items
             ]
@@ -785,7 +787,8 @@ class SQLiteDatabase(DatabaseInterface):
                     'status': item.status,
                     'next_step': item.next_step,
                     'is_normalized': item.is_normalized,
-                    'hidden': item.hidden
+                    'hidden': item.hidden,
+                    'is_favorite': item.is_favorite
                 }
             return None
 
@@ -851,7 +854,8 @@ class SQLiteDatabase(DatabaseInterface):
                     'status': item.status,
                     'next_step': item.next_step,
                     'is_normalized': item.is_normalized,
-                    'hidden': item.hidden
+                    'hidden': item.hidden,
+                    'is_favorite': item.is_favorite
                 }
                 for item in items
             ]
@@ -878,7 +882,8 @@ class SQLiteDatabase(DatabaseInterface):
                     'status': item.status,
                     'next_step': item.next_step,
                     'is_normalized': item.is_normalized,
-                    'hidden': item.hidden
+                    'hidden': item.hidden,
+                    'is_favorite': item.is_favorite
                 }
                 for item in items
             ]

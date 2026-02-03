@@ -66,12 +66,48 @@ class _ItemDetailScreenState extends State<ItemDetailScreen> {
     widget.onItemUpdated?.call(updatedItem);
   }
 
+  Future<void> _toggleFavorite() async {
+    if (widget.authToken == null) return;
+
+    final item = _currentItem;
+    final newValue = !item.isFavorite;
+
+    // Optimistic update
+    final updatedItem = item.copyWith(isFavorite: newValue);
+    _handleItemUpdated(updatedItem);
+
+    try {
+      await ApiService().updateItem(
+        widget.authToken!,
+        item.id,
+        isFavorite: newValue,
+      );
+    } catch (e) {
+      // Revert on failure
+      _handleItemUpdated(item);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to update favorite: $e')),
+        );
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
         title: Text(_currentItem.title ?? 'Item Details'),
         actions: [
+          // Favorite button
+          IconButton(
+            icon: Icon(
+              _currentItem.isFavorite ? Icons.star : Icons.star_outline,
+            ),
+            color: _currentItem.isFavorite ? Colors.amber : null,
+            onPressed: () => _toggleFavorite(),
+            tooltip: _currentItem.isFavorite ? 'Remove from favorites' : 'Add to favorites',
+          ),
           // Edit button
           IconButton(
             icon: Icon(_isEditMode ? Icons.close : Icons.edit),

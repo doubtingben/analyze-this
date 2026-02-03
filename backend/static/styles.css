@@ -863,6 +863,37 @@ body {
     gap: 8px;
 }
 
+.detail-favorite-btn {
+    background: none;
+    border: none;
+    cursor: pointer;
+    padding: 4px 8px;
+    border-radius: 6px;
+    font-size: 20px;
+    line-height: 1;
+}
+
+.detail-favorite-btn:hover {
+    background: #f3f4f6;
+}
+
+.detail-favorite-star {
+    color: #9ca3af;
+}
+
+.detail-favorite-star.active {
+    color: #f59e0b;
+}
+
+.favorites-star {
+    color: #f59e0b;
+}
+
+#favorites-btn.active {
+    background: #fef3c7;
+    font-weight: 600;
+}
+
 .btn-primary {
     background: #3b82f6;
     color: white;

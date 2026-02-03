@@ -70,6 +70,10 @@ const tagSortSelect = document.getElementById('tag-sort-select');
 const tagEditorCount = document.getElementById('tag-editor-count');
 const tagEditorList = document.getElementById('tag-editor-list');
 
+const favoritesBtnEl = document.getElementById('favorites-btn');
+const detailFavoriteBtnEl = document.getElementById('detail-favorite-btn');
+const detailFavoriteStarEl = detailFavoriteBtnEl ? detailFavoriteBtnEl.querySelector('.detail-favorite-star') : null;
+
 // State
 let allItems = [];
 let currentView = 'all'; // 'all', 'timeline', or 'follow_up'
@@ -77,6 +81,7 @@ let selectedTypes = new Set();     // Empty = all types
 let selectedTags = new Set();      // Empty = no tag filter
 let searchQuery = '';              // Empty = no search
 let showHidden = false;
+let showFavoritesOnly = false;
 let currentDetailItem = null;
 let detailEditMode = false;
 let editableTags = [];
@@ -152,6 +157,10 @@ function setupDetailModal() {
     });
 
     detailSaveBtn.addEventListener('click', saveDetailEdits);
+
+    if (detailFavoriteBtnEl) {
+        detailFavoriteBtnEl.addEventListener('click', toggleDetailFavorite);
+    }
 
     detailAddTagBtn.addEventListener('click', (event) => {
         event.preventDefault();
@@ -340,6 +349,15 @@ function setupFilters() {
         showHiddenEl.addEventListener('change', () => {
             showHidden = showHiddenEl.checked;
             renderFilteredItems();
+        });
+    }
+
+    if (favoritesBtnEl) {
+        favoritesBtnEl.addEventListener('click', () => {
+            showFavoritesOnly = !showFavoritesOnly;
+            favoritesBtnEl.classList.toggle('active', showFavoritesOnly);
+            renderFilteredItems();
+            closeUserMenu();
         });
     }
 }
@@ -1014,6 +1032,11 @@ function getEventDateTime(item) {
 function getFilteredItems() {
     let items = [...allItems];
 
+    // Favorites mode overrides all other filters/views
+    if (showFavoritesOnly) {
+        return items.filter(item => item.is_favorite);
+    }
+
     if (!showHidden) {
         items = items.filter(item => !item.hidden);
     }
@@ -1521,6 +1544,9 @@ function openDetailModal(item) {
         }
     }
 
+    // Update favorite star state
+    updateDetailFavoriteStar(item.is_favorite);
+
     setDetailEditMode(false);
     loadDetailNotes();
 }
@@ -1529,6 +1555,53 @@ function closeDetailModal() {
     if (!detailModal) return;
     detailModal.style.display = 'none';
     currentDetailItem = null;
+}
+
+function updateDetailFavoriteStar(isFavorite) {
+    if (detailFavoriteStarEl) {
+        detailFavoriteStarEl.textContent = isFavorite ? '★' : '☆';
+        detailFavoriteStarEl.classList.toggle('active', !!isFavorite);
+    }
+}
+
+async function toggleDetailFavorite() {
+    if (!currentDetailItem) return;
+
+    const itemId = getItemId(currentDetailItem);
+    const newValue = !currentDetailItem.is_favorite;
+
+    // Optimistic update
+    currentDetailItem.is_favorite = newValue;
+    updateDetailFavoriteStar(newValue);
+
+    try {
+        const response = await fetch(`/api/items/${itemId}`, {
+            method: 'PATCH',
+            headers: {
+                'Content-Type': 'application/json',
+                ...getCsrfHeaders()
+            },
+            body: JSON.stringify({ is_favorite: newValue })
+        });
+
+        if (!response.ok) {
+            throw new Error('Failed to update favorite');
+        }
+
+        // Update in allItems array
+        const idx = allItems.findIndex(i => getItemId(i) === itemId);
+        if (idx !== -1) {
+            allItems[idx].is_favorite = newValue;
+        }
+
+        renderFilteredItems();
+
+    } catch (error) {
+        // Revert on failure
+        currentDetailItem.is_favorite = !newValue;
+        updateDetailFavoriteStar(!newValue);
+        alert('Failed to update favorite: ' + error.message);
+    }
 }
 
 function confirmDeleteFollowUp() {

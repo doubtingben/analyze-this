@@ -146,7 +146,7 @@ class ApiService {
     }
   }
 
-  /// Update item (title, tags, status, next_step, follow_up)
+  /// Update item (title, tags, status, next_step, follow_up, is_favorite)
   Future<void> updateItem(
     String token,
     String itemId, {
@@ -155,6 +155,7 @@ class ApiService {
     String? status,
     String? nextStep,
     String? followUp,
+    bool? isFavorite,
   }) async {
     final body = <String, dynamic>{};
     if (title != null) body['title'] = title;
@@ -162,6 +163,7 @@ class ApiService {
     if (status != null) body['status'] = status;
     if (nextStep != null) body['next_step'] = nextStep;
     if (followUp != null) body['follow_up'] = followUp;
+    if (isFavorite != null) body['is_favorite'] = isFavorite;
 
     if (body.isEmpty) {
       throw ArgumentError('At least one field must be provided');

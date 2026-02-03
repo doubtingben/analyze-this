@@ -929,6 +929,7 @@ class ItemUpdateRequest(BaseModel):
     status: Optional[str] = None
     next_step: Optional[str] = None
     follow_up: Optional[str] = None  # Set to "" to clear
+    is_favorite: Optional[bool] = None
 
 
 @app.post("/api/items/{item_id}/notes", dependencies=[Depends(check_csrf)])
@@ -1128,6 +1129,10 @@ async def update_item(item_id: str, request: Request, body: ItemUpdateRequest):
     # Update next_step directly
     if body.next_step is not None:
         updates['next_step'] = body.next_step
+
+    # Update is_favorite directly
+    if body.is_favorite is not None:
+        updates['is_favorite'] = body.is_favorite
 
     # Handle analysis fields (tags, follow_up)
     current_analysis = item.get('analysis') or {}

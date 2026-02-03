@@ -66,6 +66,7 @@ class SharedItem(BaseModel):
     image: Optional[str] = Field(default=None)
     is_normalized: bool = Field(default=False)
     hidden: bool = Field(default=False)
+    is_favorite: bool = Field(default=False)
 
 class ItemNote(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid4()))

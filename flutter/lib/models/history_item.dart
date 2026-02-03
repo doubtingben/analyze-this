@@ -52,6 +52,7 @@ class HistoryItem {
   final bool hidden;
   final int noteCount;
   final bool isNormalized;
+  final bool isFavorite;
 
   HistoryItem({
     required this.id,
@@ -67,6 +68,7 @@ class HistoryItem {
     this.hidden = false,
     this.noteCount = 0,
     this.isNormalized = false,
+    this.isFavorite = false,
   });
 
   factory HistoryItem.fromJson(Map<String, dynamic> json) {
@@ -92,6 +94,7 @@ class HistoryItem {
       hidden: json['hidden'] == true,
       noteCount: json['note_count'] ?? 0,
       isNormalized: json['is_normalized'] == true,
+      isFavorite: json['is_favorite'] == true,
     );
   }
 
@@ -111,6 +114,7 @@ class HistoryItem {
     bool? hidden,
     int? noteCount,
     bool? isNormalized,
+    bool? isFavorite,
   }) {
     return HistoryItem(
       id: id ?? this.id,
@@ -126,6 +130,7 @@ class HistoryItem {
       hidden: hidden ?? this.hidden,
       noteCount: noteCount ?? this.noteCount,
       isNormalized: isNormalized ?? this.isNormalized,
+      isFavorite: isFavorite ?? this.isFavorite,
     );
   }
 
