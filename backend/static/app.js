@@ -1350,14 +1350,39 @@ function renderItem(item) {
 
     const idRow = document.createElement('div');
     idRow.className = 'item-details-row';
-    idRow.innerHTML = `<span class="item-details-label">ID:</span> <span class="item-details-value">${item.firestore_id || 'N/A'}</span>`;
+
+    const idLabel = document.createElement('span');
+    idLabel.className = 'item-details-label';
+    idLabel.textContent = 'ID: ';
+    idRow.appendChild(idLabel);
+
+    const idValue = document.createElement('span');
+    idValue.className = 'item-details-value';
+    idValue.textContent = item.firestore_id || 'N/A';
+    idRow.appendChild(idValue);
+
     details.appendChild(idRow);
 
     if (item.analysis?.tags && item.analysis.tags.length > 0) {
         const tagsRow = document.createElement('div');
         tagsRow.className = 'item-details-row';
-        const tagsHtml = item.analysis.tags.map(tag => `<span class="item-tag">${tag}</span>`).join('');
-        tagsRow.innerHTML = `<span class="item-details-label">Tags:</span> <span class="item-details-tags">${tagsHtml}</span>`;
+
+        const label = document.createElement('span');
+        label.className = 'item-details-label';
+        label.textContent = 'Tags: ';
+        tagsRow.appendChild(label);
+
+        const tagsContainer = document.createElement('span');
+        tagsContainer.className = 'item-details-tags';
+
+        item.analysis.tags.forEach(tag => {
+            const tagSpan = document.createElement('span');
+            tagSpan.className = 'item-tag';
+            tagSpan.textContent = tag;
+            tagsContainer.appendChild(tagSpan);
+        });
+
+        tagsRow.appendChild(tagsContainer);
         details.appendChild(tagsRow);
     }
 
@@ -1452,7 +1477,13 @@ function openDetailModal(item) {
     detailTypeEl.textContent = formatType(normalizeType(item));
 
     if (typeof item.content === 'string' && item.content.startsWith('http')) {
-        detailContentEl.innerHTML = `<a href="${item.content}" target="_blank" rel="noopener noreferrer">${item.content}</a>`;
+        detailContentEl.innerHTML = '';
+        const link = document.createElement('a');
+        link.href = item.content;
+        link.target = '_blank';
+        link.rel = 'noopener noreferrer';
+        link.textContent = item.content;
+        detailContentEl.appendChild(link);
     } else {
         detailContentEl.textContent = item.content || '';
     }
@@ -1460,15 +1491,20 @@ function openDetailModal(item) {
     // Display item ID with copy button
     const itemId = item.firestore_id || item.id || '';
     if (detailItemIdEl) {
-        detailItemIdEl.innerHTML = `
-            <code>${itemId}</code>
-            <button class="btn-icon" onclick="navigator.clipboard.writeText('${itemId}').then(() => alert('Item ID copied!'))" title="Copy ID">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        detailItemIdEl.innerHTML = '';
+        const code = document.createElement('code');
+        code.textContent = itemId;
+        detailItemIdEl.appendChild(code);
+
+        const btn = document.createElement('button');
+        btn.className = 'btn-icon';
+        btn.title = 'Copy ID';
+        btn.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                     <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
                     <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
-                </svg>
-            </button>
-        `;
+                </svg>`;
+        btn.onclick = () => navigator.clipboard.writeText(itemId).then(() => alert('Item ID copied!'));
+        detailItemIdEl.appendChild(btn);
     }
 
     editableTags = item.analysis?.tags ? [...item.analysis.tags] : [];
