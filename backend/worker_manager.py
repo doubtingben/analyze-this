@@ -114,6 +114,8 @@ async def run_manager(continuous: bool = False):
 
 
 def main():
+    global MANAGER_INTERVAL_SECONDS
+
     parser = argparse.ArgumentParser(description="Worker Manager - evaluates and retries failed jobs.")
     parser.add_argument("--loop", action="store_true", help="Run in continuous loop mode")
     parser.add_argument(
@@ -124,7 +126,6 @@ def main():
     args = parser.parse_args()
 
     if args.interval is not None:
-        global MANAGER_INTERVAL_SECONDS
         MANAGER_INTERVAL_SECONDS = args.interval
 
     asyncio.run(run_manager(continuous=args.loop))
