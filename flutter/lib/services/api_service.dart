@@ -324,6 +324,22 @@ class ApiService {
     }
   }
 
+  /// Get user profile
+  Future<Map<String, dynamic>> getUserProfile(String token) async {
+    final response = await http.get(
+      Uri.parse('${Config.apiUrl}/api/user'),
+      headers: {
+        'Authorization': 'Bearer $token',
+      },
+    );
+
+    if (response.statusCode == 200) {
+      return jsonDecode(response.body) as Map<String, dynamic>;
+    } else {
+      throw Exception('Failed to load user profile: ${response.statusCode}');
+    }
+  }
+
   // Helpers
   String _mapShareTypeToString(ShareItemType type) {
     if (type == ShareItemType.text) return 'text';

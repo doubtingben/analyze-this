@@ -4,6 +4,8 @@ import 'package:flutter/material.dart';
 import 'package:receive_sharing_intent/receive_sharing_intent.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 import 'package:intl/intl.dart';
+import 'package:timezone/data/latest.dart' as tz;
+import 'package:timezone/timezone.dart' as tz;
 import 'package:url_launcher/url_launcher.dart';
 
 import 'auth_service.dart';
@@ -23,6 +25,7 @@ import 'services/sharing_service.dart' as custom_sharing;
 enum ViewMode { all, timeline, followUp }
 
 void main() {
+  tz.initializeTimeZones();
   runApp(const MyApp());
 }
 
@@ -57,6 +60,7 @@ class _MyHomePageState extends State<MyHomePage> {
   bool _isLoading = false;
   GoogleSignInAccount? _currentUser;
   String? _authToken;
+  tz.Location? _userTimezoneLocation;
   ViewMode _currentView = ViewMode.all;
   Set<String> _selectedTypes = {};     // Empty = all types
   Set<String> _selectedTags = {};      // Empty = no tag filter
@@ -142,6 +146,30 @@ class _MyHomePageState extends State<MyHomePage> {
             _authToken = token;
           });
         }
+        
+        // Fetch user profile for timezone
+        try {
+          final profile = await _apiService.getUserProfile(token);
+          if (profile.containsKey('timezone')) {
+             final tzName = profile['timezone'] as String;
+             try {
+               setState(() {
+                 _userTimezoneLocation = tz.getLocation(tzName);
+               });
+             } catch (e) {
+               print('Invalid timezone from profile: $tzName');
+               // Fallback to EST if invalid, or keep default
+               try {
+                 setState(() {
+                    _userTimezoneLocation = tz.getLocation('America/New_York');
+                 });
+               } catch (_) {}
+             }
+          }
+        } catch (e) {
+          print('Failed to fetch user profile: $e');
+        }
+
       }
     } catch (e) {
       print('Error loading history: $e');
@@ -750,9 +778,16 @@ class _MyHomePageState extends State<MyHomePage> {
       
       if (dateStr != null) {
         try {
-          if (timeStr != null) {
+          if (timeStr != null && timeStr != "null") {
             // Attempt to combine date and time
-            return DateTime.parse("$dateStr $timeStr");
+            final dateTimeStr = "$dateStr $timeStr";
+            if (_userTimezoneLocation != null) {
+              return tz.TZDateTime.parse(_userTimezoneLocation!, dateTimeStr);
+            }
+            return DateTime.parse(dateTimeStr);
+          }
+          if (_userTimezoneLocation != null) {
+             return tz.TZDateTime.parse(_userTimezoneLocation!, dateStr);
           }
           return DateTime.parse(dateStr);
         } catch (_) {
@@ -775,6 +810,9 @@ class _MyHomePageState extends State<MyHomePage> {
     if (dateTimeStr == null) return null;
 
     try {
+      if (_userTimezoneLocation != null) {
+        return tz.TZDateTime.parse(_userTimezoneLocation!, dateTimeStr.toString());
+      }
       return DateTime.parse(dateTimeStr.toString());
     } catch (e) {
       return null;

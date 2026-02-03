@@ -497,6 +497,7 @@ class DBUser(Base):
     email = Column(String, primary_key=True)
     name = Column(String, nullable=True)
     picture = Column(String, nullable=True)
+    timezone = Column(String, default="America/New_York")
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
 
 class DBSharedItem(Base):
@@ -604,6 +605,14 @@ class SQLiteDatabase(DatabaseInterface):
 
             await conn.run_sync(ensure_worker_queue_table)
 
+            def ensure_user_timezone_column(sync_conn):
+                inspector = inspect(sync_conn)
+                columns = [col['name'] for col in inspector.get_columns('users')]
+                if 'timezone' not in columns:
+                    sync_conn.execute(text("ALTER TABLE users ADD COLUMN timezone VARCHAR DEFAULT 'America/New_York'"))
+
+            await conn.run_sync(ensure_user_timezone_column)
+
     async def close(self):
         await self.engine.dispose()
 
@@ -616,6 +625,7 @@ class SQLiteDatabase(DatabaseInterface):
                     email=db_user.email,
                     name=db_user.name,
                     picture=db_user.picture,
+                    timezone=db_user.timezone or "America/New_York",
                     created_at=db_user.created_at
                 )
             return None
@@ -634,6 +644,7 @@ class SQLiteDatabase(DatabaseInterface):
                     email=user.email,
                     name=user.name,
                     picture=user.picture,
+                    timezone=user.timezone,
                     created_at=user.created_at or datetime.datetime.now(datetime.timezone.utc)
                 )
                 session.add(db_user)

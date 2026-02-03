@@ -725,10 +725,27 @@ async def get_content(blob_path: str, request: Request):
 
 @app.get("/api/user")
 async def get_current_user(request: Request):
-    user = request.session.get('user')
-    if not user:
+    user_session = request.session.get('user')
+    if not user_session:
         raise HTTPException(status_code=401, detail="Not authenticated")
-    return {"email": user.get('email'), "name": user.get('name'), "picture": user.get('picture')}
+    
+    # Fetch full user profile from DB to get timezone
+    db_user = await db.get_user(user_session.get('email'))
+    if db_user:
+        return {
+            "email": db_user.email, 
+            "name": db_user.name, 
+            "picture": db_user.picture,
+            "timezone": db_user.timezone
+        }
+    
+    # Fallback to session data if DB fetch fails (shouldn't happen for valid users)
+    return {
+        "email": user_session.get('email'), 
+        "name": user_session.get('name'), 
+        "picture": user_session.get('picture'),
+        "timezone": "America/New_York" # Default
+    }
 
 def _serialize_value(value):
     if isinstance(value, datetime.datetime):

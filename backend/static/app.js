@@ -86,6 +86,7 @@ let pendingSelectedTypes = new Set();  // Temporary selection in modal
 let pendingSelectedTags = new Set();   // Temporary selection in modal
 let tagSearchQuery = '';               // Tag editor search
 let tagSortMode = 'name';              // Tag editor sort mode
+let currentUserTimezone = 'America/New_York'; // Default timezone
 
 // Helper to get cookies
 function getCookie(name) {
@@ -106,6 +107,9 @@ async function init() {
         if (!user) {
             showLoginState();
             return;
+        }
+        if (user.timezone) {
+            currentUserTimezone = user.timezone;
         }
         userNameEl.textContent = `Welcome, ${user.name || user.email}`;
 
@@ -945,14 +949,14 @@ function toggleUserMenu() {
 
 // Get all available tags from items
 function getAllAvailableTags() {
-  const tags = new Set();
-  allItems.forEach(item => {
-    const itemTags = item.analysis?.tags;
-    if (Array.isArray(itemTags)) {
-      itemTags.forEach(tag => tags.add(tag));
-    }
-  });
-  return tags;
+    const tags = new Set();
+    allItems.forEach(item => {
+        const itemTags = item.analysis?.tags;
+        if (Array.isArray(itemTags)) {
+            itemTags.forEach(tag => tags.add(tag));
+        }
+    });
+    return tags;
 }
 
 // Get event date from analysis details
@@ -965,7 +969,8 @@ function getEventDateTime(item) {
         if (timeline.date) {
             try {
                 let dateStr = timeline.date;
-                if (timeline.time) {
+                // Check if time is present and not the string "null"
+                if (timeline.time && timeline.time !== "null") {
                     dateStr += ` ${timeline.time}`;
                 }
                 const date = new Date(dateStr);
@@ -1229,7 +1234,8 @@ function formatEventDate(date) {
         month: 'short',
         day: 'numeric',
         hour: '2-digit',
-        minute: '2-digit'
+        minute: '2-digit',
+        timeZone: currentUserTimezone
     });
 }
 
