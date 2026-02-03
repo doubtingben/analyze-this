@@ -118,6 +118,14 @@ class DatabaseInterface(ABC):
     async def reset_failed_jobs(self, job_type: str, error_msg: str) -> int:
         pass
 
+    @abstractmethod
+    async def get_failed_worker_jobs(self, job_type: Optional[str] = None, max_attempts: Optional[int] = None) -> List[dict]:
+        pass
+
+    @abstractmethod
+    async def reset_worker_job(self, job_id: str) -> bool:
+        pass
+
 
 # --- Firestore Implementation ---
 
@@ -486,6 +494,42 @@ class FirestoreDatabase(DatabaseInterface):
             batch.commit()
             
         return count
+
+    async def get_failed_worker_jobs(self, job_type: Optional[str] = None, max_attempts: Optional[int] = None) -> List[dict]:
+        def get_jobs():
+            query = (
+                self.db.collection('worker_queue')
+                .where(filter=FieldFilter('status', '==', WorkerJobStatus.failed.value))
+            )
+            if job_type:
+                query = query.where(filter=FieldFilter('job_type', '==', job_type))
+
+            results = []
+            for doc in query.stream():
+                data = doc.to_dict()
+                data['firestore_id'] = doc.id
+                attempts = int(data.get('attempts', 0))
+                if max_attempts is not None and attempts > max_attempts:
+                    continue
+                results.append(data)
+            return results
+
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(None, get_jobs)
+
+    async def reset_worker_job(self, job_id: str) -> bool:
+        job_ref = self.db.collection('worker_queue').document(job_id)
+        doc = job_ref.get()
+        if not doc.exists:
+            return False
+        job_ref.update({
+            'status': WorkerJobStatus.queued.value,
+            'error': firestore.DELETE_FIELD,
+            'worker_id': firestore.DELETE_FIELD,
+            'lease_expires_at': firestore.DELETE_FIELD,
+            'updated_at': firestore.SERVER_TIMESTAMP
+        })
+        return True
 
 
 # --- SQLite Implementation ---
@@ -871,6 +915,45 @@ class SQLiteDatabase(DatabaseInterface):
             result = await session.execute(stmt)
             await session.commit()
             return result.rowcount
+
+    async def get_failed_worker_jobs(self, job_type: Optional[str] = None, max_attempts: Optional[int] = None) -> List[dict]:
+        async with self.SessionLocal() as session:
+            query = select(DBWorkerJob).where(DBWorkerJob.status == 'failed')
+            if job_type:
+                query = query.where(DBWorkerJob.job_type == job_type)
+            if max_attempts is not None:
+                query = query.where(DBWorkerJob.attempts <= max_attempts)
+
+            result = await session.execute(query)
+            jobs = result.scalars().all()
+            return [
+                {
+                    'firestore_id': job.id,
+                    'item_id': job.item_id,
+                    'user_email': job.user_email,
+                    'job_type': job.job_type,
+                    'status': job.status,
+                    'attempts': job.attempts,
+                    'error': job.error,
+                    'created_at': job.created_at.isoformat() if job.created_at else None,
+                    'updated_at': job.updated_at.isoformat() if job.updated_at else None,
+                }
+                for job in jobs
+            ]
+
+    async def reset_worker_job(self, job_id: str) -> bool:
+        async with self.SessionLocal() as session:
+            result = await session.execute(select(DBWorkerJob).where(DBWorkerJob.id == job_id))
+            job = result.scalar_one_or_none()
+            if not job:
+                return False
+            job.status = WorkerJobStatus.queued.value
+            job.error = None
+            job.worker_id = None
+            job.lease_expires_at = None
+            job.updated_at = datetime.datetime.now(datetime.timezone.utc)
+            await session.commit()
+            return True
 
     async def get_item_notes(self, item_id: str) -> List[dict]:
         async with self.SessionLocal() as session:
