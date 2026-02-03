@@ -969,12 +969,21 @@ function getEventDateTime(item) {
         if (timeline.date) {
             try {
                 let dateStr = timeline.date;
+                let isAllDay = false;
+
                 // Check if time is present and not the string "null"
                 if (timeline.time && timeline.time !== "null") {
                     dateStr += ` ${timeline.time}`;
+                } else {
+                    // No time: use UTC Noon to ensure date stability across timezones
+                    // Append T12:00:00Z so it is parsed as UTC Noon
+                    dateStr += "T12:00:00Z";
+                    isAllDay = true;
                 }
+
                 const date = new Date(dateStr);
                 if (!isNaN(date.getTime())) {
+                    if (isAllDay) date.isAllDay = true;
                     return date;
                 }
             } catch (e) {
@@ -1229,14 +1238,20 @@ function renderTimelineItems(items) {
 // Format event date for timeline display
 function formatEventDate(date) {
     if (!date) return '';
-    return date.toLocaleDateString(undefined, {
+    const options = {
         weekday: 'short',
         month: 'short',
         day: 'numeric',
-        hour: '2-digit',
-        minute: '2-digit',
         timeZone: currentUserTimezone
-    });
+    };
+
+    // Only add time if NOT all day
+    if (!date.isAllDay) {
+        options.hour = '2-digit';
+        options.minute = '2-digit';
+    }
+
+    return date.toLocaleDateString(undefined, options);
 }
 
 // Render a single item, dispatching to type-specific renderer
