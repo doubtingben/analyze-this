@@ -558,6 +558,15 @@ async def share_item(
         item_data.get('item_metadata')
     )
 
+    # Enforce Input Limits on Resolved Data (Fixes JSON bypass)
+    final_title = item_data.get('title')
+    final_content = item_data.get('content')
+
+    if final_title and len(final_title) > MAX_TITLE_LENGTH:
+        raise HTTPException(status_code=400, detail="Title too long")
+    if final_content and len(final_content) > MAX_TEXT_LENGTH:
+        raise HTTPException(status_code=400, detail="Content too long")
+
     # Security Validation: Prevent IDOR/Traversal on image content paths
     # If the backend is going to read this file (images/screenshots), ensure it belongs to the user.
     content_val = item_data.get('content')
