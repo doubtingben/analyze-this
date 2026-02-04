@@ -67,11 +67,16 @@ class SharedItem(BaseModel):
     is_normalized: bool = Field(default=False)
     hidden: bool = Field(default=False)
 
+class NoteType(str, Enum):
+    context = "context"
+    follow_up = "follow_up"
+
 class ItemNote(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid4()))
     item_id: str
     user_email: str
     text: Optional[str] = None
     image_path: Optional[str] = None
+    note_type: str = Field(default="context")
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)

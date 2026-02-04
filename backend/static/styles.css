@@ -1097,6 +1097,32 @@ body {
     margin-top: 16px;
 }
 
+.note-type-toggle {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 0.85rem;
+    color: #666;
+    cursor: pointer;
+    padding: 4px 0;
+}
+
+.note-type-toggle input[type="checkbox"] {
+    margin: 0;
+}
+
+.note-type-badge {
+    display: inline-block;
+    font-size: 0.7rem;
+    font-weight: 600;
+    color: #c2410c;
+    background: #fff7ed;
+    border: 1px solid #fed7aa;
+    border-radius: 4px;
+    padding: 1px 6px;
+    margin-bottom: 4px;
+}
+
 .detail-muted {
     font-size: 12px;
     color: #9ca3af;

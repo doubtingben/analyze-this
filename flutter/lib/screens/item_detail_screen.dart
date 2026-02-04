@@ -331,7 +331,7 @@ class _ItemDetailPageState extends State<_ItemDetailPage> {
     controller.dispose();
   }
 
-  Future<void> _createNote({String? text, String? imagePath}) async {
+  Future<void> _createNote({String? text, String? imagePath, String noteType = 'context'}) async {
     if (widget.authToken == null) return;
     if (text == null && imagePath == null) return;
 
@@ -341,6 +341,7 @@ class _ItemDetailPageState extends State<_ItemDetailPage> {
         widget.item.id,
         text: text,
         imagePath: imagePath,
+        noteType: noteType,
       );
 
       setState(() {
@@ -1084,6 +1085,7 @@ class _ItemDetailPageState extends State<_ItemDetailPage> {
                   await _createNote(
                     text: result['text'] as String?,
                     imagePath: result['imagePath'] as String?,
+                    noteType: result['noteType'] as String? ?? 'context',
                   );
                 }
               },
@@ -1239,6 +1241,24 @@ class _ItemDetailPageState extends State<_ItemDetailPage> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
+                // Follow-up badge
+                if (note.noteType == 'follow_up')
+                  Container(
+                    margin: const EdgeInsets.only(bottom: 4),
+                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                    decoration: BoxDecoration(
+                      color: Colors.orange.withValues(alpha: 0.15),
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                    child: Text(
+                      'Follow-up',
+                      style: TextStyle(
+                        fontSize: 11,
+                        color: Colors.orange[800],
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ),
                 // Note text
                 if (note.text != null && note.text!.isNotEmpty)
                   Text(
@@ -1330,6 +1350,7 @@ class _AddNoteBottomSheet extends StatefulWidget {
 class _AddNoteBottomSheetState extends State<_AddNoteBottomSheet> {
   final TextEditingController _textController = TextEditingController();
   String? _selectedImagePath;
+  bool _isFollowUp = false;
 
   @override
   void dispose() {
@@ -1373,6 +1394,14 @@ class _AddNoteBottomSheetState extends State<_AddNoteBottomSheet> {
             ),
           ),
           const SizedBox(height: AppSpacing.md),
+          CheckboxListTile(
+            value: _isFollowUp,
+            onChanged: (v) => setState(() => _isFollowUp = v ?? false),
+            title: const Text('Follow-up response'),
+            controlAffinity: ListTileControlAffinity.leading,
+            contentPadding: EdgeInsets.zero,
+            dense: true,
+          ),
           if (_selectedImagePath != null) ...[
             Stack(
               children: [
@@ -1460,6 +1489,7 @@ class _AddNoteBottomSheetState extends State<_AddNoteBottomSheet> {
                   Navigator.of(context).pop({
                     'text': text.isNotEmpty ? text : null,
                     'imagePath': _selectedImagePath,
+                    'noteType': _isFollowUp ? 'follow_up' : 'context',
                   });
                 },
                 child: const Text('Save'),

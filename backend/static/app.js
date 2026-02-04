@@ -35,6 +35,7 @@ const detailNotesList = document.getElementById('detail-notes-list');
 const detailNotesLoading = document.getElementById('detail-notes-loading');
 const detailNoteForm = document.getElementById('detail-note-form');
 const detailNoteText = document.getElementById('detail-note-text');
+const detailNoteFollowUp = document.getElementById('detail-note-follow-up');
 const detailItemIdEl = document.getElementById('detail-item-id');
 const detailFollowUpEl = document.getElementById('detail-follow-up');
 const detailFollowUpContentEl = document.getElementById('detail-follow-up-content');
@@ -177,6 +178,8 @@ function setupDetailModal() {
 
         const formData = new FormData();
         formData.append('text', text);
+        const isFollowUp = detailNoteFollowUp.checked;
+        formData.append('note_type', isFollowUp ? 'follow_up' : 'context');
 
         try {
             const response = await fetch(`/api/items/${itemId}/notes`, {
@@ -190,6 +193,7 @@ function setupDetailModal() {
                 throw new Error('Failed to add note');
             }
             detailNoteText.value = '';
+            detailNoteFollowUp.checked = false;
             const note = await response.json();
             await loadDetailNotes();
         } catch (error) {
@@ -1708,6 +1712,13 @@ function renderDetailNotes(notes) {
     notes.forEach(note => {
         const noteEl = document.createElement('div');
         noteEl.className = 'detail-note';
+
+        if (note.note_type === 'follow_up') {
+            const badge = document.createElement('span');
+            badge.className = 'note-type-badge';
+            badge.textContent = 'Follow-up';
+            noteEl.appendChild(badge);
+        }
 
         const textEl = document.createElement('div');
         textEl.textContent = note.text || '';
