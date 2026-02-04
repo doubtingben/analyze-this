@@ -936,7 +936,8 @@ async def create_item_note(
     item_id: str,
     request: Request,
     text: str = Form(None),
-    file: UploadFile = File(None)
+    file: UploadFile = File(None),
+    note_type: str = Form("context")
 ):
     """Create a note for an item (multipart: text + optional file)"""
     user_email = await get_authenticated_email(request)
@@ -954,6 +955,9 @@ async def create_item_note(
 
     if text and len(text) > MAX_TEXT_LENGTH:
         raise HTTPException(status_code=400, detail="Note text too long")
+
+    if note_type not in ("context", "follow_up"):
+        raise HTTPException(status_code=400, detail="note_type must be 'context' or 'follow_up'")
 
     image_path = None
 
@@ -993,7 +997,8 @@ async def create_item_note(
         item_id=item_id,
         user_email=user_email,
         text=text,
-        image_path=image_path
+        image_path=image_path,
+        note_type=note_type
     )
 
     created_note = await db.create_item_note(note)
@@ -1005,6 +1010,7 @@ async def create_item_note(
         'user_email': created_note.user_email,
         'text': created_note.text,
         'image_path': created_note.image_path,
+        'note_type': created_note.note_type,
         'created_at': created_note.created_at,
         'updated_at': created_note.updated_at
     }
@@ -1017,6 +1023,13 @@ async def create_item_note(
         else:
             base_url = base_url.replace("http://", "https://")
             response_data['image_path'] = f"{base_url}/api/content/{response_data['image_path']}"
+
+    # Enqueue follow_up worker job if this is a follow_up note on a follow_up item
+    if note_type == "follow_up" and item.get('status') == 'follow_up':
+        try:
+            await db.enqueue_worker_job(item_id, user_email, "follow_up", {"source": "note"})
+        except Exception as e:
+            print(f"Failed to enqueue follow_up job for item {item_id}: {e}")
 
     return response_data
 
