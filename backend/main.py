@@ -734,12 +734,24 @@ async def get_content(blob_path: str, request: Request):
 
 @app.get("/api/user")
 async def get_current_user(request: Request):
-    user_session = request.session.get('user')
-    if not user_session:
+    auth_header = request.headers.get('Authorization')
+    user_email = None
+    user_info = None
+    
+    if auth_header and auth_header.startswith('Bearer '):
+        token = auth_header.split(' ')[1]
+        user_info = await verify_google_token(token)
+        if user_info:
+            user_email = user_info['email']
+    elif 'user' in request.session:
+        user_info = request.session['user']
+        user_email = user_info.get('email')
+        
+    if not user_email:
         raise HTTPException(status_code=401, detail="Not authenticated")
     
     # Fetch full user profile from DB to get timezone
-    db_user = await db.get_user(user_session.get('email'))
+    db_user = await db.get_user(user_email)
     if db_user:
         return {
             "email": db_user.email, 
@@ -748,11 +760,11 @@ async def get_current_user(request: Request):
             "timezone": db_user.timezone
         }
     
-    # Fallback to session data if DB fetch fails (shouldn't happen for valid users)
+    # Fallback to token/session data if DB fetch fails
     return {
-        "email": user_session.get('email'), 
-        "name": user_session.get('name'), 
-        "picture": user_session.get('picture'),
+        "email": user_email, 
+        "name": user_info.get('name'), 
+        "picture": user_info.get('picture'),
         "timezone": "America/New_York" # Default
     }
 
