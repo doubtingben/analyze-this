@@ -199,7 +199,7 @@ class ApiService {
   }
 
   /// Create a note for an item (with optional file attachment)
-  Future<ItemNote> createNote(String token, String itemId, {String? text, String? imagePath}) async {
+  Future<ItemNote> createNote(String token, String itemId, {String? text, String? imagePath, String noteType = 'context'}) async {
     if (text == null && imagePath == null) {
       throw ArgumentError('At least one of text or imagePath must be provided');
     }
@@ -214,6 +214,7 @@ class ApiService {
       if (text != null) {
         request.fields['text'] = text;
       }
+      request.fields['note_type'] = noteType;
 
       final mimeTypeStr = lookupMimeType(imagePath) ?? 'application/octet-stream';
       final mediaType = MediaType.parse(mimeTypeStr);
@@ -236,6 +237,7 @@ class ApiService {
       final request = http.MultipartRequest('POST', uri);
       request.headers['Authorization'] = 'Bearer $token';
       request.fields['text'] = text!;
+      request.fields['note_type'] = noteType;
 
       final response = await request.send();
       final respBody = await response.stream.bytesToString();
