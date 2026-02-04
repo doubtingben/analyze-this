@@ -21,13 +21,13 @@ echo "Note: Ensure this service account is created and has 'Secret Manager Secre
 echo "Run './backend/scripts/setup-worker-sa.sh' to configure it if needed."
 
 if [ -z "$1" ]; then
-  echo "Usage: ./backend/scripts/deploy-worker.sh <analysis|normalize|manager> [region]"
+  echo "Usage: ./backend/scripts/deploy-worker.sh <analysis|normalize|manager|follow_up> [region]"
   exit 1
 fi
 
 JOB_TYPE="$1"
-if [ "$JOB_TYPE" != "analysis" ] && [ "$JOB_TYPE" != "normalize" ] && [ "$JOB_TYPE" != "manager" ]; then
-  echo "Error: job type must be 'analysis', 'normalize', or 'manager'."
+if [ "$JOB_TYPE" != "analysis" ] && [ "$JOB_TYPE" != "normalize" ] && [ "$JOB_TYPE" != "manager" ] && [ "$JOB_TYPE" != "follow_up" ]; then
+  echo "Error: job type must be 'analysis', 'normalize', 'manager', or 'follow_up'."
   exit 1
 fi
 
