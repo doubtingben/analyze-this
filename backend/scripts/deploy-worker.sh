@@ -35,7 +35,7 @@ if [ -n "$2" ]; then
   REGION="$2"
 fi
 
-JOB_NAME="worker-$JOB_TYPE"
+JOB_NAME="worker-${JOB_TYPE//_/-}"
 SCRIPT_NAME="worker_${JOB_TYPE}.py"
 
 echo "Deploying $JOB_NAME to Google Cloud Run (Service)..."
