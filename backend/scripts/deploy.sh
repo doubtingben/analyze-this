@@ -14,6 +14,7 @@ show_help() {
     echo "  --analysis      Deploy the analysis worker"
     echo "  --normalize     Deploy the normalization worker"
     echo "  --manager       Deploy the manager worker"
+    echo "  --followup      Deploy the follow-up worker"
     echo "  --all           Deploy all services (default)"
     echo "  --help          Show this help message"
 }
@@ -23,6 +24,7 @@ DEPLOY_BACKEND=false
 DEPLOY_ANALYSIS=false
 DEPLOY_NORMALIZE=false
 DEPLOY_MANAGER=false
+DEPLOY_FOLLOWUP=false
 
 # Check args
 if [ $# -eq 0 ]; then
@@ -30,6 +32,7 @@ if [ $# -eq 0 ]; then
     DEPLOY_ANALYSIS=true
     DEPLOY_NORMALIZE=true
     DEPLOY_MANAGER=true
+    DEPLOY_FOLLOWUP=true
 else
     for arg in "$@"; do
         case $arg in
@@ -45,11 +48,15 @@ else
             --manager)
                 DEPLOY_MANAGER=true
                 ;;
+            --followup)
+                DEPLOY_FOLLOWUP=true
+                ;;
             --all)
                 DEPLOY_BACKEND=true
                 DEPLOY_ANALYSIS=true
                 DEPLOY_NORMALIZE=true
                 DEPLOY_MANAGER=true
+                DEPLOY_FOLLOWUP=true
                 ;;
             --help)
                 show_help
@@ -94,6 +101,14 @@ if [ "$DEPLOY_MANAGER" = true ]; then
     echo "Deploying Manager Worker..."
     echo "========================================"
     "$SCRIPT_DIR/deploy-worker.sh" manager
+    echo ""
+fi
+
+if [ "$DEPLOY_FOLLOWUP" = true ]; then
+    echo "========================================"
+    echo "Deploying Follow-up Worker..."
+    echo "========================================"
+    "$SCRIPT_DIR/deploy-worker.sh" follow_up
     echo ""
 fi
 
