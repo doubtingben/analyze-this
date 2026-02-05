@@ -1557,6 +1557,42 @@ body {
     color: #666;
 }
 
+/* Media view */
+.media-section-header {
+    font-size: 1.1rem;
+    font-weight: 600;
+    padding: 16px 0 8px;
+    color: #111827;
+    border-bottom: 1px solid #e5e7eb;
+    margin-bottom: 8px;
+}
+
+.media-badges {
+    display: flex;
+    gap: 6px;
+    padding: 4px 16px 0;
+}
+
+.consumption-time-badge {
+    display: inline-flex;
+    align-items: center;
+    font-size: 0.75rem;
+    color: #6b7280;
+    background: #f3f4f6;
+    padding: 2px 8px;
+    border-radius: 12px;
+}
+
+.availability-badge {
+    display: inline-flex;
+    align-items: center;
+    font-size: 0.75rem;
+    color: #9333ea;
+    background: #f3e8ff;
+    padding: 2px 8px;
+    border-radius: 12px;
+}
+
 @media (max-width: 600px) {
     .container {
         padding: 16px;

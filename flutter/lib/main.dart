@@ -22,7 +22,9 @@ import 'screens/tag_editor_screen.dart';
 
 import 'services/sharing_service.dart' as custom_sharing;
 
-enum ViewMode { all, timeline, followUp }
+enum ViewMode { all, timeline, followUp, media }
+
+const Set<String> _mediaTags = {'to_read', 'to_listen', 'to_watch'};
 
 void main() {
   tz.initializeTimeZones();
@@ -755,6 +757,7 @@ class _MyHomePageState extends State<MyHomePage> {
             ButtonSegment(value: ViewMode.all, label: Text('All')),
             ButtonSegment(value: ViewMode.timeline, label: Text('Timeline')),
             ButtonSegment(value: ViewMode.followUp, label: Text('Follow-up')),
+            ButtonSegment(value: ViewMode.media, label: Text('Media')),
           ],
           selected: {_currentView},
           onSelectionChanged: (Set<ViewMode> selection) {
@@ -830,6 +833,60 @@ class _MyHomePageState extends State<MyHomePage> {
     return tags;
   }
 
+  int? _getConsumptionTime(HistoryItem item) {
+    final analysis = item.analysis;
+    if (analysis == null) return null;
+    final time = analysis['consumption_time_minutes'];
+    if (time is int) return time;
+    if (time is num) return time.toInt();
+    return null;
+  }
+
+  bool _isFutureAvailability(HistoryItem item) {
+    final eventDate = _getEventDateTime(item);
+    if (eventDate == null) return false;
+    return eventDate.isAfter(DateTime.now());
+  }
+
+  String _formatConsumptionTime(int minutes) {
+    if (minutes < 60) return '~$minutes min';
+    final hours = minutes / 60;
+    if (hours < 10) return '~${hours.toStringAsFixed(1)} hr';
+    return '~${hours.round()} hr';
+  }
+
+  Map<String, List<HistoryItem>> _groupItemsByMediaTag(List<HistoryItem> items) {
+    final groups = <String, List<HistoryItem>>{
+      'to_watch': [],
+      'to_listen': [],
+      'to_read': [],
+    };
+
+    for (final item in items) {
+      final tags = item.analysis?['tags'];
+      if (tags is! List) continue;
+      for (final tag in _mediaTags) {
+        if (tags.contains(tag)) {
+          groups[tag]!.add(item);
+        }
+      }
+    }
+
+    // Sort each group by consumption time (nulls last), then by timestamp
+    for (final group in groups.values) {
+      group.sort((a, b) {
+        final timeA = _getConsumptionTime(a);
+        final timeB = _getConsumptionTime(b);
+        if (timeA == null && timeB == null) return b.timestamp.compareTo(a.timestamp);
+        if (timeA == null) return 1;
+        if (timeB == null) return -1;
+        return timeA.compareTo(timeB);
+      });
+    }
+
+    return groups;
+  }
+
   List<HistoryItem> _getFilteredItems() {
     List<HistoryItem> items = List.from(_history);
 
@@ -874,6 +931,14 @@ class _MyHomePageState extends State<MyHomePage> {
         items = items.where((item) => item.status == 'follow_up').toList();
         items.sort((a, b) => b.timestamp.compareTo(a.timestamp));
         break;
+      case ViewMode.media:
+        items = items.where((item) {
+          final tags = item.analysis?['tags'];
+          if (tags is! List) return false;
+          return tags.any((t) => _mediaTags.contains(t));
+        }).toList();
+        items.sort((a, b) => b.timestamp.compareTo(a.timestamp));
+        break;
       case ViewMode.all:
         items.sort((a, b) => b.timestamp.compareTo(a.timestamp));
         break;
@@ -898,6 +963,10 @@ class _MyHomePageState extends State<MyHomePage> {
       case ViewMode.followUp:
         message = 'No items need follow-up';
         icon = Icons.check_circle_outline;
+        break;
+      case ViewMode.media:
+        message = 'No media items found';
+        icon = Icons.play_circle_outline;
         break;
       case ViewMode.all:
         if (_selectedTypes.isNotEmpty || _selectedTags.isNotEmpty || _searchQuery.isNotEmpty) {
@@ -950,6 +1019,10 @@ class _MyHomePageState extends State<MyHomePage> {
       return _buildTimelineList(items);
     }
 
+    if (_currentView == ViewMode.media) {
+      return _buildMediaList(items);
+    }
+
     return ListView.builder(
       padding: const EdgeInsets.all(AppSpacing.lg),
       itemCount: items.length,
@@ -969,6 +1042,128 @@ class _MyHomePageState extends State<MyHomePage> {
           ),
         );
       },
+    );
+  }
+
+  Widget _buildMediaList(List<HistoryItem> items) {
+    final groups = _groupItemsByMediaTag(items);
+    final sections = <Widget>[];
+
+    final itemIndexMap = <String, int>{};
+    for (int i = 0; i < items.length; i++) {
+      itemIndexMap[items[i].id] = i;
+    }
+
+    const groupLabels = {
+      'to_watch': 'To Watch',
+      'to_listen': 'To Listen',
+      'to_read': 'To Read',
+    };
+
+    for (final tag in ['to_watch', 'to_listen', 'to_read']) {
+      final groupItems = groups[tag]!;
+      if (groupItems.isEmpty) continue;
+
+      // Section header
+      sections.add(
+        Padding(
+          padding: const EdgeInsets.fromLTRB(0, AppSpacing.lg, 0, AppSpacing.sm),
+          child: Text(
+            groupLabels[tag]!,
+            style: Theme.of(context).textTheme.titleMedium?.copyWith(
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+        ),
+      );
+
+      // Items in this group
+      for (int i = 0; i < groupItems.length; i++) {
+        final item = groupItems[i];
+        final consumptionTime = _getConsumptionTime(item);
+        final isFuture = _isFutureAvailability(item);
+
+        sections.add(
+          Padding(
+            padding: EdgeInsets.only(bottom: i < groupItems.length - 1 ? AppSpacing.md : 0),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // Badges row
+                if (consumptionTime != null || isFuture)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 4),
+                    child: Row(
+                      children: [
+                        if (consumptionTime != null)
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: AppSpacing.sm, vertical: 2),
+                            decoration: BoxDecoration(
+                              color: Colors.grey.shade100,
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            child: Text(
+                              _formatConsumptionTime(consumptionTime),
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: Colors.grey.shade700,
+                              ),
+                            ),
+                          ),
+                        if (consumptionTime != null && isFuture) const SizedBox(width: AppSpacing.xs),
+                        if (isFuture)
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: AppSpacing.sm, vertical: 2),
+                            decoration: BoxDecoration(
+                              color: Colors.purple.shade50,
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            child: Text(
+                              'Available ${DateFormat('MMM d').format(_getEventDateTime(item)!)}',
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: Colors.purple.shade700,
+                              ),
+                            ),
+                          ),
+                      ],
+                    ),
+                  ),
+                // The item card itself
+                HistoryCard(
+                  item: item,
+                  authToken: _authToken,
+                  isHidden: item.isHidden,
+                  onToggleHidden: () => _setItemHidden(item, !item.isHidden),
+                  onTap: () => _openDetailFiltered(items, itemIndexMap[item.id] ?? 0),
+                  onDelete: () => _deleteItem(item),
+                ),
+              ],
+            ),
+          ),
+        );
+      }
+    }
+
+    if (sections.isEmpty) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(AppSpacing.xl),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(Icons.play_circle_outline, size: 48, color: AppColors.textSecondary),
+              const SizedBox(height: AppSpacing.lg),
+              Text('No media items found', style: Theme.of(context).textTheme.titleMedium),
+            ],
+          ),
+        ),
+      );
+    }
+
+    return ListView(
+      padding: const EdgeInsets.all(AppSpacing.lg),
+      children: sections,
     );
   }
 

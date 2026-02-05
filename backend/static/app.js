@@ -73,7 +73,7 @@ const tagEditorList = document.getElementById('tag-editor-list');
 
 // State
 let allItems = [];
-let currentView = 'all'; // 'all', 'timeline', or 'follow_up'
+let currentView = 'all'; // 'all', 'timeline', 'follow_up', or 'media'
 let selectedTypes = new Set();     // Empty = all types
 let selectedTags = new Set();      // Empty = no tag filter
 let searchQuery = '';              // Empty = no search
@@ -963,6 +963,62 @@ function getAllAvailableTags() {
     return tags;
 }
 
+const MEDIA_TAGS = new Set(['to_read', 'to_listen', 'to_watch']);
+
+function getConsumptionTime(item) {
+    const time = item.analysis?.consumption_time_minutes;
+    if (typeof time === 'number') return Math.round(time);
+    return null;
+}
+
+function isFutureAvailability(item) {
+    const eventDate = getEventDateTime(item);
+    if (!eventDate) return false;
+    return eventDate > new Date();
+}
+
+function formatConsumptionTime(minutes) {
+    if (minutes < 60) return `~${minutes} min`;
+    const hours = minutes / 60;
+    if (hours < 10) return `~${hours.toFixed(1)} hr`;
+    return `~${Math.round(hours)} hr`;
+}
+
+function formatAvailabilityDate(date) {
+    return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+}
+
+function groupItemsByMediaTag(items) {
+    const groups = {
+        to_watch: [],
+        to_listen: [],
+        to_read: [],
+    };
+
+    for (const item of items) {
+        const tags = item.analysis?.tags || [];
+        for (const tag of MEDIA_TAGS) {
+            if (tags.includes(tag)) {
+                groups[tag].push(item);
+            }
+        }
+    }
+
+    // Sort each group by consumption time (nulls last), then by created_at
+    for (const group of Object.values(groups)) {
+        group.sort((a, b) => {
+            const timeA = getConsumptionTime(a);
+            const timeB = getConsumptionTime(b);
+            if (timeA === null && timeB === null) return (new Date(b.created_at || 0)) - (new Date(a.created_at || 0));
+            if (timeA === null) return 1;
+            if (timeB === null) return -1;
+            return timeA - timeB;
+        });
+    }
+
+    return groups;
+}
+
 // Get event date from analysis details
 function getEventDateTime(item) {
     if (!item.analysis) return null;
@@ -1074,6 +1130,12 @@ function getFilteredItems() {
             const dateB = new Date(b.created_at || 0);
             return dateB - dateA;
         });
+    } else if (currentView === 'media') {
+        items = items.filter(item => {
+            const tags = item.analysis?.tags || [];
+            return tags.some(t => MEDIA_TAGS.has(t));
+        });
+        // Sorting happens in groupItemsByMediaTag
     } else {
         // Default: sort by created_at descending (newest first)
         items.sort((a, b) => {
@@ -1166,6 +1228,8 @@ function renderItems(items) {
             emptyStateEl.querySelector('p').textContent = 'No items with event dates found.';
         } else if (currentView === 'follow_up') {
             emptyStateEl.querySelector('p').textContent = 'No items need follow-up.';
+        } else if (currentView === 'media') {
+            emptyStateEl.querySelector('p').textContent = 'No media items found.';
         } else if (selectedTypes.size > 0) {
             const typeNames = [...selectedTypes].map(formatType).join(', ');
             emptyStateEl.querySelector('p').textContent = `No ${typeNames} items found.`;
@@ -1181,6 +1245,8 @@ function renderItems(items) {
 
     if (currentView === 'timeline') {
         renderTimelineItems(items);
+    } else if (currentView === 'media') {
+        renderMediaItems(items);
     } else {
         items.forEach(item => {
             const card = renderItem(item);
@@ -1236,6 +1302,71 @@ function renderTimelineItems(items) {
         setTimeout(() => {
             nowDividerEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
         }, 100);
+    }
+}
+
+function renderMediaItems(items) {
+    const groups = groupItemsByMediaTag(items);
+    const groupLabels = {
+        to_watch: 'To Watch',
+        to_listen: 'To Listen',
+        to_read: 'To Read',
+    };
+
+    let hasAnyItems = false;
+
+    for (const tag of ['to_watch', 'to_listen', 'to_read']) {
+        const groupItems = groups[tag];
+        if (groupItems.length === 0) continue;
+
+        hasAnyItems = true;
+
+        // Section header
+        const header = document.createElement('div');
+        header.className = 'media-section-header';
+        header.textContent = groupLabels[tag];
+        itemsContainerEl.appendChild(header);
+
+        // Items
+        for (const item of groupItems) {
+            const card = renderItem(item);
+
+            // Add badges before the card content
+            const badgesRow = document.createElement('div');
+            badgesRow.className = 'media-badges';
+
+            const consumptionTime = getConsumptionTime(item);
+            if (consumptionTime !== null) {
+                const badge = document.createElement('span');
+                badge.className = 'consumption-time-badge';
+                badge.textContent = formatConsumptionTime(consumptionTime);
+                badgesRow.appendChild(badge);
+            }
+
+            if (isFutureAvailability(item)) {
+                const badge = document.createElement('span');
+                badge.className = 'availability-badge';
+                badge.textContent = `Available ${formatAvailabilityDate(getEventDateTime(item))}`;
+                badgesRow.appendChild(badge);
+            }
+
+            if (badgesRow.children.length > 0) {
+                // Insert badges after the header element
+                const headerEl = card.querySelector('.item-header');
+                if (headerEl && headerEl.nextSibling) {
+                    card.insertBefore(badgesRow, headerEl.nextSibling);
+                } else {
+                    card.appendChild(badgesRow);
+                }
+            }
+
+            itemsContainerEl.appendChild(card);
+        }
+    }
+
+    if (!hasAnyItems) {
+        emptyStateEl.style.display = 'block';
+        emptyStateEl.querySelector('p').textContent = 'No media items found.';
     }
 }
 
