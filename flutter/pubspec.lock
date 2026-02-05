@@ -558,7 +558,7 @@ packages:
       path: "third_party/objective_c"
       relative: true
     source: path
-    version: "9.2.4"
+    version: "9.2.5"
   octo_image:
     dependency: transitive
     description:

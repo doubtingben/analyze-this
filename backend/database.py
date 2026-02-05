@@ -83,6 +83,10 @@ class DatabaseInterface(ABC):
         pass
 
     @abstractmethod
+    async def get_follow_up_notes(self, item_id: str) -> List[dict]:
+        pass
+
+    @abstractmethod
     async def get_item_note_count(self, item_ids: List[str]) -> Dict[str, int]:
         pass
 
@@ -116,6 +120,14 @@ class DatabaseInterface(ABC):
 
     @abstractmethod
     async def reset_failed_jobs(self, job_type: str, error_msg: str) -> int:
+        pass
+
+    @abstractmethod
+    async def get_failed_worker_jobs(self, job_type: Optional[str] = None, max_attempts: Optional[int] = None) -> List[dict]:
+        pass
+
+    @abstractmethod
+    async def reset_worker_job(self, job_id: str) -> bool:
         pass
 
 
@@ -252,6 +264,7 @@ class FirestoreDatabase(DatabaseInterface):
             'user_email': note.user_email,
             'text': note.text,
             'image_path': note.image_path,
+            'note_type': note.note_type,
             'created_at': note.created_at,
             'updated_at': note.updated_at,
         }
@@ -262,6 +275,24 @@ class FirestoreDatabase(DatabaseInterface):
         notes_ref = self.db.collection('item_notes')
         query = notes_ref.where(
             filter=FieldFilter('item_id', '==', item_id)
+        ).order_by('created_at', direction=firestore.Query.ASCENDING)
+
+        def get_docs():
+            notes = []
+            for doc in query.stream():
+                data = doc.to_dict()
+                notes.append(data)
+            return notes
+
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(None, get_docs)
+
+    async def get_follow_up_notes(self, item_id: str) -> List[dict]:
+        notes_ref = self.db.collection('item_notes')
+        query = notes_ref.where(
+            filter=FieldFilter('item_id', '==', item_id)
+        ).where(
+            filter=FieldFilter('note_type', '==', 'follow_up')
         ).order_by('created_at', direction=firestore.Query.ASCENDING)
 
         def get_docs():
@@ -487,6 +518,42 @@ class FirestoreDatabase(DatabaseInterface):
             
         return count
 
+    async def get_failed_worker_jobs(self, job_type: Optional[str] = None, max_attempts: Optional[int] = None) -> List[dict]:
+        def get_jobs():
+            query = (
+                self.db.collection('worker_queue')
+                .where(filter=FieldFilter('status', '==', WorkerJobStatus.failed.value))
+            )
+            if job_type:
+                query = query.where(filter=FieldFilter('job_type', '==', job_type))
+
+            results = []
+            for doc in query.stream():
+                data = doc.to_dict()
+                data['firestore_id'] = doc.id
+                attempts = int(data.get('attempts', 0))
+                if max_attempts is not None and attempts > max_attempts:
+                    continue
+                results.append(data)
+            return results
+
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(None, get_jobs)
+
+    async def reset_worker_job(self, job_id: str) -> bool:
+        job_ref = self.db.collection('worker_queue').document(job_id)
+        doc = job_ref.get()
+        if not doc.exists:
+            return False
+        job_ref.update({
+            'status': WorkerJobStatus.queued.value,
+            'error': firestore.DELETE_FIELD,
+            'worker_id': firestore.DELETE_FIELD,
+            'lease_expires_at': firestore.DELETE_FIELD,
+            'updated_at': firestore.SERVER_TIMESTAMP
+        })
+        return True
+
 
 # --- SQLite Implementation ---
 
@@ -522,6 +589,7 @@ class DBItemNote(Base):
     user_email = Column(String, nullable=False)
     text = Column(String, nullable=True)
     image_path = Column(String, nullable=True)
+    note_type = Column(String, default='context')
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.datetime.utcnow)
 
@@ -579,6 +647,14 @@ class SQLiteDatabase(DatabaseInterface):
                     sync_conn.execute(text("CREATE INDEX ix_item_notes_item_id ON item_notes (item_id)"))
 
             await conn.run_sync(ensure_item_notes_table)
+
+            def ensure_note_type_column(sync_conn):
+                inspector = inspect(sync_conn)
+                columns = [col['name'] for col in inspector.get_columns('item_notes')]
+                if 'note_type' not in columns:
+                    sync_conn.execute(text("ALTER TABLE item_notes ADD COLUMN note_type VARCHAR DEFAULT 'context'"))
+
+            await conn.run_sync(ensure_note_type_column)
 
             def ensure_worker_queue_table(sync_conn):
                 inspector = inspect(sync_conn)
@@ -847,6 +923,7 @@ class SQLiteDatabase(DatabaseInterface):
                 user_email=note.user_email,
                 text=note.text,
                 image_path=note.image_path,
+                note_type=note.note_type,
                 created_at=note.created_at or datetime.datetime.utcnow(),
                 updated_at=note.updated_at or datetime.datetime.utcnow()
             )
@@ -872,6 +949,45 @@ class SQLiteDatabase(DatabaseInterface):
             await session.commit()
             return result.rowcount
 
+    async def get_failed_worker_jobs(self, job_type: Optional[str] = None, max_attempts: Optional[int] = None) -> List[dict]:
+        async with self.SessionLocal() as session:
+            query = select(DBWorkerJob).where(DBWorkerJob.status == 'failed')
+            if job_type:
+                query = query.where(DBWorkerJob.job_type == job_type)
+            if max_attempts is not None:
+                query = query.where(DBWorkerJob.attempts <= max_attempts)
+
+            result = await session.execute(query)
+            jobs = result.scalars().all()
+            return [
+                {
+                    'firestore_id': job.id,
+                    'item_id': job.item_id,
+                    'user_email': job.user_email,
+                    'job_type': job.job_type,
+                    'status': job.status,
+                    'attempts': job.attempts,
+                    'error': job.error,
+                    'created_at': job.created_at.isoformat() if job.created_at else None,
+                    'updated_at': job.updated_at.isoformat() if job.updated_at else None,
+                }
+                for job in jobs
+            ]
+
+    async def reset_worker_job(self, job_id: str) -> bool:
+        async with self.SessionLocal() as session:
+            result = await session.execute(select(DBWorkerJob).where(DBWorkerJob.id == job_id))
+            job = result.scalar_one_or_none()
+            if not job:
+                return False
+            job.status = WorkerJobStatus.queued.value
+            job.error = None
+            job.worker_id = None
+            job.lease_expires_at = None
+            job.updated_at = datetime.datetime.now(datetime.timezone.utc)
+            await session.commit()
+            return True
+
     async def get_item_notes(self, item_id: str) -> List[dict]:
         async with self.SessionLocal() as session:
             result = await session.execute(
@@ -888,6 +1004,30 @@ class SQLiteDatabase(DatabaseInterface):
                     'user_email': note.user_email,
                     'text': note.text,
                     'image_path': note.image_path,
+                    'note_type': note.note_type,
+                    'created_at': note.created_at,
+                    'updated_at': note.updated_at
+                }
+                for note in notes
+            ]
+
+    async def get_follow_up_notes(self, item_id: str) -> List[dict]:
+        async with self.SessionLocal() as session:
+            result = await session.execute(
+                select(DBItemNote)
+                .where(DBItemNote.item_id == item_id)
+                .where(DBItemNote.note_type == 'follow_up')
+                .order_by(DBItemNote.created_at.asc())
+            )
+            notes = result.scalars().all()
+            return [
+                {
+                    'id': note.id,
+                    'item_id': note.item_id,
+                    'user_email': note.user_email,
+                    'text': note.text,
+                    'image_path': note.image_path,
+                    'note_type': note.note_type,
                     'created_at': note.created_at,
                     'updated_at': note.updated_at
                 }

@@ -95,8 +95,8 @@ async def _process_normalize_item(db, data, context, allow_missing_analysis=Fals
     analysis_data = data.get('analysis')
 
     if not analysis_data and not allow_missing_analysis:
-        logger.warning(f"Skipping item {doc_id}: Analysis is missing and --allow-no-analysis is not set. Marking as skipped.")
-        return True, None  # Return True (success) so it doesn't stay in Error state.
+        logger.warning(f"Skipping item {doc_id}: Analysis is missing and --allow-no-analysis is not set. Marking as failed (will retry).")
+        return False, "missing_analysis"
 
     loop = asyncio.get_running_loop()
     new_title = await loop.run_in_executor(None, normalize_item_title, content, item_type, current_title, analysis_data)

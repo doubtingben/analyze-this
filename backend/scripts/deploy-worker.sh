@@ -21,13 +21,13 @@ echo "Note: Ensure this service account is created and has 'Secret Manager Secre
 echo "Run './backend/scripts/setup-worker-sa.sh' to configure it if needed."
 
 if [ -z "$1" ]; then
-  echo "Usage: ./backend/scripts/deploy-worker.sh <analysis|normalize> [region]"
+  echo "Usage: ./backend/scripts/deploy-worker.sh <analysis|normalize|manager|follow_up> [region]"
   exit 1
 fi
 
 JOB_TYPE="$1"
-if [ "$JOB_TYPE" != "analysis" ] && [ "$JOB_TYPE" != "normalize" ]; then
-  echo "Error: job type must be 'analysis' or 'normalize'."
+if [ "$JOB_TYPE" != "analysis" ] && [ "$JOB_TYPE" != "normalize" ] && [ "$JOB_TYPE" != "manager" ] && [ "$JOB_TYPE" != "follow_up" ]; then
+  echo "Error: job type must be 'analysis', 'normalize', 'manager', or 'follow_up'."
   exit 1
 fi
 
@@ -59,6 +59,19 @@ check_secret "OPENROUTER_API_KEY"
 check_secret "OPENROUTER_MODEL"
 check_secret "irc-server-password"
 
+# Build deploy command args based on job type
+if [ "$JOB_TYPE" = "manager" ]; then
+  # Manager only needs Firestore access, not OpenRouter
+  LAUNCH_ARGS="$SCRIPT_NAME","--loop"
+  SECRETS_FLAGS="--set-secrets=FIREBASE_STORAGE_BUCKET=FIREBASE_STORAGE_BUCKET:latest"
+else
+  # Analysis and normalize workers need OpenRouter
+  check_secret "OPENROUTER_API_KEY"
+  check_secret "OPENROUTER_MODEL"
+  LAUNCH_ARGS="$SCRIPT_NAME","--queue","--loop"
+  SECRETS_FLAGS="--set-secrets=FIREBASE_STORAGE_BUCKET=FIREBASE_STORAGE_BUCKET:latest --set-secrets=OPENROUTER_API_KEY=OPENROUTER_API_KEY:latest --set-secrets=OPENROUTER_MODEL=OPENROUTER_MODEL:latest"
+fi
+
 # Deploy as Cloud Run Service
 # We use --no-cpu-throttling so the background loop runs even when not processing requests
 # We use --min-instances 1 to keep at least one worker alive
@@ -67,7 +80,7 @@ gcloud run deploy $JOB_NAME \
   --region $REGION \
   --project $PROJECT_ID \
   --command python \
-  --args "$SCRIPT_NAME","--queue","--loop" \
+  --args "$LAUNCH_ARGS" \
   --service-account "$SERVICE_ACCOUNT_EMAIL" \
   --set-env-vars "APP_ENV=production" \
   --set-env-vars "IRCCAT_URL=https://chat.interestedparticipant.org/send" \

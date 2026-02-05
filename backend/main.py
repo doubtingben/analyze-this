@@ -40,6 +40,9 @@ GOOGLE_ANDROID_CLIENT_ID = (os.getenv("GOOGLE_ANDROID_CLIENT_ID") or "").strip()
 GOOGLE_ANDROID_DEBUG_CLIENT_ID = (os.getenv("GOOGLE_ANDROID_DEBUG_CLIENT_ID") or "").strip() or None
 APP_ENV = os.getenv("APP_ENV", "production").strip()
 
+if APP_ENV == "production" and (not SECRET_KEY or SECRET_KEY == "super-secret-key-please-change"):
+    raise RuntimeError("CRITICAL SECURITY ERROR: SECRET_KEY must be set to a secure value in production!")
+
 MAX_TITLE_LENGTH = 255
 MAX_TEXT_LENGTH = 10000
 CSRF_KEY = "csrf_token"
@@ -559,6 +562,15 @@ async def share_item(
         item_data.get('item_metadata')
     )
 
+    # Enforce Input Limits on Resolved Data (Fixes JSON bypass)
+    final_title = item_data.get('title')
+    final_content = item_data.get('content')
+
+    if final_title and len(final_title) > MAX_TITLE_LENGTH:
+        raise HTTPException(status_code=400, detail="Title too long")
+    if final_content and len(final_content) > MAX_TEXT_LENGTH:
+        raise HTTPException(status_code=400, detail="Content too long")
+
     # Security Validation: Prevent IDOR/Traversal on image content paths
     # If the backend is going to read this file (images/screenshots), ensure it belongs to the user.
     content_val = item_data.get('content')
@@ -735,12 +747,24 @@ async def get_content(blob_path: str, request: Request):
 
 @app.get("/api/user")
 async def get_current_user(request: Request):
-    user_session = request.session.get('user')
-    if not user_session:
+    auth_header = request.headers.get('Authorization')
+    user_email = None
+    user_info = None
+    
+    if auth_header and auth_header.startswith('Bearer '):
+        token = auth_header.split(' ')[1]
+        user_info = await verify_google_token(token)
+        if user_info:
+            user_email = user_info['email']
+    elif 'user' in request.session:
+        user_info = request.session['user']
+        user_email = user_info.get('email')
+        
+    if not user_email:
         raise HTTPException(status_code=401, detail="Not authenticated")
     
     # Fetch full user profile from DB to get timezone
-    db_user = await db.get_user(user_session.get('email'))
+    db_user = await db.get_user(user_email)
     if db_user:
         return {
             "email": db_user.email, 
@@ -749,11 +773,11 @@ async def get_current_user(request: Request):
             "timezone": db_user.timezone
         }
     
-    # Fallback to session data if DB fetch fails (shouldn't happen for valid users)
+    # Fallback to token/session data if DB fetch fails
     return {
-        "email": user_session.get('email'), 
-        "name": user_session.get('name'), 
-        "picture": user_session.get('picture'),
+        "email": user_email, 
+        "name": user_info.get('name'), 
+        "picture": user_info.get('picture'),
         "timezone": "America/New_York" # Default
     }
 
@@ -946,7 +970,8 @@ async def create_item_note(
     item_id: str,
     request: Request,
     text: str = Form(None),
-    file: UploadFile = File(None)
+    file: UploadFile = File(None),
+    note_type: str = Form("context")
 ):
     """Create a note for an item (multipart: text + optional file)"""
     user_email = await get_authenticated_email(request)
@@ -964,6 +989,9 @@ async def create_item_note(
 
     if text and len(text) > MAX_TEXT_LENGTH:
         raise HTTPException(status_code=400, detail="Note text too long")
+
+    if note_type not in ("context", "follow_up"):
+        raise HTTPException(status_code=400, detail="note_type must be 'context' or 'follow_up'")
 
     image_path = None
 
@@ -1003,7 +1031,8 @@ async def create_item_note(
         item_id=item_id,
         user_email=user_email,
         text=text,
-        image_path=image_path
+        image_path=image_path,
+        note_type=note_type
     )
 
     created_note = await db.create_item_note(note)
@@ -1015,6 +1044,7 @@ async def create_item_note(
         'user_email': created_note.user_email,
         'text': created_note.text,
         'image_path': created_note.image_path,
+        'note_type': created_note.note_type,
         'created_at': created_note.created_at,
         'updated_at': created_note.updated_at
     }
@@ -1027,6 +1057,13 @@ async def create_item_note(
         else:
             base_url = base_url.replace("http://", "https://")
             response_data['image_path'] = f"{base_url}/api/content/{response_data['image_path']}"
+
+    # Enqueue follow_up worker job if this is a follow_up note on a follow_up item
+    if note_type == "follow_up" and item.get('status') == 'follow_up':
+        try:
+            await db.enqueue_worker_job(item_id, user_email, "follow_up", {"source": "note"})
+        except Exception as e:
+            print(f"Failed to enqueue follow_up job for item {item_id}: {e}")
 
     return response_data
 

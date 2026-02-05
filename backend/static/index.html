@@ -182,6 +182,10 @@
                     <div id="detail-notes-list" class="detail-notes-list"></div>
                     <form id="detail-note-form" class="detail-note-form">
                         <textarea id="detail-note-text" rows="3" placeholder="Add a note..."></textarea>
+                        <label class="note-type-toggle">
+                            <input type="checkbox" id="detail-note-follow-up" />
+                            <span>Follow-up response</span>
+                        </label>
                         <button class="btn-primary" type="submit">Add note</button>
                     </form>
                 </div>
@@ -250,6 +254,7 @@
                     <button class="view-btn active" data-view="all">All</button>
                     <button class="view-btn" data-view="timeline">Timeline</button>
                     <button class="view-btn" data-view="follow_up">Follow-up</button>
+                    <button class="view-btn" data-view="media">Media</button>
                 </div>
                 <div class="filter-controls">
                     <input type="text" id="search-input" class="search-input" placeholder="Search items...">
