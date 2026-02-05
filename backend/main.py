@@ -39,6 +39,9 @@ GOOGLE_ANDROID_CLIENT_ID = (os.getenv("GOOGLE_ANDROID_CLIENT_ID") or "").strip()
 GOOGLE_ANDROID_DEBUG_CLIENT_ID = (os.getenv("GOOGLE_ANDROID_DEBUG_CLIENT_ID") or "").strip() or None
 APP_ENV = os.getenv("APP_ENV", "production").strip()
 
+if APP_ENV == "production" and (not SECRET_KEY or SECRET_KEY == "super-secret-key-please-change"):
+    raise RuntimeError("CRITICAL SECURITY ERROR: SECRET_KEY must be set to a secure value in production!")
+
 MAX_TITLE_LENGTH = 255
 MAX_TEXT_LENGTH = 10000
 CSRF_KEY = "csrf_token"
