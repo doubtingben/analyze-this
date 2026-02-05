@@ -1049,6 +1049,11 @@ class _MyHomePageState extends State<MyHomePage> {
     final groups = _groupItemsByMediaTag(items);
     final sections = <Widget>[];
 
+    final itemIndexMap = <String, int>{};
+    for (int i = 0; i < items.length; i++) {
+      itemIndexMap[items[i].id] = i;
+    }
+
     const groupLabels = {
       'to_watch': 'To Watch',
       'to_listen': 'To Listen',
@@ -1062,7 +1067,7 @@ class _MyHomePageState extends State<MyHomePage> {
       // Section header
       sections.add(
         Padding(
-          padding: const EdgeInsets.fromLTRB(0, 16, 0, 8),
+          padding: const EdgeInsets.fromLTRB(0, AppSpacing.lg, 0, AppSpacing.sm),
           child: Text(
             groupLabels[tag]!,
             style: Theme.of(context).textTheme.titleMedium?.copyWith(
@@ -1092,7 +1097,7 @@ class _MyHomePageState extends State<MyHomePage> {
                       children: [
                         if (consumptionTime != null)
                           Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                            padding: const EdgeInsets.symmetric(horizontal: AppSpacing.sm, vertical: 2),
                             decoration: BoxDecoration(
                               color: Colors.grey.shade100,
                               borderRadius: BorderRadius.circular(12),
@@ -1105,10 +1110,10 @@ class _MyHomePageState extends State<MyHomePage> {
                               ),
                             ),
                           ),
-                        if (consumptionTime != null && isFuture) const SizedBox(width: 6),
+                        if (consumptionTime != null && isFuture) const SizedBox(width: AppSpacing.xs),
                         if (isFuture)
                           Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                            padding: const EdgeInsets.symmetric(horizontal: AppSpacing.sm, vertical: 2),
                             decoration: BoxDecoration(
                               color: Colors.purple.shade50,
                               borderRadius: BorderRadius.circular(12),
@@ -1130,7 +1135,7 @@ class _MyHomePageState extends State<MyHomePage> {
                   authToken: _authToken,
                   isHidden: item.isHidden,
                   onToggleHidden: () => _setItemHidden(item, !item.isHidden),
-                  onTap: () => _openDetailFiltered(items, items.indexOf(item)),
+                  onTap: () => _openDetailFiltered(items, itemIndexMap[item.id] ?? 0),
                   onDelete: () => _deleteItem(item),
                 ),
               ],
