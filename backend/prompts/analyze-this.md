@@ -27,6 +27,7 @@ If all these fields are found with high confidence, set the item.status to "time
     "location": "Location name",
     "principal": "Person or organization name"
   }
+  "consumption_time_minutes": 90,
   "tags": [... optional tags ...]
 }
 ```
@@ -34,6 +35,16 @@ If all these fields are found with high confidence, set the item.status to "time
 ### Media items
 
 If the shared item is a piece of media like a link to an article, a book, a podcast, a forth coming movie, then the follow up would be assuming the user wants to consume the media at a future time. If the media isn't out yet, put it on the timeline! Give it a tag like "to_read", "to_watch", "to_listen".
+
+#### Estimating consumption_time_minutes
+
+For media items, estimate the time in minutes it would take the user to consume the content:
+- **Articles/text**: Estimate reading time at ~200-250 words per minute. Use word count from metadata if available, otherwise estimate from the description or snippet length.
+- **Videos/audio (podcasts, movies, etc.)**: Use the duration from metadata if available. Otherwise, estimate from the description (e.g., "1 hour podcast" = 60 minutes).
+- **Books**: Estimate total reading time in minutes (e.g., a 300-page book at ~1.5 minutes per page = 450 minutes).
+- **Non-media items** (events, receipts, tasks, memes): Set `consumption_time_minutes` to `null`.
+
+The value must be an integer (minutes) or `null` if not applicable.
 
 ### Meme items
 
@@ -47,6 +58,7 @@ If analysis does not produce a high confidence timeline item, set the item.statu
 {
   "overview": "1-2 sentence human-readable summary of the content",
   "follow_up": "what details are needed",
+  "consumption_time_minutes": null,
   "tags": [... optional tags ...]
 }
 ```
