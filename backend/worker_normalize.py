@@ -5,6 +5,7 @@ import logging
 from dotenv import load_dotenv
 
 from normalization import normalize_item_title
+from notifications import format_item_message, send_irccat_message
 from database import DatabaseInterface, FirestoreDatabase, SQLiteDatabase
 from worker_analysis import get_db
 from worker_queue import process_queue_jobs
@@ -67,9 +68,10 @@ async def process_normalization_async(limit: int = 10, item_id: str = None, forc
             new_title = await loop.run_in_executor(None, normalize_item_title, content, item_type, current_title, analysis_data)
             
             updates = {'is_normalized': True}
-            
+
             if new_title:
-                if new_title != current_title:
+                title_changed = new_title != current_title
+                if title_changed:
                     logger.info(f"Title changed: '{current_title}' -> '{new_title}'")
                     updates['title'] = new_title
                 else:
@@ -77,9 +79,20 @@ async def process_normalization_async(limit: int = 10, item_id: str = None, forc
             else:
                 logger.warning(f"Normalization returned None/Failed for {doc_id}. Marking as error.")
                 updates['status'] = 'error'
-            
+
             await db.update_shared_item(doc_id, updates)
             logger.info(f"Successfully updated processing for item {doc_id}.")
+
+            if new_title:
+                detail = f"title: \"{new_title}\"" if title_changed else "title unchanged"
+                message = format_item_message(
+                    "normalized",
+                    data.get('user_email') or "unknown",
+                    doc_id,
+                    new_title if title_changed else current_title,
+                    detail=detail,
+                )
+                await send_irccat_message(message)
                 
         except Exception as e:
             logger.critical(f"FATAL: Failed to normalize item {doc_id}. internal error: {e}")
@@ -103,14 +116,24 @@ async def _process_normalize_item(db, data, context, allow_missing_analysis=Fals
 
     updates = {'is_normalized': True}
     if new_title:
-        if new_title != current_title:
+        title_changed = new_title != current_title
+        if title_changed:
             logger.info(f"Title changed: '{current_title}' -> '{new_title}'")
             updates['title'] = new_title
         else:
             logger.info("Title unchanged.")
-        
+
         await db.update_shared_item(doc_id, updates)
         logger.info(f"Successfully normalized item {doc_id}.")
+        detail = f"title: \"{new_title}\"" if title_changed else "title unchanged"
+        message = format_item_message(
+            "normalized",
+            data.get('user_email') or "unknown",
+            doc_id,
+            new_title if title_changed else current_title,
+            detail=detail,
+        )
+        await send_irccat_message(message)
         return True, None
     else:
         logger.warning(f"Normalization returned None/Failed for {doc_id}. Marking as error.")

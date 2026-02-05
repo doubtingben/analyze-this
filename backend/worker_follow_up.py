@@ -5,6 +5,7 @@ import logging
 from dotenv import load_dotenv
 
 from follow_up_analysis import analyze_follow_up
+from notifications import format_item_message, send_irccat_message
 from database import DatabaseInterface, FirestoreDatabase, SQLiteDatabase
 from worker_queue import process_queue_jobs
 
@@ -84,6 +85,19 @@ async def _process_follow_up_item(db, data, context):
                 'next_step': new_status
             })
             logger.info(f"Successfully re-analyzed item {doc_id}. New status: {new_status}")
+            message = format_item_message(
+                "follow-up re-analyzed",
+                user_email or "unknown",
+                doc_id,
+                item.get('title'),
+                detail=f"status={new_status}",
+            )
+            await send_irccat_message(message)
+            if new_status in ("timeline", "follow_up"):
+                event = "added to timeline" if new_status == "timeline" else "marked for follow up"
+                await send_irccat_message(format_item_message(
+                    event, user_email or "unknown", doc_id, item.get('title'),
+                ))
             return True, None
 
         error_msg = "Unknown error"
