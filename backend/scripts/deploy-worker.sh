@@ -55,6 +55,9 @@ check_secret() {
 
 echo "Verifying required secrets in Secret Manager..."
 check_secret "FIREBASE_STORAGE_BUCKET"
+check_secret "OPENROUTER_API_KEY"
+check_secret "OPENROUTER_MODEL"
+check_secret "irc-server-password"
 
 # Build deploy command args based on job type
 if [ "$JOB_TYPE" = "manager" ]; then
@@ -80,7 +83,12 @@ gcloud run deploy $JOB_NAME \
   --args "$LAUNCH_ARGS" \
   --service-account "$SERVICE_ACCOUNT_EMAIL" \
   --set-env-vars "APP_ENV=production" \
-  $SECRETS_FLAGS \
+  --set-env-vars "IRCCAT_URL=https://chat.interestedparticipant.org/send" \
+  --set-env-vars "IRCCAT_ENABLED=true" \
+  --set-secrets "IRCCAT_BEARER_TOKEN=irc-server-password:latest" \
+  --set-secrets "FIREBASE_STORAGE_BUCKET=FIREBASE_STORAGE_BUCKET:latest" \
+  --set-secrets "OPENROUTER_API_KEY=OPENROUTER_API_KEY:latest" \
+  --set-secrets "OPENROUTER_MODEL=OPENROUTER_MODEL:latest" \
   --no-cpu-throttling \
   --min-instances 1 \
   --max-instances 1 \

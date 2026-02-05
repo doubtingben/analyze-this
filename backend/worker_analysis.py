@@ -5,6 +5,7 @@ import logging
 from dotenv import load_dotenv
 
 from analysis import analyze_content
+from notifications import format_item_message, send_irccat_message
 from database import DatabaseInterface, FirestoreDatabase, SQLiteDatabase
 from worker_queue import process_queue_jobs
 
@@ -106,6 +107,23 @@ async def process_items_async(limit: int = 10, item_id: str = None, force: bool 
                     'next_step': new_status
                 })
                 logger.info(f"Successfully analyzed item {doc_id}.")
+                message = format_item_message(
+                    "analyzed",
+                    data.get('user_email') or "unknown",
+                    doc_id,
+                    data.get('title'),
+                    detail=f"status={new_status}"
+                )
+                await send_irccat_message(message)
+                if new_status in ("timeline", "follow_up"):
+                    event = "added to timeline" if new_status == "timeline" else "marked for follow up"
+                    follow_message = format_item_message(
+                        event,
+                        data.get('user_email') or "unknown",
+                        doc_id,
+                        data.get('title')
+                    )
+                    await send_irccat_message(follow_message)
             else:
                 error_msg = "Unknown error"
                 if analysis_result:
@@ -160,6 +178,23 @@ async def _process_analysis_item(db, data, context):
                 'next_step': new_status
             })
             logger.info(f"Successfully analyzed item {doc_id}.")
+            message = format_item_message(
+                "analyzed",
+                data.get('user_email') or "unknown",
+                doc_id,
+                data.get('title'),
+                detail=f"status={new_status}"
+            )
+            await send_irccat_message(message)
+            if new_status in ("timeline", "follow_up"):
+                event = "added to timeline" if new_status == "timeline" else "marked for follow up"
+                follow_message = format_item_message(
+                    event,
+                    data.get('user_email') or "unknown",
+                    doc_id,
+                    data.get('title')
+                )
+                await send_irccat_message(follow_message)
             return True, None
 
         error_msg = "Unknown error"

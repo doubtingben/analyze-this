@@ -38,6 +38,7 @@ check_secret "GOOGLE_EXTENSION_CLIENT_ID"
 check_secret "GOOGLE_IOS_CLIENT_ID"
 check_secret "GOOGLE_ANDROID_CLIENT_ID"
 check_secret "GOOGLE_ANDROID_DEBUG_CLIENT_ID"
+check_secret "irc-server-password"
 
 # Generate version file
 GIT_HASH=$(git rev-parse HEAD)
@@ -55,6 +56,9 @@ gcloud run deploy $SERVICE_NAME \
   --project $PROJECT_ID \
   --allow-unauthenticated \
   --set-env-vars "^@^ALLOWED_ORIGINS=https://interestedparticipant.org,chrome-extension://ilbniloahihehnhalvffoelaliheab" \
+  --set-env-vars "IRCCAT_URL=https://chat.interestedparticipant.org/send" \
+  --set-env-vars "IRCCAT_ENABLED=true" \
+  --set-secrets "IRCCAT_BEARER_TOKEN=irc-server-password:latest" \
   --set-secrets "SECRET_KEY=SECRET_KEY:latest" \
   --set-secrets "GOOGLE_CLIENT_ID=GOOGLE_CLIENT_ID:latest" \
   --set-secrets "GOOGLE_CLIENT_SECRET=GOOGLE_CLIENT_SECRET:latest" \

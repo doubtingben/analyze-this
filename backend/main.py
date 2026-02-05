@@ -25,6 +25,7 @@ import firebase_admin
 from firebase_admin import credentials, storage
 
 from models import User, SharedItem, ShareType, ItemNote
+from notifications import format_item_message, send_irccat_message
 from database import DatabaseInterface, FirestoreDatabase, SQLiteDatabase
 
 # Load environment variables
@@ -616,6 +617,15 @@ async def share_item(
         await db.enqueue_worker_job(new_item.id, user_email, "normalize", {"source": "share"})
     except Exception as e:
         print(f"Failed to enqueue worker jobs for item {new_item.id}: {e}")
+
+    message = format_item_message(
+        "shared",
+        user_email,
+        new_item.id,
+        new_item.title,
+        detail=f"type={new_item.type}"
+    )
+    asyncio.create_task(send_irccat_message(message))
     
     return new_item
 
@@ -1153,6 +1163,7 @@ async def update_item(item_id: str, request: Request, body: ItemUpdateRequest):
         raise HTTPException(status_code=403, detail="Forbidden: You do not own this item")
 
     updates = {}
+    previous_status = item.get('status')
 
     # Update title directly
     if body.title is not None:
@@ -1194,6 +1205,13 @@ async def update_item(item_id: str, request: Request, body: ItemUpdateRequest):
     success = await db.update_shared_item(item_id, updates)
     if not success:
         raise HTTPException(status_code=404, detail="Item not found")
+
+    new_status = updates.get('status', previous_status)
+    if new_status in ('timeline', 'follow_up') and new_status != previous_status:
+        event = "added to timeline" if new_status == 'timeline' else "marked for follow up"
+        title = updates.get('title', item.get('title'))
+        message = format_item_message(event, user_email, item_id, title)
+        asyncio.create_task(send_irccat_message(message))
 
     return {"status": "success", "item_id": item_id}
 
