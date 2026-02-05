@@ -562,6 +562,23 @@ async def share_item(
         item_data.get('item_metadata')
     )
 
+    # Security Validation: URL Sanitization for XSS Prevention
+    content_val = item_data.get('content')
+    if content_val:
+        lower_content = content_val.lower().strip()
+
+        # 1. Block dangerous schemes for web_url
+        if normalized_type == ShareType.web_url:
+            if not (lower_content.startswith('http://') or lower_content.startswith('https://')):
+                raise HTTPException(status_code=400, detail="Invalid URL scheme: Only http/https allowed")
+
+        # 2. Global block for javascript:/data:text payloads
+        if lower_content.startswith(('javascript:', 'vbscript:')):
+             raise HTTPException(status_code=400, detail="Invalid content: Unsafe scheme")
+
+        if lower_content.startswith('data:') and not lower_content.startswith('data:image/'):
+             raise HTTPException(status_code=400, detail="Invalid content: Unsafe data URL")
+
     # Enforce Input Limits on Resolved Data (Fixes JSON bypass)
     final_title = item_data.get('title')
     final_content = item_data.get('content')
