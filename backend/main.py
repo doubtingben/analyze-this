@@ -10,7 +10,7 @@ import zipfile
 from pathlib import Path
 from contextlib import asynccontextmanager
 from typing import Optional, List
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from fastapi import FastAPI, Request, Depends, HTTPException, status, File, UploadFile, Form, BackgroundTasks
 from fastapi.responses import HTMLResponse, RedirectResponse, FileResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
@@ -978,8 +978,19 @@ class ItemUpdateRequest(BaseModel):
     title: Optional[str] = Field(None, max_length=MAX_TITLE_LENGTH)
     tags: Optional[List[str]] = None
     status: Optional[str] = None
-    next_step: Optional[str] = None
-    follow_up: Optional[str] = None  # Set to "" to clear
+    next_step: Optional[str] = Field(None, max_length=MAX_TITLE_LENGTH)
+    follow_up: Optional[str] = Field(None, max_length=MAX_TEXT_LENGTH)
+
+    @field_validator('tags')
+    @classmethod
+    def validate_tags(cls, v):
+        if v is not None:
+            if len(v) > 50:
+                raise ValueError('Too many tags')
+            for tag in v:
+                if len(tag) > 50:
+                    raise ValueError('Tag too long')
+        return v
 
 
 @app.post("/api/items/{item_id}/notes", dependencies=[Depends(check_csrf)])
