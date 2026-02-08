@@ -9,6 +9,7 @@ from notifications import format_item_message, send_irccat_message
 from database import DatabaseInterface, FirestoreDatabase, SQLiteDatabase
 from worker_analysis import get_db
 from worker_queue import process_queue_jobs
+from tracing import create_span, add_span_attributes, add_span_event, record_exception
 
 # Configure logging
 logging.basicConfig(
@@ -107,12 +108,29 @@ async def _process_normalize_item(db, data, context, allow_missing_analysis=Fals
     item_type = data.get('type', 'text')
     analysis_data = data.get('analysis')
 
+    # Add tracing attributes
+    add_span_attributes({
+        "normalize.item_id": doc_id,
+        "normalize.item_type": item_type,
+        "normalize.has_analysis": analysis_data is not None,
+        "normalize.current_title": current_title[:50] if current_title else None,
+    })
+
     if not analysis_data and not allow_missing_analysis:
         logger.warning(f"Skipping item {doc_id}: Analysis is missing and --allow-no-analysis is not set. Marking as failed (will retry).")
+        add_span_event("skipped_missing_analysis", {"item_id": doc_id})
         return False, "missing_analysis"
 
-    loop = asyncio.get_running_loop()
-    new_title = await loop.run_in_executor(None, normalize_item_title, content, item_type, current_title, analysis_data)
+    # Run LLM normalization
+    with create_span("llm_title_normalization", {"item.id": doc_id, "item.type": item_type}) as llm_span:
+        loop = asyncio.get_running_loop()
+        new_title = await loop.run_in_executor(None, normalize_item_title, content, item_type, current_title, analysis_data)
+
+        if new_title:
+            llm_span.set_attribute("normalization.success", True)
+            llm_span.set_attribute("normalization.title_changed", new_title != current_title)
+        else:
+            llm_span.set_attribute("normalization.success", False)
 
     updates = {'is_normalized': True}
     if new_title:
@@ -123,8 +141,17 @@ async def _process_normalize_item(db, data, context, allow_missing_analysis=Fals
         else:
             logger.info("Title unchanged.")
 
-        await db.update_shared_item(doc_id, updates)
+        # Save results
+        with create_span("save_normalization_result", {"item.id": doc_id}) as save_span:
+            await db.update_shared_item(doc_id, updates)
+            save_span.set_attribute("save.title_changed", title_changed)
+
         logger.info(f"Successfully normalized item {doc_id}.")
+        add_span_event("normalization_completed", {
+            "item_id": doc_id,
+            "title_changed": title_changed,
+        })
+
         detail = f"title: \"{new_title}\"" if title_changed else "title unchanged"
         message = format_item_message(
             "normalized",
@@ -137,6 +164,7 @@ async def _process_normalize_item(db, data, context, allow_missing_analysis=Fals
         return True, None
     else:
         logger.warning(f"Normalization returned None/Failed for {doc_id}. Marking as error.")
+        add_span_event("normalization_failed", {"item_id": doc_id})
         updates['status'] = 'error'
         await db.update_shared_item(doc_id, updates)
         return False, "normalization_returned_none"

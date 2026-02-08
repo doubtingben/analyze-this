@@ -96,6 +96,37 @@ With the current implementation, the following operations are traced:
   - `create_note_db`: Database insert for the note
   - `enqueue_follow_up_job`: Worker job enqueue (for follow_up notes)
 
+### Share Item API (`POST /api/share`)
+
+- **Root span**: The entire request (auto-instrumented by FastAPI)
+- **Child spans**:
+  - `enqueue_worker_jobs`: Enqueues analysis and normalization jobs
+    - Injects trace context for distributed tracing
+
+### Distributed Tracing: Analysis Worker
+
+When an item is shared, trace context is propagated to the analysis worker.
+
+**Worker spans** (`worker.analysis`):
+- `job.id`, `job.type`, `job.item_id`, `worker.id`
+- `linked.trace_id`: Reference to original API trace
+
+**Child spans**:
+- `update_status_analyzing`: Mark item as analyzing
+- `llm_content_analysis`: Wrapper around analysis
+  - `openrouter_api_call`: LLM call with token metrics
+- `save_analysis_result`: Save to database
+
+### Distributed Tracing: Normalization Worker
+
+**Worker spans** (`worker.normalize`):
+- Same structure as analysis worker
+
+**Child spans**:
+- `llm_title_normalization`: Wrapper around normalization
+  - `openrouter_api_call`: LLM call with token metrics
+- `save_normalization_result`: Save to database
+
 ### Distributed Tracing: Follow-up Worker
 
 When a follow_up note is created, the trace context is propagated to the worker queue. The follow-up worker creates a **linked trace** that references the original API request.
@@ -182,6 +213,26 @@ WHERE linked.trace_id = "<trace_id_from_note_creation>"
 **Failed worker jobs:**
 ```
 WHERE name = "worker.follow_up" AND job.status = "failed"
+```
+
+**Analysis worker performance:**
+```
+WHERE name = "worker.analysis" HEATMAP(duration_ms) GROUP BY job.status
+```
+
+**Normalization worker performance:**
+```
+WHERE name = "worker.normalize" HEATMAP(duration_ms)
+```
+
+**All LLM calls by operation type:**
+```
+WHERE name = "openrouter_api_call" HEATMAP(duration_ms) GROUP BY llm.operation
+```
+
+**Items with timeline or follow-up results:**
+```
+WHERE llm.result.has_timeline = true OR llm.result.has_follow_up = true
 ```
 
 ## Disabling Tracing
