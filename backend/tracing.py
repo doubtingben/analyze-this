@@ -71,6 +71,11 @@ def init_tracing() -> Optional[trace.Tracer]:
                 key, value = header.split("=", 1)
                 headers[key.strip()] = value.strip()
 
+    # Add Honeycomb header if key is present
+    honeycomb_key = os.getenv("HONEYCOMB_API_KEY")
+    if honeycomb_key and "x-honeycomb-team" not in headers:
+        headers["x-honeycomb-team"] = honeycomb_key
+
     # Create OTLP exporter
     otlp_exporter = OTLPSpanExporter(
         endpoint=f"{OTEL_EXPORTER_OTLP_ENDPOINT}/v1/traces",
