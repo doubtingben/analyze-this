@@ -155,6 +155,50 @@
                         <label class="detail-label">Item ID</label>
                         <div id="detail-item-id" class="detail-text detail-item-id"></div>
                     </div>
+
+                    <!-- Timeline Section (collapsible) -->
+                    <div id="detail-timeline" class="detail-timeline" style="display: none;">
+                        <button type="button" class="detail-timeline-header" id="detail-timeline-toggle">
+                            <span class="detail-timeline-icon">📅</span>
+                            <span class="detail-timeline-title">Timeline</span>
+                            <span id="detail-timeline-count" class="detail-timeline-count"></span>
+                            <span class="detail-timeline-caret">▾</span>
+                        </button>
+                        <div id="detail-timeline-content" class="detail-timeline-content" style="display: none;">
+                            <div class="detail-timeline-fields">
+                                <div class="detail-timeline-field">
+                                    <label class="detail-label" for="detail-timeline-date">Date</label>
+                                    <div id="detail-timeline-date-view" class="detail-text"></div>
+                                    <input id="detail-timeline-date" class="detail-input" type="text" placeholder="YYYY-MM-DD" style="display: none;" />
+                                </div>
+                                <div class="detail-timeline-field">
+                                    <label class="detail-label" for="detail-timeline-time">Time</label>
+                                    <div id="detail-timeline-time-view" class="detail-text"></div>
+                                    <input id="detail-timeline-time" class="detail-input" type="text" placeholder="HH:MM:SS" style="display: none;" />
+                                </div>
+                                <div class="detail-timeline-field">
+                                    <label class="detail-label" for="detail-timeline-duration">Duration</label>
+                                    <div id="detail-timeline-duration-view" class="detail-text"></div>
+                                    <input id="detail-timeline-duration" class="detail-input" type="text" placeholder="HH:MM:SS" style="display: none;" />
+                                </div>
+                                <div class="detail-timeline-field">
+                                    <label class="detail-label" for="detail-timeline-principal">Principal</label>
+                                    <div id="detail-timeline-principal-view" class="detail-text"></div>
+                                    <input id="detail-timeline-principal" class="detail-input" type="text" placeholder="Person or organization" style="display: none;" />
+                                </div>
+                                <div class="detail-timeline-field">
+                                    <label class="detail-label" for="detail-timeline-location">Location</label>
+                                    <div id="detail-timeline-location-view" class="detail-text"></div>
+                                    <input id="detail-timeline-location" class="detail-input" type="text" placeholder="Where it takes place" style="display: none;" />
+                                </div>
+                                <div class="detail-timeline-field">
+                                    <label class="detail-label" for="detail-timeline-purpose">Purpose</label>
+                                    <div id="detail-timeline-purpose-view" class="detail-text"></div>
+                                    <input id="detail-timeline-purpose" class="detail-input" type="text" placeholder="What the event is about" style="display: none;" />
+                                </div>
+                            </div>
+                        </div>
+                    </div>
                 </div>
                 <div class="detail-footer" id="detail-edit-actions" style="display: none;">
                     <button class="btn-secondary" id="detail-cancel-btn" type="button">Cancel</button>

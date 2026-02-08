@@ -147,6 +147,15 @@ class _ItemDetailPageState extends State<_ItemDetailPage> {
   final ApiService _apiService = ApiService();
   final ImagePicker _imagePicker = ImagePicker();
 
+  // Timeline state
+  bool _isTimelineExpanded = false;
+  late TextEditingController _timelineDateController;
+  late TextEditingController _timelineTimeController;
+  late TextEditingController _timelineDurationController;
+  late TextEditingController _timelinePrincipalController;
+  late TextEditingController _timelineLocationController;
+  late TextEditingController _timelinePurposeController;
+
   bool get _hasAnalysis =>
       widget.item.analysis != null && widget.item.analysis!.isNotEmpty;
   bool get _isImageType =>
@@ -158,7 +167,38 @@ class _ItemDetailPageState extends State<_ItemDetailPage> {
     super.initState();
     _titleController = TextEditingController(text: widget.item.title ?? '');
     _editableTags = _getTagsFromAnalysis();
+    _initTimelineControllers();
     _loadNotes();
+  }
+
+  void _initTimelineControllers() {
+    final timeline = _getTimelineFromAnalysis();
+    _timelineDateController = TextEditingController(text: timeline['date'] ?? '');
+    _timelineTimeController = TextEditingController(text: timeline['time'] ?? '');
+    _timelineDurationController = TextEditingController(text: timeline['duration'] ?? '');
+    _timelinePrincipalController = TextEditingController(text: timeline['principal'] ?? '');
+    _timelineLocationController = TextEditingController(text: timeline['location'] ?? '');
+    _timelinePurposeController = TextEditingController(text: timeline['purpose'] ?? '');
+  }
+
+  Map<String, String?> _getTimelineFromAnalysis() {
+    final analysis = widget.item.analysis;
+    if (analysis == null) return {};
+    final timeline = analysis['timeline'];
+    if (timeline == null || timeline is! Map) return {};
+    return {
+      'date': timeline['date']?.toString(),
+      'time': timeline['time']?.toString(),
+      'duration': timeline['duration']?.toString(),
+      'principal': timeline['principal']?.toString(),
+      'location': timeline['location']?.toString(),
+      'purpose': timeline['purpose']?.toString(),
+    };
+  }
+
+  bool get _hasTimeline {
+    final timeline = _getTimelineFromAnalysis();
+    return timeline.values.any((v) => v != null && v.isNotEmpty);
   }
 
   @override
@@ -167,18 +207,36 @@ class _ItemDetailPageState extends State<_ItemDetailPage> {
     if (oldWidget.item.id != widget.item.id) {
       _titleController.text = widget.item.title ?? '';
       _editableTags = _getTagsFromAnalysis();
+      _resetTimelineControllers();
       _loadNotes();
     }
     // If exiting edit mode without saving, reset values
     if (oldWidget.isEditMode && !widget.isEditMode) {
       _titleController.text = widget.item.title ?? '';
       _editableTags = _getTagsFromAnalysis();
+      _resetTimelineControllers();
     }
+  }
+
+  void _resetTimelineControllers() {
+    final timeline = _getTimelineFromAnalysis();
+    _timelineDateController.text = timeline['date'] ?? '';
+    _timelineTimeController.text = timeline['time'] ?? '';
+    _timelineDurationController.text = timeline['duration'] ?? '';
+    _timelinePrincipalController.text = timeline['principal'] ?? '';
+    _timelineLocationController.text = timeline['location'] ?? '';
+    _timelinePurposeController.text = timeline['purpose'] ?? '';
   }
 
   @override
   void dispose() {
     _titleController.dispose();
+    _timelineDateController.dispose();
+    _timelineTimeController.dispose();
+    _timelineDurationController.dispose();
+    _timelinePrincipalController.dispose();
+    _timelineLocationController.dispose();
+    _timelinePurposeController.dispose();
     super.dispose();
   }
 
@@ -222,8 +280,12 @@ class _ItemDetailPageState extends State<_ItemDetailPage> {
     if (widget.authToken == null) return;
 
     final newTitle = _titleController.text.trim();
+    final currentTimeline = _getTimelineFromAnalysis();
+    final newTimeline = _buildTimelinePayload();
+
     final hasChanges = newTitle != (widget.item.title ?? '') ||
-        !_listEquals(_editableTags, _getTagsFromAnalysis());
+        !_listEquals(_editableTags, _getTagsFromAnalysis()) ||
+        _hasTimelineChanges(currentTimeline, newTimeline);
 
     if (!hasChanges) {
       widget.onEditModeChanged?.call(false);
@@ -240,12 +302,18 @@ class _ItemDetailPageState extends State<_ItemDetailPage> {
         widget.item.id,
         title: newTitle.isNotEmpty ? newTitle : null,
         tags: _editableTags,
+        timeline: newTimeline.isNotEmpty ? newTimeline : null,
       );
 
       // Update the item locally
       final updatedAnalysis =
           Map<String, dynamic>.from(widget.item.analysis ?? {});
       updatedAnalysis['tags'] = _editableTags;
+
+      // Update timeline in local analysis
+      if (newTimeline.isNotEmpty) {
+        updatedAnalysis['timeline'] = newTimeline;
+      }
 
       final updatedItem = widget.item.copyWith(
         title: newTitle.isNotEmpty ? newTitle : widget.item.title,
@@ -273,6 +341,35 @@ class _ItemDetailPageState extends State<_ItemDetailPage> {
         });
       }
     }
+  }
+
+  Map<String, String?> _buildTimelinePayload() {
+    final result = <String, String?>{};
+    final date = _timelineDateController.text.trim();
+    final time = _timelineTimeController.text.trim();
+    final duration = _timelineDurationController.text.trim();
+    final principal = _timelinePrincipalController.text.trim();
+    final location = _timelineLocationController.text.trim();
+    final purpose = _timelinePurposeController.text.trim();
+
+    if (date.isNotEmpty) result['date'] = date;
+    if (time.isNotEmpty) result['time'] = time;
+    if (duration.isNotEmpty) result['duration'] = duration;
+    if (principal.isNotEmpty) result['principal'] = principal;
+    if (location.isNotEmpty) result['location'] = location;
+    if (purpose.isNotEmpty) result['purpose'] = purpose;
+
+    return result;
+  }
+
+  bool _hasTimelineChanges(Map<String, String?> current, Map<String, String?> updated) {
+    const fields = ['date', 'time', 'duration', 'principal', 'location', 'purpose'];
+    for (final field in fields) {
+      final currentVal = current[field] ?? '';
+      final updatedVal = updated[field] ?? '';
+      if (currentVal != updatedVal) return true;
+    }
+    return false;
   }
 
   bool _listEquals(List<String> a, List<String> b) {
@@ -532,6 +629,9 @@ class _ItemDetailPageState extends State<_ItemDetailPage> {
                         const SizedBox(height: AppSpacing.xl),
                         _buildAnalysisSection(context),
                       ],
+
+                      // Timeline section (collapsible, editable)
+                      _buildTimelineSection(context),
 
                       // Follow-up section (if available)
                       _buildFollowUpSection(context),
@@ -957,6 +1057,195 @@ class _ItemDetailPageState extends State<_ItemDetailPage> {
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildTimelineSection(BuildContext context) {
+    final theme = Theme.of(context);
+    final hasData = _hasTimeline;
+
+    // Only show if there's data or we're in edit mode
+    if (!hasData && !widget.isEditMode) {
+      return const SizedBox.shrink();
+    }
+
+    return Padding(
+      padding: const EdgeInsets.only(top: AppSpacing.xl),
+      child: Theme(
+        data: theme.copyWith(dividerColor: Colors.transparent),
+        child: ExpansionTile(
+          key: PageStorageKey('timeline_${widget.item.id}'),
+          initiallyExpanded: _isTimelineExpanded,
+          onExpansionChanged: (expanded) {
+            setState(() => _isTimelineExpanded = expanded);
+          },
+          tilePadding: EdgeInsets.zero,
+          childrenPadding: const EdgeInsets.only(top: AppSpacing.sm),
+          title: Row(
+            children: [
+              const Text('📅', style: TextStyle(fontSize: 16)),
+              const SizedBox(width: AppSpacing.sm),
+              Text('Timeline', style: theme.textTheme.titleMedium),
+              if (hasData) ...[
+                const SizedBox(width: AppSpacing.sm),
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: AppSpacing.sm,
+                    vertical: 2,
+                  ),
+                  decoration: BoxDecoration(
+                    color: AppColors.primary.withValues(alpha: 0.1),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Text(
+                    _countTimelineFields().toString(),
+                    style: theme.textTheme.labelSmall?.copyWith(
+                      color: AppColors.primary,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+              ],
+            ],
+          ),
+          children: [
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(AppSpacing.md),
+              decoration: BoxDecoration(
+                color: AppColors.badgeBackground,
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: widget.isEditMode
+                  ? _buildEditableTimelineFields(context)
+                  : _buildReadonlyTimelineFields(context),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  int _countTimelineFields() {
+    final timeline = _getTimelineFromAnalysis();
+    return timeline.values.where((v) => v != null && v.isNotEmpty).length;
+  }
+
+  Widget _buildReadonlyTimelineFields(BuildContext context) {
+    final theme = Theme.of(context);
+    final timeline = _getTimelineFromAnalysis();
+
+    final fields = <MapEntry<String, String>>[];
+    if (timeline['date']?.isNotEmpty == true) {
+      fields.add(MapEntry('Date', timeline['date']!));
+    }
+    if (timeline['time']?.isNotEmpty == true) {
+      fields.add(MapEntry('Time', timeline['time']!));
+    }
+    if (timeline['duration']?.isNotEmpty == true) {
+      fields.add(MapEntry('Duration', timeline['duration']!));
+    }
+    if (timeline['principal']?.isNotEmpty == true) {
+      fields.add(MapEntry('Principal', timeline['principal']!));
+    }
+    if (timeline['location']?.isNotEmpty == true) {
+      fields.add(MapEntry('Location', timeline['location']!));
+    }
+    if (timeline['purpose']?.isNotEmpty == true) {
+      fields.add(MapEntry('Purpose', timeline['purpose']!));
+    }
+
+    return Column(
+      children: fields
+          .map((e) => Padding(
+                padding: const EdgeInsets.symmetric(vertical: AppSpacing.xs),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    SizedBox(
+                      width: 80,
+                      child: Text(
+                        e.key,
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          fontWeight: FontWeight.w500,
+                          color: AppColors.textSecondary,
+                        ),
+                      ),
+                    ),
+                    Expanded(
+                      child: Text(
+                        e.value,
+                        style: theme.textTheme.bodyMedium,
+                      ),
+                    ),
+                  ],
+                ),
+              ))
+          .toList(),
+    );
+  }
+
+  Widget _buildEditableTimelineFields(BuildContext context) {
+    return Column(
+      children: [
+        _buildTimelineTextField(
+          controller: _timelineDateController,
+          label: 'Date',
+          hint: 'YYYY-MM-DD',
+        ),
+        const SizedBox(height: AppSpacing.md),
+        _buildTimelineTextField(
+          controller: _timelineTimeController,
+          label: 'Time',
+          hint: 'HH:MM:SS',
+        ),
+        const SizedBox(height: AppSpacing.md),
+        _buildTimelineTextField(
+          controller: _timelineDurationController,
+          label: 'Duration',
+          hint: 'HH:MM:SS',
+        ),
+        const SizedBox(height: AppSpacing.md),
+        _buildTimelineTextField(
+          controller: _timelinePrincipalController,
+          label: 'Principal',
+          hint: 'Person or organization',
+        ),
+        const SizedBox(height: AppSpacing.md),
+        _buildTimelineTextField(
+          controller: _timelineLocationController,
+          label: 'Location',
+          hint: 'Where it takes place',
+        ),
+        const SizedBox(height: AppSpacing.md),
+        _buildTimelineTextField(
+          controller: _timelinePurposeController,
+          label: 'Purpose',
+          hint: 'What the event is about',
+          maxLines: 2,
+        ),
+      ],
+    );
+  }
+
+  Widget _buildTimelineTextField({
+    required TextEditingController controller,
+    required String label,
+    required String hint,
+    int maxLines = 1,
+  }) {
+    return TextField(
+      controller: controller,
+      maxLines: maxLines,
+      decoration: InputDecoration(
+        labelText: label,
+        hintText: hint,
+        border: const OutlineInputBorder(),
+        contentPadding: const EdgeInsets.symmetric(
+          horizontal: AppSpacing.md,
+          vertical: AppSpacing.sm,
+        ),
       ),
     );
   }

@@ -1000,12 +1000,21 @@ async def delete_item(item_id: str, request: Request):
 class NoteCountRequest(BaseModel):
     item_ids: List[str]
 
+class TimelineUpdate(BaseModel):
+    date: Optional[str] = Field(None, max_length=10)  # YYYY-MM-DD
+    time: Optional[str] = Field(None, max_length=8)   # HH:MM:SS
+    duration: Optional[str] = Field(None, max_length=8)  # HH:MM:SS
+    principal: Optional[str] = Field(None, max_length=255)
+    location: Optional[str] = Field(None, max_length=255)
+    purpose: Optional[str] = Field(None, max_length=500)
+
 class ItemUpdateRequest(BaseModel):
     title: Optional[str] = Field(None, max_length=MAX_TITLE_LENGTH)
     tags: Optional[List[str]] = None
     status: Optional[str] = None
     next_step: Optional[str] = Field(None, max_length=MAX_TITLE_LENGTH)
     follow_up: Optional[str] = Field(None, max_length=MAX_TEXT_LENGTH)
+    timeline: Optional[TimelineUpdate] = None
 
     @field_validator('tags')
     @classmethod
@@ -1288,6 +1297,29 @@ async def update_item(item_id: str, request: Request, body: ItemUpdateRequest):
             current_analysis.pop('follow_up', None)
         else:
             current_analysis['follow_up'] = body.follow_up
+        analysis_updated = True
+
+    # Update timeline within analysis object
+    if body.timeline is not None:
+        current_timeline = current_analysis.get('timeline') or {}
+        if not isinstance(current_timeline, dict):
+            current_timeline = {}
+
+        # Update only non-None fields
+        if body.timeline.date is not None:
+            current_timeline['date'] = body.timeline.date
+        if body.timeline.time is not None:
+            current_timeline['time'] = body.timeline.time
+        if body.timeline.duration is not None:
+            current_timeline['duration'] = body.timeline.duration
+        if body.timeline.principal is not None:
+            current_timeline['principal'] = body.timeline.principal
+        if body.timeline.location is not None:
+            current_timeline['location'] = body.timeline.location
+        if body.timeline.purpose is not None:
+            current_timeline['purpose'] = body.timeline.purpose
+
+        current_analysis['timeline'] = current_timeline
         analysis_updated = True
 
     if analysis_updated:
