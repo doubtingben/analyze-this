@@ -27,6 +27,11 @@ from firebase_admin import credentials, storage
 from models import User, SharedItem, ShareType, ItemNote
 from notifications import format_item_message, send_irccat_message
 from database import DatabaseInterface, FirestoreDatabase, SQLiteDatabase
+from tracing import (
+    init_tracing, shutdown_tracing, get_tracer, create_span,
+    add_span_attributes, record_exception, add_span_event
+)
+from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
 
 # Load environment variables
 load_dotenv()
@@ -61,6 +66,10 @@ db: DatabaseInterface = None
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global db
+
+    # Initialize OpenTelemetry tracing
+    init_tracing()
+
     if APP_ENV == "development":
         print("Starting in DEVELOPMENT mode using SQLite")
         db = SQLiteDatabase()
@@ -71,8 +80,14 @@ async def lifespan(app: FastAPI):
         db = FirestoreDatabase()
     yield
 
+    # Shutdown tracing on app shutdown
+    shutdown_tracing()
+
 
 app = FastAPI(lifespan=lifespan)
+
+# Instrument FastAPI for OpenTelemetry tracing
+FastAPIInstrumentor.instrument_app(app)
 
 # CORS Setup
 ALLOWED_ORIGINS_ENV = os.getenv("ALLOWED_ORIGINS")
@@ -1002,14 +1017,32 @@ async def create_item_note(
     note_type: str = Form("context")
 ):
     """Create a note for an item (multipart: text + optional file)"""
-    user_email = await get_authenticated_email(request)
+    # Add tracing attributes for this request
+    add_span_attributes({
+        "note.item_id": item_id,
+        "note.type": note_type,
+        "note.has_file": file is not None,
+        "note.has_text": text is not None
+    })
+
+    # Authentication
+    with create_span("authenticate_user") as auth_span:
+        user_email = await get_authenticated_email(request)
+        auth_span.set_attribute("user.email", user_email)
+
+    add_span_attributes({"user.email": user_email})
 
     # Verify the item exists and belongs to the user
-    item = await db.get_shared_item(item_id)
-    if not item:
-        raise HTTPException(status_code=404, detail="Item not found")
-    if item.get('user_email') != user_email:
-        raise HTTPException(status_code=403, detail="Forbidden: You do not own this item")
+    with create_span("lookup_item", {"item.id": item_id}) as lookup_span:
+        item = await db.get_shared_item(item_id)
+        if not item:
+            lookup_span.set_attribute("item.found", False)
+            raise HTTPException(status_code=404, detail="Item not found")
+        lookup_span.set_attribute("item.found", True)
+        lookup_span.set_attribute("item.type", item.get('type', 'unknown'))
+        if item.get('user_email') != user_email:
+            lookup_span.set_attribute("item.access_denied", True)
+            raise HTTPException(status_code=403, detail="Forbidden: You do not own this item")
 
     # Validate that at least text or file is provided
     if not text and not file:
@@ -1025,45 +1058,58 @@ async def create_item_note(
 
     # Handle file upload if provided
     if file:
-        try:
-            extension = file.filename.split('.')[-1] if '.' in file.filename else 'bin'
-            blob_name_relative = f"uploads/{user_email}/notes/{uuid.uuid4()}.{extension}"
+        with create_span("upload_file") as upload_span:
+            try:
+                extension = file.filename.split('.')[-1] if '.' in file.filename else 'bin'
+                blob_name_relative = f"uploads/{user_email}/notes/{uuid.uuid4()}.{extension}"
+                upload_span.set_attribute("file.extension", extension)
+                upload_span.set_attribute("file.storage_path", blob_name_relative)
 
-            if APP_ENV == "development":
-                local_path = Path("static") / blob_name_relative
-                local_path.parent.mkdir(parents=True, exist_ok=True)
+                if APP_ENV == "development":
+                    upload_span.set_attribute("file.storage_type", "local")
+                    local_path = Path("static") / blob_name_relative
+                    local_path.parent.mkdir(parents=True, exist_ok=True)
 
-                with open(local_path, "wb") as buffer:
-                    shutil.copyfileobj(file.file, buffer)
+                    with open(local_path, "wb") as buffer:
+                        shutil.copyfileobj(file.file, buffer)
 
-                image_path = blob_name_relative
-            else:
-                # Production: Firebase Storage
-                bucket = storage.bucket()
-                blob = bucket.blob(blob_name_relative)
+                    image_path = blob_name_relative
+                else:
+                    # Production: Firebase Storage
+                    upload_span.set_attribute("file.storage_type", "firebase")
+                    bucket = storage.bucket()
+                    blob = bucket.blob(blob_name_relative)
 
-                await file.seek(0)
-                loop = asyncio.get_running_loop()
-                await loop.run_in_executor(
-                    None,
-                    functools.partial(blob.upload_from_file, file.file, content_type=file.content_type)
-                )
-                image_path = blob_name_relative
+                    await file.seek(0)
+                    loop = asyncio.get_running_loop()
+                    await loop.run_in_executor(
+                        None,
+                        functools.partial(blob.upload_from_file, file.file, content_type=file.content_type)
+                    )
+                    image_path = blob_name_relative
 
-        except Exception as e:
-            print(f"Note file upload failed: {e}")
-            raise HTTPException(status_code=500, detail=f"File upload failed: {str(e)}")
+                upload_span.set_attribute("file.upload_success", True)
 
-    # Create the note
-    note = ItemNote(
-        item_id=item_id,
-        user_email=user_email,
-        text=text,
-        image_path=image_path,
-        note_type=note_type
-    )
+            except Exception as e:
+                upload_span.set_attribute("file.upload_success", False)
+                record_exception(e)
+                print(f"Note file upload failed: {e}")
+                raise HTTPException(status_code=500, detail=f"File upload failed: {str(e)}")
 
-    created_note = await db.create_item_note(note)
+    # Create the note in database
+    with create_span("create_note_db") as db_span:
+        note = ItemNote(
+            item_id=item_id,
+            user_email=user_email,
+            text=text,
+            image_path=image_path,
+            note_type=note_type
+        )
+
+        created_note = await db.create_item_note(note)
+        db_span.set_attribute("note.id", str(created_note.id))
+
+    add_span_attributes({"note.id": str(created_note.id)})
 
     # Return note data with image URL if applicable
     response_data = {
@@ -1088,10 +1134,17 @@ async def create_item_note(
 
     # Enqueue follow_up worker job if this is a follow_up note
     if note_type == "follow_up":
-        try:
-            await db.enqueue_worker_job(item_id, user_email, "follow_up", {"source": "note"})
-        except Exception as e:
-            print(f"Failed to enqueue follow_up job for item {item_id}: {e}")
+        with create_span("enqueue_follow_up_job") as job_span:
+            job_span.set_attribute("job.type", "follow_up")
+            job_span.set_attribute("job.item_id", item_id)
+            try:
+                await db.enqueue_worker_job(item_id, user_email, "follow_up", {"source": "note"})
+                job_span.set_attribute("job.enqueued", True)
+                add_span_event("follow_up_job_enqueued", {"item_id": item_id})
+            except Exception as e:
+                job_span.set_attribute("job.enqueued", False)
+                record_exception(e)
+                print(f"Failed to enqueue follow_up job for item {item_id}: {e}")
 
     return response_data
 
