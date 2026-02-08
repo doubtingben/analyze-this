@@ -15,6 +15,9 @@ We looking for:
 If a preferred tag list is provided at runtime, favor those tags when they are a good fit. Only create a new tag if there is a clear, specific reason.
 
 ### Timeline items
+A timeline item must be actionable. There must be a clear day, time, location, and purpose. If these items are not present, but some of them are, ask the user for the missing information. Do NOT create generic timeline items for things like "March" or "2005". It almost never makes sense to create timeline events for items in the past.
+
+
 If all these fields are found with high confidence, set the item.status to "timeline" and generate a json object with the following format:
 
 ```json
