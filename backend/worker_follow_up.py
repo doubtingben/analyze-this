@@ -67,48 +67,100 @@ async def _process_follow_up_item(db, data, context):
 
     try:
         loop = asyncio.get_running_loop()
-        analysis_result = await loop.run_in_executor(
+        result = await loop.run_in_executor(
             None, analyze_follow_up, content, item_type, analysis, follow_up_notes, preferred_tags
         )
 
-        if analysis_result and not analysis_result.get('error'):
-            # Determine new status based on analysis result
+        if not result or result.get('error'):
+             error_msg = result.get('error') if result else "Unknown error"
+             logger.warning(f"Follow-up analysis failed for item {doc_id}: {error_msg}")
+             return False, f"analysis_failed: {error_msg}"
+        
+        action = result.get('action', 'update')
+        new_analysis = result.get('analysis')
+        reasoning = result.get('reasoning', 'No reasoning provided')
+        
+        logger.info(f"Follow-up action for {doc_id}: {action} ({reasoning})")
+
+        if action == 'delete':
+            # ACTION: DELETE
+            await db.delete_shared_item(doc_id, user_email)
+            await send_irccat_message(format_item_message(
+                "deleted via follow-up", user_email or "unknown", doc_id, item.get('title'),
+                detail=f"reason={reasoning}"
+            ))
+            return True, None
+
+        elif action == 'archive':
+            # ACTION: ARCHIVE
+            # Update status to analyzed (or kept as is?) and hide it
+            updates = {'hidden': True}
+            # If we have an analysis update (unlikely based on prompt but possible), save it
+            if new_analysis:
+                updates['analysis'] = new_analysis
+                # If analysis clears follow_up, we might want to update status
+                if not new_analysis.get('follow_up'):
+                     updates['status'] = 'analyzed'
+
+            await db.update_shared_item(doc_id, updates)
+            await send_irccat_message(format_item_message(
+                "archived via follow-up", user_email or "unknown", doc_id, item.get('title'),
+                detail=f"reason={reasoning}"
+            ))
+            return True, None
+
+        elif action == 'add_context_archive':
+            # ACTION: ADD CONTEXT AND ARCHIVE
+            if not new_analysis:
+                logger.warning(f"Action is add_context_archive but no analysis returned for {doc_id}")
+                return False, "missing_analysis_for_context"
+
+            # Clear follow_up flag in analysis/status since we are archiving
+            if 'follow_up' in new_analysis:
+                del new_analysis['follow_up']
+            
+            updates = {
+                'hidden': True,
+                'analysis': new_analysis,
+                'status': 'analyzed'
+            }
+            await db.update_shared_item(doc_id, updates)
+            await send_irccat_message(format_item_message(
+                "archived with context", user_email or "unknown", doc_id, item.get('title'),
+                detail=f"reason={reasoning}"
+            ))
+            return True, None
+
+        elif action == 'update':
+            # ACTION: UPDATE (TIMELINE/MEDIA)
+            if not new_analysis:
+                logger.warning(f"Action is update but no analysis returned for {doc_id}")
+                return False, "missing_analysis_for_update"
+
             new_status = 'analyzed'
-            if analysis_result.get('timeline'):
+            if new_analysis.get('timeline'):
                 new_status = 'timeline'
-            elif analysis_result.get('follow_up'):
+            elif new_analysis.get('follow_up'):
                 new_status = 'follow_up'
 
             await db.update_shared_item(doc_id, {
-                'analysis': analysis_result,
+                'analysis': new_analysis,
                 'status': new_status,
                 'next_step': new_status
             })
-            logger.info(f"Successfully re-analyzed item {doc_id}. New status: {new_status}")
-            message = format_item_message(
-                "follow-up re-analyzed",
-                user_email or "unknown",
-                doc_id,
-                item.get('title'),
-                detail=f"status={new_status}",
-            )
-            await send_irccat_message(message)
-            if new_status in ("timeline", "follow_up"):
-                event = "added to timeline" if new_status == "timeline" else "marked for follow up"
-                await send_irccat_message(format_item_message(
-                    event, user_email or "unknown", doc_id, item.get('title'),
-                ))
+            
+            await send_irccat_message(format_item_message(
+                "updated via follow-up", user_email or "unknown", doc_id, item.get('title'),
+                detail=f"status={new_status}"
+            ))
             return True, None
 
-        error_msg = "Unknown error"
-        if analysis_result:
-            error_msg = analysis_result.get('error', error_msg)
-
-        logger.warning(f"Follow-up analysis failed for item {doc_id}: {error_msg}")
-        return False, f"analysis_failed: {error_msg}"
+        else:
+             logger.warning(f"Unknown action '{action}' for item {doc_id}")
+             return False, f"unknown_action: {action}"
 
     except Exception as e:
-        logger.error(f"Failed to re-analyze item {doc_id}: {e}")
+        logger.error(f"Failed to process follow-up for item {doc_id}: {e}")
         return False, str(e)
 
 

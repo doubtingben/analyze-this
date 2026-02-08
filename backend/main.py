@@ -1086,8 +1086,8 @@ async def create_item_note(
             base_url = base_url.replace("http://", "https://")
             response_data['image_path'] = f"{base_url}/api/content/{response_data['image_path']}"
 
-    # Enqueue follow_up worker job if this is a follow_up note on a follow_up item
-    if note_type == "follow_up" and item.get('status') == 'follow_up':
+    # Enqueue follow_up worker job if this is a follow_up note
+    if note_type == "follow_up":
         try:
             await db.enqueue_worker_job(item_id, user_email, "follow_up", {"source": "note"})
         except Exception as e:

@@ -83,11 +83,33 @@ def analyze_follow_up(content: str, item_type: str, original_analysis: dict, fol
 
         try:
             parsed = json.loads(result_content)
-            return normalize_analysis(parsed)
+            
+            # Handle new format with 'action'
+            if 'action' in parsed:
+                if parsed.get('analysis'):
+                    parsed['analysis'] = normalize_analysis(parsed['analysis'])
+                return parsed
+            
+            # Legacy/Fallback format (treat as update/analysis only)
+            normalized = normalize_analysis(parsed)
+            return {
+                "action": "update",
+                "reasoning": "Legacy format received",
+                "analysis": normalized
+            }
+
         except json.JSONDecodeError:
             logger.error("Failed to decode JSON from AI response")
-            return normalize_analysis({"raw_analysis": result_content, "error": "Invalid JSON"})
+            return {
+                "action": "update", 
+                "reasoning": "JSON Decode Error",
+                "analysis": normalize_analysis({"raw_analysis": result_content, "error": "Invalid JSON"})
+            }
 
     except Exception as e:
         logger.error(f"Error during follow-up analysis: {e}")
-        return normalize_analysis({"error": str(e)})
+        return {
+            "action": "update",
+            "reasoning": f"Exception: {str(e)}", 
+            "analysis": normalize_analysis({"error": str(e)})
+        }
