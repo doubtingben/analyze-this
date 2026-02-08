@@ -54,6 +54,36 @@ MAX_TITLE_LENGTH = 255
 MAX_TEXT_LENGTH = 10000
 CSRF_KEY = "csrf_token"
 
+ALLOWED_MIME_TYPES = {
+    "text/plain",
+    "application/pdf",
+    "application/zip",
+    "application/x-zip-compressed",
+    "image/jpeg",
+    "image/png",
+    "image/gif",
+    "image/webp",
+    "image/bmp",
+    "image/tiff",
+    "video/mp4",
+    "video/quicktime",
+    "video/webm",
+    "video/x-msvideo",
+    "audio/mpeg",
+    "audio/wav",
+    "audio/aac",
+    "audio/ogg",
+    "audio/mp4",
+    "audio/x-m4a",
+}
+
+ALLOWED_EXTENSIONS = {
+    ".txt", ".pdf", ".zip",
+    ".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp", ".tiff",
+    ".mp4", ".mpeg", ".mov", ".webm", ".avi", ".mkv",
+    ".mp3", ".wav", ".aac", ".ogg", ".flac", ".m4a"
+}
+
 # Read Version
 try:
     with open("version.txt", "r") as f:
@@ -110,6 +140,13 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+@app.middleware("http")
+async def add_security_headers(request: Request, call_next):
+    response = await call_next(request)
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "DENY"
+    return response
 
 app.add_middleware(SessionMiddleware, secret_key=SECRET_KEY)
 app.mount("/static", StaticFiles(directory="static"), name="static")
@@ -526,6 +563,13 @@ async def share_item(
         
         # Handle File Upload
         if file:
+            if file.content_type not in ALLOWED_MIME_TYPES:
+                raise HTTPException(status_code=400, detail=f"Unsupported file type: {file.content_type}")
+
+            ext = os.path.splitext(file.filename)[1].lower()
+            if ext not in ALLOWED_EXTENSIONS:
+                raise HTTPException(status_code=400, detail=f"Unsupported file extension: {ext}")
+
             try:
                 # Create a unique filename
                 extension = file.filename.split('.')[-1] if '.' in file.filename else 'bin'
