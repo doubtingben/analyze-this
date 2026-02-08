@@ -130,6 +130,10 @@ class DatabaseInterface(ABC):
     async def reset_worker_job(self, job_id: str) -> bool:
         pass
 
+    @abstractmethod
+    async def search_similar_items(self, embedding: List[float], limit: int = 10) -> List[dict]:
+        pass
+
 
 # --- Firestore Implementation ---
 
@@ -550,9 +554,42 @@ class FirestoreDatabase(DatabaseInterface):
             'error': firestore.DELETE_FIELD,
             'worker_id': firestore.DELETE_FIELD,
             'lease_expires_at': firestore.DELETE_FIELD,
-            'updated_at': firestore.SERVER_TIMESTAMP
         })
         return True
+
+    async def search_similar_items(self, embedding: List[float], limit: int = 10) -> List[dict]:
+        # Firestore Vector Search using `find_nearest`
+        try:
+            from google.cloud.firestore_v1.vector import Vector
+            
+            # Create a vector from the list of floats
+            query_vector = Vector(embedding)
+            
+            items_ref = self.db.collection('shared_items')
+            
+            # Use find_nearest on the collection
+            # Note: This requires a vector index on the 'embedding' field
+            query = items_ref.find_nearest(
+                vector_field="embedding",
+                query_vector=query_vector,
+                distance_measure="COSINE",
+                limit=limit
+            )
+            
+            results = []
+            for doc in query.stream():
+                data = doc.to_dict()
+                data['firestore_id'] = doc.id
+                results.append(data)
+                
+            return results
+        except ImportError:
+            # Fallback if vector search is not available in the library version
+            logging.error("google.cloud.firestore_v1.vector not available")
+            return []
+        except Exception as e:
+            logging.error(f"Vector search failed: {e}")
+            return []
 
 
 # --- SQLite Implementation ---
@@ -581,6 +618,7 @@ class DBSharedItem(Base):
     next_step = Column(String, nullable=True)
     is_normalized = Column(Boolean, default=False)
     hidden = Column(Boolean, default=False)
+    embedding = Column(JSON, nullable=True)
 
 class DBItemNote(Base):
     __tablename__ = 'item_notes'
@@ -706,6 +744,11 @@ class SQLiteDatabase(DatabaseInterface):
                 )
             return None
 
+    async def search_similar_items(self, embedding: List[float], limit: int = 10) -> List[dict]:
+        # SQLite doesn't support vector search easily. Return empty.
+        # Could implement basic cosine similarity in python if needed but slow.
+        return []
+
     async def upsert_user(self, user: User) -> User:
         async with self.SessionLocal() as session:
             result = await session.execute(select(DBUser).where(DBUser.email == user.email))
@@ -752,7 +795,8 @@ class SQLiteDatabase(DatabaseInterface):
                 status=item.status,
                 next_step=item.next_step,
                 is_normalized=item.is_normalized,
-                hidden=item.hidden
+                hidden=item.hidden,
+                embedding=item.embedding
             )
             session.add(db_item)
             await session.commit()

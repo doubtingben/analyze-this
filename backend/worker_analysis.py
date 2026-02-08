@@ -4,7 +4,7 @@ import asyncio
 import logging
 from dotenv import load_dotenv
 
-from analysis import analyze_content
+from analysis import analyze_content, generate_embedding
 from notifications import format_item_message, send_irccat_message
 from database import DatabaseInterface, FirestoreDatabase, SQLiteDatabase
 from worker_queue import process_queue_jobs
@@ -101,12 +101,25 @@ async def process_items_async(limit: int = 10, item_id: str = None, force: bool 
                 elif analysis_result.get('follow_up'):
                     new_status = 'follow_up'
 
+                # Generate embedding
+                embedding = None
+                try:
+                    overview = analysis_result.get('overview', '')
+                    if overview:
+                         embedding = await loop.run_in_executor(None, generate_embedding, overview)
+                except Exception as e:
+                    logger.error(f"Failed to generate embedding: {e}")
+
                 # Update DB
-                await db.update_shared_item(doc_id, {
+                update_data = {
                     'analysis': analysis_result,
                     'status': new_status,
                     'next_step': new_status
-                })
+                }
+                if embedding:
+                    update_data['embedding'] = embedding
+
+                await db.update_shared_item(doc_id, update_data)
                 logger.info(f"Successfully analyzed item {doc_id}.")
                 message = format_item_message(
                     "analyzed",
@@ -200,15 +213,28 @@ async def _process_analysis_item(db, data, context):
                     llm_span.set_attribute("analysis.error", analysis_result.get('error', 'Unknown'))
 
         if analysis_result and not analysis_result.get('error'):
+            # Generate embedding
+            embedding = None
+            try:
+                overview = analysis_result.get('overview', '')
+                if overview:
+                    # Optional: wrapping embedding generation in a span if tracing is desired for it
+                    embedding = await loop.run_in_executor(None, generate_embedding, overview)
+            except Exception as e:
+                logger.error(f"Failed to generate embedding: {e}")
+
             # Save results
             with create_span("save_analysis_result", {"item.id": doc_id}) as save_span:
-                await db.update_shared_item(doc_id, {
+                update_data = {
                     'analysis': analysis_result,
                     'status': new_status,
                     'next_step': new_status
-                })
-                save_span.set_attribute("save.status", new_status)
+                }
+                if embedding:
+                    update_data['embedding'] = embedding
 
+                await db.update_shared_item(doc_id, update_data)
+                save_span.set_attribute("save.status", new_status)
             logger.info(f"Successfully analyzed item {doc_id}.")
             add_span_event("analysis_completed", {"item_id": doc_id, "status": new_status})
 

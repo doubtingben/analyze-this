@@ -66,6 +66,7 @@ class SharedItem(BaseModel):
     image: Optional[str] = Field(default=None)
     is_normalized: bool = Field(default=False)
     hidden: bool = Field(default=False)
+    embedding: Optional[list[float]] = Field(default=None) # Vector embedding for semantic search
 
 class NoteType(str, Enum):
     context = "context"

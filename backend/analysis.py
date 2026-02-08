@@ -17,6 +17,8 @@ logger = logging.getLogger(__name__)
 
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
 OPENROUTER_MODEL = os.getenv("OPENROUTER_MODEL", "google/gemini-2.0-flash-exp:free")
+# Use OpenAI's embedding model via OpenRouter if supported, or fallback to a standard one
+EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "text-embedding-3-small")
 
 client = None
 if OPENROUTER_API_KEY:
@@ -188,6 +190,32 @@ def analyze_content(content: str, item_type: str = 'text', preferred_tags: list[
             llm_span.set_attribute("llm.api_error", str(e))
             record_exception(e)
             return normalize_analysis({"error": str(e)})
+
+
+def generate_embedding(text: str) -> list[float] | None:
+    """
+    Generates a vector embedding for the given text.
+    """
+    if not client:
+        return None
+    
+    if not text:
+        return None
+
+    try:
+        # Truncate text if too long (rough check)
+        if len(text) > 8000:
+            text = text[:8000]
+
+        logger.info(f"Generating embedding using model: {EMBEDDING_MODEL}")
+        response = client.embeddings.create(
+            input=[text],
+            model=EMBEDDING_MODEL
+        )
+        return response.data[0].embedding
+    except Exception as e:
+        logger.error(f"Failed to generate embedding: {e}")
+        return None
 
 
 def normalize_analysis(raw_response: dict) -> dict:
