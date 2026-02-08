@@ -15,7 +15,7 @@ import logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-async def search_items(query, limit=10):
+async def search_items(query, user_email, limit=10):
     # Determine DB
     if os.getenv("APP_ENV") == "development":
         db = SQLiteDatabase()
@@ -33,8 +33,8 @@ async def search_items(query, limit=10):
         logger.error("Failed to generate embedding for query.")
         return
         
-    logger.info(f"Searching for similar items...")
-    results = await db.search_similar_items(query_embedding, limit=limit)
+    logger.info(f"Searching for similar items for user {user_email}...")
+    results = await db.search_similar_items(query_embedding, user_email, limit=limit)
     
     if results:
         logger.info(f"Found {len(results)} items:")
@@ -52,7 +52,8 @@ async def search_items(query, limit=10):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("query", type=str, help="Search query")
+    parser.add_argument("email", type=str, help="User email to search for")
     parser.add_argument("--limit", type=int, default=10, help="Number of results to return")
     args = parser.parse_args()
     
-    asyncio.run(search_items(args.query, limit=args.limit))
+    asyncio.run(search_items(args.query, args.email, limit=args.limit))

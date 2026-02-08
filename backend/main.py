@@ -27,6 +27,7 @@ from firebase_admin import credentials, storage
 from models import User, SharedItem, ShareType, ItemNote
 from notifications import format_item_message, send_irccat_message
 from database import DatabaseInterface, FirestoreDatabase, SQLiteDatabase
+from analysis import generate_embedding
 from tracing import (
     init_tracing, shutdown_tracing, get_tracer, create_span,
     add_span_attributes, record_exception, add_span_event,
@@ -1349,3 +1350,60 @@ async def get_user_metrics(request: Request):
             "by_status": worker_counts
         }
     }
+
+
+@app.get("/api/search")
+async def search_items_endpoint(request: Request, q: str, limit: int = 10):
+    """
+    Semantic search for items using vector embeddings.
+    """
+    user_email = await get_authenticated_email(request)
+
+    if not q:
+        raise HTTPException(status_code=400, detail="Query string 'q' is required")
+
+    add_span_attributes({
+        "search.query": q,
+        "search.user_email": user_email
+    })
+
+    try:
+        # Generate embedding for the query
+        with create_span("generate_search_embedding", {"query": q}) as embed_span:
+            # Run in executor to avoid blocking event loop
+            loop = asyncio.get_running_loop()
+            query_embedding = await loop.run_in_executor(None, generate_embedding, q)
+            
+            if not query_embedding:
+                embed_span.set_attribute("embedding.success", False)
+                # Fallback to empty or error? 
+                # Be graceful: return empty results if embedding fails
+                return []
+            embed_span.set_attribute("embedding.success", True)
+
+        # Search in DB
+        with create_span("db_vector_search") as search_span:
+            results = await db.search_similar_items(query_embedding, user_email, limit=limit)
+            search_span.set_attribute("results.count", len(results))
+
+        # Build response (similar to get_items but maybe simplified)
+        # Re-use get_items logic for URL transformation if needed
+        base_url = str(request.base_url).rstrip('/')
+        if APP_ENV != "development":
+             base_url = base_url.replace("http://", "https://")
+             
+        for item in results:
+            if item.get('content') and not item.get('content').startswith('http'):
+                 # Transform content path
+                 if APP_ENV == "development":
+                     item['content'] = f"{base_url}/static/{item['content']}"
+                 else:
+                     item['content'] = f"{base_url}/api/content/{item['content']}"
+        
+        return results
+
+    except Exception as e:
+        record_exception(e)
+        print(f"Search failed: {e}")
+        raise HTTPException(status_code=500, detail="Search failed")
+

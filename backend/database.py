@@ -131,7 +131,7 @@ class DatabaseInterface(ABC):
         pass
 
     @abstractmethod
-    async def search_similar_items(self, embedding: List[float], limit: int = 10) -> List[dict]:
+    async def search_similar_items(self, embedding: List[float], user_email: str, limit: int = 10) -> List[dict]:
         pass
 
 
@@ -557,7 +557,7 @@ class FirestoreDatabase(DatabaseInterface):
         })
         return True
 
-    async def search_similar_items(self, embedding: List[float], limit: int = 10) -> List[dict]:
+    async def search_similar_items(self, embedding: List[float], user_email: str, limit: int = 10) -> List[dict]:
         # Firestore Vector Search using `find_nearest`
         try:
             from google.cloud.firestore_v1.vector import Vector
@@ -567,9 +567,12 @@ class FirestoreDatabase(DatabaseInterface):
             
             items_ref = self.db.collection('shared_items')
             
-            # Use find_nearest on the collection
-            # Note: This requires a vector index on the 'embedding' field
-            query = items_ref.find_nearest(
+            # Initial query with user filter
+            base_query = items_ref.where(filter=FieldFilter('user_email', '==', user_email))
+
+            # Use find_nearest on the filtered query
+            # Note: This requires a composite index including the vector field and user_email
+            query = base_query.find_nearest(
                 vector_field="embedding",
                 query_vector=query_vector,
                 distance_measure="COSINE",
@@ -744,7 +747,7 @@ class SQLiteDatabase(DatabaseInterface):
                 )
             return None
 
-    async def search_similar_items(self, embedding: List[float], limit: int = 10) -> List[dict]:
+    async def search_similar_items(self, embedding: List[float], user_email: str, limit: int = 10) -> List[dict]:
         # SQLite doesn't support vector search easily. Return empty.
         # Could implement basic cosine similarity in python if needed but slow.
         return []
