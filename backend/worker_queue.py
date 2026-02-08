@@ -8,6 +8,7 @@ from tracing import (
     create_linked_span, create_span, add_span_attributes,
     record_exception, add_span_event
 )
+from notifications import format_item_message, send_irccat_message
 
 
 async def start_health_check_server():
@@ -97,6 +98,14 @@ async def process_queue_jobs(
                         job_span.set_attribute("job.error", "missing_item_id")
                         if job_id:
                             await db.fail_worker_job(job_id, "missing_item_id")
+                        # Send failure notification
+                        await send_irccat_message(format_item_message(
+                            f"{job_type} job failed",
+                            job.get('user_email') or "unknown",
+                            job_id or "unknown",
+                            None,
+                            detail="error=missing_item_id"
+                        ))
                         continue
 
                     # Fetch item data
@@ -108,6 +117,14 @@ async def process_queue_jobs(
                             job_span.set_attribute("job.error", "item_not_found")
                             if job_id:
                                 await db.fail_worker_job(job_id, "item_not_found")
+                            # Send failure notification
+                            await send_irccat_message(format_item_message(
+                                f"{job_type} job failed",
+                                job.get('user_email') or "unknown",
+                                item_id,
+                                None,
+                                detail="error=item_not_found"
+                            ))
                             continue
                         fetch_span.set_attribute("item.found", True)
                         fetch_span.set_attribute("item.type", data.get('type', 'unknown'))
@@ -133,6 +150,14 @@ async def process_queue_jobs(
                             job_span.set_attribute("job.error", error or "job_failed")
                             if job_id:
                                 await db.fail_worker_job(job_id, error or "job_failed")
+                            # Send failure notification
+                            await send_irccat_message(format_item_message(
+                                f"{job_type} job failed",
+                                data.get('user_email') or "unknown",
+                                doc_id,
+                                data.get('title'),
+                                detail=f"error={error or 'job_failed'}"
+                            ))
                             if halt_on_error:
                                 raise RuntimeError(error or "job_failed")
                     except Exception as exc:
@@ -141,6 +166,15 @@ async def process_queue_jobs(
                         record_exception(exc)
                         if job_id:
                             await db.fail_worker_job(job_id, str(exc))
+                        # Send failure notification
+                        error_detail = str(exc)[:100]  # Truncate long exceptions
+                        await send_irccat_message(format_item_message(
+                            f"{job_type} job failed",
+                            data.get('user_email') or "unknown",
+                            doc_id,
+                            data.get('title'),
+                            detail=f"exception={error_detail}"
+                        ))
                         if halt_on_error:
                             raise
 
