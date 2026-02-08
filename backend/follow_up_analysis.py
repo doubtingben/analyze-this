@@ -6,6 +6,7 @@ from openai import OpenAI
 from dotenv import load_dotenv
 
 from analysis import normalize_analysis
+from tracing import create_span, add_span_attributes, record_exception
 
 load_dotenv()
 
@@ -70,46 +71,71 @@ def analyze_follow_up(content: str, item_type: str, original_analysis: dict, fol
 
     messages.append({"role": "user", "content": user_content})
 
-    try:
-        logger.info(f"Sending follow-up analysis request to OpenRouter model: {OPENROUTER_MODEL}")
-        completion = client.chat.completions.create(
-            model=OPENROUTER_MODEL,
-            messages=messages,
-            response_format={"type": "json_object"}
-        )
-
-        result_content = completion.choices[0].message.content
-        logger.info("Received follow-up analysis result")
-
+    # Trace the LLM API call
+    with create_span("openrouter_api_call", {
+        "llm.provider": "openrouter",
+        "llm.model": OPENROUTER_MODEL,
+        "llm.item_type": item_type,
+        "llm.notes_count": len(follow_up_notes),
+        "llm.has_preferred_tags": preferred_tags is not None,
+    }) as llm_span:
         try:
-            parsed = json.loads(result_content)
-            
-            # Handle new format with 'action'
-            if 'action' in parsed:
-                if parsed.get('analysis'):
-                    parsed['analysis'] = normalize_analysis(parsed['analysis'])
-                return parsed
-            
-            # Legacy/Fallback format (treat as update/analysis only)
-            normalized = normalize_analysis(parsed)
+            logger.info(f"Sending follow-up analysis request to OpenRouter model: {OPENROUTER_MODEL}")
+            completion = client.chat.completions.create(
+                model=OPENROUTER_MODEL,
+                messages=messages,
+                response_format={"type": "json_object"}
+            )
+
+            result_content = completion.choices[0].message.content
+            logger.info("Received follow-up analysis result")
+
+            # Add usage info if available
+            if hasattr(completion, 'usage') and completion.usage:
+                llm_span.set_attribute("llm.prompt_tokens", completion.usage.prompt_tokens or 0)
+                llm_span.set_attribute("llm.completion_tokens", completion.usage.completion_tokens or 0)
+                llm_span.set_attribute("llm.total_tokens", completion.usage.total_tokens or 0)
+
+            llm_span.set_attribute("llm.response_length", len(result_content) if result_content else 0)
+
+            try:
+                parsed = json.loads(result_content)
+                llm_span.set_attribute("llm.parse_success", True)
+
+                # Handle new format with 'action'
+                if 'action' in parsed:
+                    llm_span.set_attribute("llm.action", parsed.get('action', 'unknown'))
+                    if parsed.get('analysis'):
+                        parsed['analysis'] = normalize_analysis(parsed['analysis'])
+                    return parsed
+
+                # Legacy/Fallback format (treat as update/analysis only)
+                llm_span.set_attribute("llm.action", "update")
+                llm_span.set_attribute("llm.format", "legacy")
+                normalized = normalize_analysis(parsed)
+                return {
+                    "action": "update",
+                    "reasoning": "Legacy format received",
+                    "analysis": normalized
+                }
+
+            except json.JSONDecodeError as json_err:
+                logger.error("Failed to decode JSON from AI response")
+                llm_span.set_attribute("llm.parse_success", False)
+                llm_span.set_attribute("llm.parse_error", "json_decode_error")
+                record_exception(json_err)
+                return {
+                    "action": "update",
+                    "reasoning": "JSON Decode Error",
+                    "analysis": normalize_analysis({"raw_analysis": result_content, "error": "Invalid JSON"})
+                }
+
+        except Exception as e:
+            logger.error(f"Error during follow-up analysis: {e}")
+            llm_span.set_attribute("llm.api_error", str(e))
+            record_exception(e)
             return {
                 "action": "update",
-                "reasoning": "Legacy format received",
-                "analysis": normalized
+                "reasoning": f"Exception: {str(e)}",
+                "analysis": normalize_analysis({"error": str(e)})
             }
-
-        except json.JSONDecodeError:
-            logger.error("Failed to decode JSON from AI response")
-            return {
-                "action": "update", 
-                "reasoning": "JSON Decode Error",
-                "analysis": normalize_analysis({"raw_analysis": result_content, "error": "Invalid JSON"})
-            }
-
-    except Exception as e:
-        logger.error(f"Error during follow-up analysis: {e}")
-        return {
-            "action": "update",
-            "reasoning": f"Exception: {str(e)}", 
-            "analysis": normalize_analysis({"error": str(e)})
-        }

@@ -21,7 +21,8 @@ from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import BatchSpanProcessor
 from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
 from opentelemetry.sdk.resources import Resource, SERVICE_NAME
-from opentelemetry.trace import Status, StatusCode
+from opentelemetry.trace import Status, StatusCode, SpanKind, Link
+from opentelemetry.trace.propagation.tracecontext import TraceContextTextMapPropagator
 
 logger = logging.getLogger(__name__)
 
@@ -163,3 +164,125 @@ def add_span_event(name: str, attributes: Optional[dict] = None) -> None:
     span = trace.get_current_span()
     if span and span.is_recording():
         span.add_event(name, attributes=attributes or {})
+
+
+# --- Distributed Tracing Context Propagation ---
+
+_propagator = TraceContextTextMapPropagator()
+
+
+def inject_trace_context(carrier: Optional[dict] = None) -> dict:
+    """
+    Inject current trace context into a carrier dict for propagation.
+
+    Use this when enqueueing a job to pass trace context to the worker.
+
+    Usage:
+        payload = {"source": "note"}
+        payload = inject_trace_context(payload)
+        await db.enqueue_worker_job(item_id, user_email, "follow_up", payload)
+
+    Returns the carrier dict with trace context injected.
+    """
+    if carrier is None:
+        carrier = {}
+
+    # Only inject if tracing is enabled and we have a current span
+    span = trace.get_current_span()
+    if span and span.is_recording():
+        _propagator.inject(carrier)
+
+    return carrier
+
+
+def extract_trace_context(carrier: dict) -> Optional[trace.Context]:
+    """
+    Extract trace context from a carrier dict.
+
+    Use this when processing a job to continue the trace from the API.
+
+    Usage:
+        ctx = extract_trace_context(job.get('payload', {}))
+        with create_span_with_context("process_job", ctx):
+            # Processing code here
+
+    Returns the extracted context, or None if no context found.
+    """
+    if not carrier:
+        return None
+
+    return _propagator.extract(carrier)
+
+
+@contextmanager
+def create_span_with_context(
+    name: str,
+    parent_context: Optional[trace.Context] = None,
+    attributes: Optional[dict] = None,
+    kind: SpanKind = SpanKind.INTERNAL
+):
+    """
+    Create a span with an optional parent context from a different process.
+
+    Use this in workers to continue a trace started in the API.
+
+    Usage:
+        ctx = extract_trace_context(job_payload)
+        with create_span_with_context("worker_process_job", ctx) as span:
+            # Processing code
+    """
+    if _tracer is None:
+        yield NoOpSpan()
+        return
+
+    with _tracer.start_as_current_span(
+        name,
+        context=parent_context,
+        kind=kind
+    ) as span:
+        if attributes:
+            for key, value in attributes.items():
+                span.set_attribute(key, value)
+        yield span
+
+
+@contextmanager
+def create_linked_span(
+    name: str,
+    link_context: Optional[trace.Context] = None,
+    attributes: Optional[dict] = None,
+    kind: SpanKind = SpanKind.CONSUMER
+):
+    """
+    Create a new root span with a link to the original trace.
+
+    Use this for async processing where you want a separate trace
+    but still want to reference the originating request.
+
+    This is useful for workers that process jobs asynchronously,
+    creating a new trace while maintaining a link to the enqueuing trace.
+    """
+    if _tracer is None:
+        yield NoOpSpan()
+        return
+
+    links = []
+    if link_context:
+        # Extract the span context from the parent context
+        span_context = trace.get_current_span(link_context).get_span_context()
+        if span_context.is_valid:
+            links.append(Link(span_context))
+
+    with _tracer.start_as_current_span(
+        name,
+        kind=kind,
+        links=links
+    ) as span:
+        if attributes:
+            for key, value in attributes.items():
+                span.set_attribute(key, value)
+        # Add link info as attribute for easier querying
+        if links and links[0].context.is_valid:
+            span.set_attribute("linked.trace_id", format(links[0].context.trace_id, '032x'))
+            span.set_attribute("linked.span_id", format(links[0].context.span_id, '016x'))
+        yield span

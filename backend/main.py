@@ -29,7 +29,8 @@ from notifications import format_item_message, send_irccat_message
 from database import DatabaseInterface, FirestoreDatabase, SQLiteDatabase
 from tracing import (
     init_tracing, shutdown_tracing, get_tracer, create_span,
-    add_span_attributes, record_exception, add_span_event
+    add_span_attributes, record_exception, add_span_event,
+    inject_trace_context
 )
 from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
 
@@ -1138,7 +1139,9 @@ async def create_item_note(
             job_span.set_attribute("job.type", "follow_up")
             job_span.set_attribute("job.item_id", item_id)
             try:
-                await db.enqueue_worker_job(item_id, user_email, "follow_up", {"source": "note"})
+                # Inject trace context into job payload for distributed tracing
+                job_payload = inject_trace_context({"source": "note"})
+                await db.enqueue_worker_job(item_id, user_email, "follow_up", job_payload)
                 job_span.set_attribute("job.enqueued", True)
                 add_span_event("follow_up_job_enqueued", {"item_id": item_id})
             except Exception as e:

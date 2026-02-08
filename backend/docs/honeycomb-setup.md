@@ -96,6 +96,31 @@ With the current implementation, the following operations are traced:
   - `create_note_db`: Database insert for the note
   - `enqueue_follow_up_job`: Worker job enqueue (for follow_up notes)
 
+### Distributed Tracing: Follow-up Worker
+
+When a follow_up note is created, the trace context is propagated to the worker queue. The follow-up worker creates a **linked trace** that references the original API request.
+
+**Worker spans** (`worker.follow_up`):
+- `job.id`: The worker job ID
+- `job.type`: "follow_up"
+- `job.item_id`: The item being processed
+- `worker.id`: The worker instance ID
+- `linked.trace_id`: Reference to the original API trace
+- `linked.span_id`: Reference to the enqueue span
+
+**Child spans in worker**:
+- `fetch_item`: Fetches the shared item from database
+- `process_item`: Wrapper around the processing function
+  - `fetch_item_for_follow_up`: Re-fetches item with full data
+  - `fetch_follow_up_notes`: Fetches notes for the item
+  - `llm_follow_up_analysis`: Wrapper around LLM call
+    - `openrouter_api_call`: The actual LLM API call with:
+      - `llm.provider`: "openrouter"
+      - `llm.model`: The model used
+      - `llm.prompt_tokens`, `llm.completion_tokens`, `llm.total_tokens`
+      - `llm.action`: The action returned (delete/archive/update)
+  - `execute_action_*`: The action taken (delete/archive/update)
+
 ### FastAPI Automatic Instrumentation
 
 All HTTP requests are automatically traced with:
@@ -132,6 +157,31 @@ WHERE name = "POST /api/items/{item_id}/notes" AND duration_ms > 1000
 **File upload performance:**
 ```
 WHERE name = "upload_file" HEATMAP(duration_ms) GROUP BY file.storage_type
+```
+
+**Follow-up worker jobs:**
+```
+WHERE name = "worker.follow_up" HEATMAP(duration_ms) GROUP BY job.status
+```
+
+**LLM API call latency:**
+```
+WHERE name = "openrouter_api_call" HEATMAP(duration_ms) GROUP BY llm.model
+```
+
+**LLM token usage:**
+```
+WHERE name = "openrouter_api_call" AVG(llm.total_tokens) GROUP BY llm.model
+```
+
+**Trace a note from creation to worker processing:**
+```
+WHERE linked.trace_id = "<trace_id_from_note_creation>"
+```
+
+**Failed worker jobs:**
+```
+WHERE name = "worker.follow_up" AND job.status = "failed"
 ```
 
 ## Disabling Tracing

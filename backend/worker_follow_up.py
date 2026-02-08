@@ -8,6 +8,7 @@ from follow_up_analysis import analyze_follow_up
 from notifications import format_item_message, send_irccat_message
 from database import DatabaseInterface, FirestoreDatabase, SQLiteDatabase
 from worker_queue import process_queue_jobs
+from tracing import create_span, add_span_attributes, add_span_event, record_exception
 
 # Configure logging
 logging.basicConfig(
@@ -41,126 +42,170 @@ async def _process_follow_up_item(db, data, context):
     if context and user_email:
         preferred_tags = context.get('tags_by_user', {}).get(user_email)
 
+    # Add tracing attributes for this follow-up processing
+    add_span_attributes({
+        "follow_up.item_id": doc_id,
+        "follow_up.user_email": user_email or "unknown",
+    })
+
     # Fetch the item
-    item = await db.get_shared_item(doc_id)
-    if not item:
-        logger.warning(f"Item {doc_id} not found. Skipping.")
-        return False, f"item_not_found: {doc_id}"
+    with create_span("fetch_item_for_follow_up", {"item.id": doc_id}) as fetch_span:
+        item = await db.get_shared_item(doc_id)
+        if not item:
+            logger.warning(f"Item {doc_id} not found. Skipping.")
+            fetch_span.set_attribute("item.found", False)
+            return False, f"item_not_found: {doc_id}"
+        fetch_span.set_attribute("item.found", True)
+        fetch_span.set_attribute("item.type", item.get('type', 'unknown'))
 
     # Verify item has follow_up status and analysis with follow_up field
     analysis = item.get('analysis') or {}
     follow_up_question = analysis.get('follow_up')
     if not follow_up_question:
         logger.info(f"Item {doc_id} has no follow_up question. Skipping.")
+        add_span_event("skipped_no_follow_up_question", {"item_id": doc_id})
         return True, None  # Not an error, just nothing to do
 
     # Fetch follow-up notes
-    follow_up_notes = await db.get_follow_up_notes(doc_id)
-    if not follow_up_notes:
-        logger.info(f"Item {doc_id} has no follow-up notes yet. Skipping.")
-        return False, "no_follow_up_notes"
+    with create_span("fetch_follow_up_notes", {"item.id": doc_id}) as notes_span:
+        follow_up_notes = await db.get_follow_up_notes(doc_id)
+        notes_span.set_attribute("notes.count", len(follow_up_notes) if follow_up_notes else 0)
+        if not follow_up_notes:
+            logger.info(f"Item {doc_id} has no follow-up notes yet. Skipping.")
+            return False, "no_follow_up_notes"
 
     content = item.get('content', '')
     item_type = item.get('type', 'text')
 
+    add_span_attributes({
+        "follow_up.notes_count": len(follow_up_notes),
+        "follow_up.item_type": item_type,
+    })
+
     logger.info(f"Re-analyzing item {doc_id} with {len(follow_up_notes)} follow-up note(s)...")
 
     try:
-        loop = asyncio.get_running_loop()
-        result = await loop.run_in_executor(
-            None, analyze_follow_up, content, item_type, analysis, follow_up_notes, preferred_tags
-        )
+        # Run the LLM analysis
+        with create_span("llm_follow_up_analysis") as llm_span:
+            llm_span.set_attribute("llm.item_id", doc_id)
+            llm_span.set_attribute("llm.notes_count", len(follow_up_notes))
 
-        if not result or result.get('error'):
-             error_msg = result.get('error') if result else "Unknown error"
-             logger.warning(f"Follow-up analysis failed for item {doc_id}: {error_msg}")
-             return False, f"analysis_failed: {error_msg}"
-        
-        action = result.get('action', 'update')
+            loop = asyncio.get_running_loop()
+            result = await loop.run_in_executor(
+                None, analyze_follow_up, content, item_type, analysis, follow_up_notes, preferred_tags
+            )
+
+            if not result or result.get('error'):
+                error_msg = result.get('error') if result else "Unknown error"
+                logger.warning(f"Follow-up analysis failed for item {doc_id}: {error_msg}")
+                llm_span.set_attribute("llm.success", False)
+                llm_span.set_attribute("llm.error", error_msg)
+                return False, f"analysis_failed: {error_msg}"
+
+            llm_span.set_attribute("llm.success", True)
+            action = result.get('action', 'update')
+            llm_span.set_attribute("llm.action", action)
+
         new_analysis = result.get('analysis')
         reasoning = result.get('reasoning', 'No reasoning provided')
-        
+
+        add_span_attributes({
+            "follow_up.action": action,
+            "follow_up.reasoning": reasoning[:100] if reasoning else "none",  # Truncate for attribute
+        })
+
         logger.info(f"Follow-up action for {doc_id}: {action} ({reasoning})")
 
-        if action == 'delete':
-            # ACTION: DELETE
-            await db.delete_shared_item(doc_id, user_email)
-            await send_irccat_message(format_item_message(
-                "deleted via follow-up", user_email or "unknown", doc_id, item.get('title'),
-                detail=f"reason={reasoning}"
-            ))
-            return True, None
+        # Execute the action
+        with create_span(f"execute_action_{action}", {"action": action}) as action_span:
+            if action == 'delete':
+                # ACTION: DELETE
+                await db.delete_shared_item(doc_id, user_email)
+                await send_irccat_message(format_item_message(
+                    "deleted via follow-up", user_email or "unknown", doc_id, item.get('title'),
+                    detail=f"reason={reasoning}"
+                ))
+                action_span.set_attribute("action.result", "deleted")
+                add_span_event("item_deleted", {"item_id": doc_id, "reason": reasoning})
+                return True, None
 
-        elif action == 'archive':
-            # ACTION: ARCHIVE
-            # Update status to analyzed (or kept as is?) and hide it
-            updates = {'hidden': True}
-            # If we have an analysis update (unlikely based on prompt but possible), save it
-            if new_analysis:
-                updates['analysis'] = new_analysis
-                # If analysis clears follow_up, we might want to update status
-                if not new_analysis.get('follow_up'):
-                     updates['status'] = 'analyzed'
+            elif action == 'archive':
+                # ACTION: ARCHIVE
+                updates = {'hidden': True}
+                if new_analysis:
+                    updates['analysis'] = new_analysis
+                    if not new_analysis.get('follow_up'):
+                        updates['status'] = 'analyzed'
 
-            await db.update_shared_item(doc_id, updates)
-            await send_irccat_message(format_item_message(
-                "archived via follow-up", user_email or "unknown", doc_id, item.get('title'),
-                detail=f"reason={reasoning}"
-            ))
-            return True, None
+                await db.update_shared_item(doc_id, updates)
+                await send_irccat_message(format_item_message(
+                    "archived via follow-up", user_email or "unknown", doc_id, item.get('title'),
+                    detail=f"reason={reasoning}"
+                ))
+                action_span.set_attribute("action.result", "archived")
+                add_span_event("item_archived", {"item_id": doc_id, "reason": reasoning})
+                return True, None
 
-        elif action == 'add_context_archive':
-            # ACTION: ADD CONTEXT AND ARCHIVE
-            if not new_analysis:
-                logger.warning(f"Action is add_context_archive but no analysis returned for {doc_id}")
-                return False, "missing_analysis_for_context"
+            elif action == 'add_context_archive':
+                # ACTION: ADD CONTEXT AND ARCHIVE
+                if not new_analysis:
+                    logger.warning(f"Action is add_context_archive but no analysis returned for {doc_id}")
+                    action_span.set_attribute("action.error", "missing_analysis")
+                    return False, "missing_analysis_for_context"
 
-            # Clear follow_up flag in analysis/status since we are archiving
-            if 'follow_up' in new_analysis:
-                del new_analysis['follow_up']
-            
-            updates = {
-                'hidden': True,
-                'analysis': new_analysis,
-                'status': 'analyzed'
-            }
-            await db.update_shared_item(doc_id, updates)
-            await send_irccat_message(format_item_message(
-                "archived with context", user_email or "unknown", doc_id, item.get('title'),
-                detail=f"reason={reasoning}"
-            ))
-            return True, None
+                if 'follow_up' in new_analysis:
+                    del new_analysis['follow_up']
 
-        elif action == 'update':
-            # ACTION: UPDATE (TIMELINE/MEDIA)
-            if not new_analysis:
-                logger.warning(f"Action is update but no analysis returned for {doc_id}")
-                return False, "missing_analysis_for_update"
+                updates = {
+                    'hidden': True,
+                    'analysis': new_analysis,
+                    'status': 'analyzed'
+                }
+                await db.update_shared_item(doc_id, updates)
+                await send_irccat_message(format_item_message(
+                    "archived with context", user_email or "unknown", doc_id, item.get('title'),
+                    detail=f"reason={reasoning}"
+                ))
+                action_span.set_attribute("action.result", "archived_with_context")
+                add_span_event("item_archived_with_context", {"item_id": doc_id})
+                return True, None
 
-            new_status = 'analyzed'
-            if new_analysis.get('timeline'):
-                new_status = 'timeline'
-            elif new_analysis.get('follow_up'):
-                new_status = 'follow_up'
+            elif action == 'update':
+                # ACTION: UPDATE (TIMELINE/MEDIA)
+                if not new_analysis:
+                    logger.warning(f"Action is update but no analysis returned for {doc_id}")
+                    action_span.set_attribute("action.error", "missing_analysis")
+                    return False, "missing_analysis_for_update"
 
-            await db.update_shared_item(doc_id, {
-                'analysis': new_analysis,
-                'status': new_status,
-                'next_step': new_status
-            })
-            
-            await send_irccat_message(format_item_message(
-                "updated via follow-up", user_email or "unknown", doc_id, item.get('title'),
-                detail=f"status={new_status}"
-            ))
-            return True, None
+                new_status = 'analyzed'
+                if new_analysis.get('timeline'):
+                    new_status = 'timeline'
+                elif new_analysis.get('follow_up'):
+                    new_status = 'follow_up'
 
-        else:
-             logger.warning(f"Unknown action '{action}' for item {doc_id}")
-             return False, f"unknown_action: {action}"
+                await db.update_shared_item(doc_id, {
+                    'analysis': new_analysis,
+                    'status': new_status,
+                    'next_step': new_status
+                })
+
+                await send_irccat_message(format_item_message(
+                    "updated via follow-up", user_email or "unknown", doc_id, item.get('title'),
+                    detail=f"status={new_status}"
+                ))
+                action_span.set_attribute("action.result", "updated")
+                action_span.set_attribute("action.new_status", new_status)
+                add_span_event("item_updated", {"item_id": doc_id, "new_status": new_status})
+                return True, None
+
+            else:
+                logger.warning(f"Unknown action '{action}' for item {doc_id}")
+                action_span.set_attribute("action.error", f"unknown_action: {action}")
+                return False, f"unknown_action: {action}"
 
     except Exception as e:
         logger.error(f"Failed to process follow-up for item {doc_id}: {e}")
+        record_exception(e)
         return False, str(e)
 
 
