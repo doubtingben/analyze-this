@@ -1348,10 +1348,8 @@ async def get_note_counts(request: Request, body: NoteCountRequest):
     user_email = await get_authenticated_email(request)
 
     # Security: Filter item_ids to only include items owned by the user
-    # Get user's items and intersect with requested item_ids
-    user_items = await db.get_shared_items(user_email)
-    user_item_ids = {item.get('firestore_id') for item in user_items}
-    authorized_item_ids = [item_id for item_id in body.item_ids if item_id in user_item_ids]
+    # Query only for the requested item_ids that belong to the user
+    authorized_item_ids = await db.validate_user_item_ownership(user_email, body.item_ids)
 
     # Get note counts only for authorized items
     counts = await db.get_item_note_count(authorized_item_ids)
