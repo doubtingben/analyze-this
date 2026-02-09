@@ -425,6 +425,10 @@ IMAGE_EXTENSIONS = ('.png', '.jpg', '.jpeg', '.gif', '.webp', '.bmp', '.tiff', '
 VIDEO_EXTENSIONS = ('.mp4', '.mov', '.m4v', '.webm', '.avi', '.mkv')
 AUDIO_EXTENSIONS = ('.mp3', '.wav', '.m4a', '.aac', '.flac', '.ogg')
 
+def save_upload_file_blocking(file_obj, destination: Path):
+    with open(destination, "wb") as buffer:
+        shutil.copyfileobj(file_obj, buffer)
+
 def normalize_share_type(raw_type: Optional[str], content: Optional[str], file: UploadFile | None, metadata: dict | None) -> ShareType:
     if raw_type:
         normalized = raw_type.strip().lower().replace(' ', '_')
@@ -581,8 +585,13 @@ async def share_item(
                     # Ensure directory exists
                     local_path.parent.mkdir(parents=True, exist_ok=True)
                     
-                    with open(local_path, "wb") as buffer:
-                        shutil.copyfileobj(file.file, buffer)
+                    loop = asyncio.get_running_loop()
+                    await loop.run_in_executor(
+                        None,
+                        save_upload_file_blocking,
+                        file.file,
+                        local_path
+                    )
                         
                     # For local dev, we just store the relative path for now, 
                     # similar to prod, but the retrieval needs to handle it.
@@ -1134,8 +1143,13 @@ async def create_item_note(
                     local_path = Path("static") / blob_name_relative
                     local_path.parent.mkdir(parents=True, exist_ok=True)
 
-                    with open(local_path, "wb") as buffer:
-                        shutil.copyfileobj(file.file, buffer)
+                    loop = asyncio.get_running_loop()
+                    await loop.run_in_executor(
+                        None,
+                        save_upload_file_blocking,
+                        file.file,
+                        local_path
+                    )
 
                     image_path = blob_name_relative
                 else:

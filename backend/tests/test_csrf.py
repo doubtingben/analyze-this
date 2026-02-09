@@ -110,8 +110,8 @@ class TestCSRF(unittest.TestCase):
         # Use files to trigger multipart/form-data
         response = self.client.post(
             "/api/share",
-            data={"title": "Attack", "content": "http://evil.com", "type": "web_url"},
-            files={"file": ("empty.txt", b"", "text/plain")},
+            data={"title": "Attack", "content": "ignored", "type": "file"},
+            files={"file": ("empty.txt", b"content", "text/plain")},
             # No X-CSRF-Token header
         )
         self.assertEqual(response.status_code, 403, "Should fail without CSRF header")
@@ -119,8 +119,8 @@ class TestCSRF(unittest.TestCase):
         # Request WITH CSRF header
         response = self.client.post(
             "/api/share",
-            data={"title": "Safe", "content": "http://good.com", "type": "web_url"},
-            files={"file": ("empty.txt", b"", "text/plain")},
+            data={"title": "Safe", "content": "ignored", "type": "file"},
+            files={"file": ("empty.txt", b"content", "text/plain")},
             headers={"X-CSRF-Token": csrf_token}
         )
         self.assertEqual(response.status_code, 200, "Should succeed with CSRF header")

@@ -5,11 +5,17 @@ import sys
 import importlib
 from fastapi.testclient import TestClient
 
+# Add backend directory to path
+BACKEND_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if BACKEND_DIR not in sys.path:
+    sys.path.append(BACKEND_DIR)
+
 class TestDownloadDoS(unittest.TestCase):
     def setUp(self):
         # 1. Patch Environment to Production
         self.env_patcher = patch.dict(os.environ, {
             "APP_ENV": "production",
+            "SECRET_KEY": "secure-key-for-testing",
             "GOOGLE_CLIENT_ID": "mock",
             "GOOGLE_CLIENT_SECRET": "mock"
         })
@@ -59,6 +65,11 @@ class TestDownloadDoS(unittest.TestCase):
         self.db_patcher.stop()
         self.sys_modules_patcher.stop()
         self.env_patcher.stop()
+
+        # Reset main module to development state
+        with patch.dict(os.environ, {"APP_ENV": "development"}):
+            import main
+            importlib.reload(main)
 
     def test_download_uses_streaming(self):
         """Test that file download uses streaming (blob.open) instead of download_as_bytes."""
