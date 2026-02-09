@@ -7,6 +7,8 @@ from dotenv import load_dotenv
 import firebase_admin
 from firebase_admin import storage
 
+from tracing import create_span, record_exception
+
 load_dotenv()
 
 # Configure logging
@@ -15,6 +17,8 @@ logger = logging.getLogger(__name__)
 
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
 OPENROUTER_MODEL = os.getenv("OPENROUTER_MODEL", "google/gemini-2.0-flash-exp:free")
+# Use OpenAI's embedding model via OpenRouter if supported, or fallback to a standard one
+EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "text-embedding-3-small")
 
 client = None
 if OPENROUTER_API_KEY:
@@ -30,8 +34,8 @@ if OPENROUTER_API_KEY:
 def get_analysis_prompt():
     """Reads the analysis prompt from the prompts directory."""
     try:
-        # Assuming the prompt file is located at ../prompts/analyze-this.md relative to backend/
-        prompt_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'prompts', 'analyze-this.md')
+        # Assuming the prompt file is located at ./prompts/analyze-this.md relative to backend/
+        prompt_path = os.path.join(os.path.dirname(__file__), 'prompts', 'analyze-this.md')
         with open(prompt_path, 'r') as f:
             return f.read()
     except Exception as e:
@@ -86,7 +90,17 @@ def get_image_data_url(content: str) -> str | None:
         logger.error(f"Failed to fetch image from storage: {e}")
         return None
 
-def analyze_content(content: str, item_type: str = 'text'):
+def build_analysis_prompt(preferred_tags: list[str] | None) -> str:
+    prompt_text = get_analysis_prompt()
+    if not preferred_tags:
+        return prompt_text
+
+    tag_lines = "\n".join([f"- {tag}" for tag in preferred_tags])
+    tag_block = f"\n\nPreferred tags (use when appropriate):\n{tag_lines}\n"
+    return prompt_text.rstrip() + tag_block
+
+
+def analyze_content(content: str, item_type: str = 'text', preferred_tags: list[str] | None = None):
     """
     Analyzes the given content using OpenRouter and returns the structured JSON response.
     """
@@ -94,7 +108,7 @@ def analyze_content(content: str, item_type: str = 'text'):
         logger.warning("OpenRouter client not initialized. Skipping analysis.")
         return None
 
-    prompt_text = get_analysis_prompt()
+    prompt_text = build_analysis_prompt(preferred_tags)
     
     messages = [{"role": "system", "content": prompt_text}]
 
@@ -125,31 +139,83 @@ def analyze_content(content: str, item_type: str = 'text'):
     else:
         messages.append({"role": "user", "content": f"Analyze this user item:\n\n{content}"})
 
-    try:
-        logger.info(f"Sending request to OpenRouter model: {OPENROUTER_MODEL}")
-        completion = client.chat.completions.create(
-            model=OPENROUTER_MODEL,
-            messages=messages,
-            response_format={"type": "json_object"}
-        )
-        
-        result_content = completion.choices[0].message.content
-        logger.info("Received analysis result")
-        
-        # Depending on the response, it might be a string JSON, we need to return it as a dict if possible
-        # but the caller will likely store it as is or parse it.
-        # Let's try to parse it to ensure it's valid JSON
-        import json
+    # Trace the LLM API call
+    with create_span("openrouter_api_call", {
+        "llm.provider": "openrouter",
+        "llm.model": OPENROUTER_MODEL,
+        "llm.item_type": normalized_type,
+        "llm.operation": "analysis",
+    }) as llm_span:
         try:
-            parsed = json.loads(result_content)
-            return normalize_analysis(parsed)
-        except json.JSONDecodeError:
-            logger.error("Failed to decode JSON from AI response")
-            return normalize_analysis({"raw_analysis": result_content, "error": "Invalid JSON"})
+            logger.info(f"Sending request to OpenRouter model: {OPENROUTER_MODEL}")
+            completion = client.chat.completions.create(
+                model=OPENROUTER_MODEL,
+                messages=messages,
+                response_format={"type": "json_object"}
+            )
 
+            result_content = completion.choices[0].message.content
+            logger.info("Received analysis result")
+
+            # Add usage info if available
+            if hasattr(completion, 'usage') and completion.usage:
+                llm_span.set_attribute("llm.prompt_tokens", completion.usage.prompt_tokens or 0)
+                llm_span.set_attribute("llm.completion_tokens", completion.usage.completion_tokens or 0)
+                llm_span.set_attribute("llm.total_tokens", completion.usage.total_tokens or 0)
+
+            llm_span.set_attribute("llm.response_length", len(result_content) if result_content else 0)
+
+            # Depending on the response, it might be a string JSON, we need to return it as a dict if possible
+            # but the caller will likely store it as is or parse it.
+            # Let's try to parse it to ensure it's valid JSON
+            import json
+            try:
+                parsed = json.loads(result_content)
+                llm_span.set_attribute("llm.parse_success", True)
+                result = normalize_analysis(parsed)
+                # Record key analysis results
+                if result.get('timeline'):
+                    llm_span.set_attribute("llm.result.has_timeline", True)
+                if result.get('follow_up'):
+                    llm_span.set_attribute("llm.result.has_follow_up", True)
+                return result
+            except json.JSONDecodeError as json_err:
+                logger.error("Failed to decode JSON from AI response")
+                llm_span.set_attribute("llm.parse_success", False)
+                record_exception(json_err)
+                return normalize_analysis({"raw_analysis": result_content, "error": "Invalid JSON"})
+
+        except Exception as e:
+            logger.error(f"Error during analysis: {e}")
+            llm_span.set_attribute("llm.api_error", str(e))
+            record_exception(e)
+            return normalize_analysis({"error": str(e)})
+
+
+def generate_embedding(text: str) -> list[float] | None:
+    """
+    Generates a vector embedding for the given text.
+    """
+    if not client:
+        return None
+    
+    if not text:
+        return None
+
+    try:
+        # Truncate text if too long (rough check)
+        if len(text) > 8000:
+            text = text[:8000]
+
+        logger.info(f"Generating embedding using model: {EMBEDDING_MODEL}")
+        response = client.embeddings.create(
+            input=[text],
+            model=EMBEDDING_MODEL
+        )
+        return response.data[0].embedding
     except Exception as e:
-        logger.error(f"Error during analysis: {e}")
-        return normalize_analysis({"error": str(e)})
+        logger.error(f"Failed to generate embedding: {e}")
+        return None
 
 
 def normalize_analysis(raw_response: dict) -> dict:

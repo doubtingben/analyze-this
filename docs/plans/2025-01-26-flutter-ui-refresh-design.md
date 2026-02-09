@@ -2,7 +2,7 @@
 
 ## Overview
 
-Update the Flutter app's visual design to align with the web dashboard and Expo mobile app, using a hybrid approach that combines mobile-native UX patterns with clean visual simplicity.
+Update the Flutter app's visual design to align with the web dashboard and the mobile app, using a hybrid approach that combines mobile-native UX patterns with clean visual simplicity.
 
 ## Scope
 

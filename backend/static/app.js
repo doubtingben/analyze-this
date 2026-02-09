@@ -8,7 +8,6 @@ const userMenuTriggerEl = document.getElementById('user-menu-trigger');
 const userMenuEl = document.getElementById('user-menu');
 const loginStateEl = document.getElementById('login-state');
 const filtersEl = document.getElementById('filters');
-const typeFilterEl = document.getElementById('type-filter');
 const showHiddenEl = document.getElementById('show-archive');
 const exportBtnEl = document.getElementById('export-btn');
 const newItemBtn = document.getElementById('new-item-btn');
@@ -36,17 +35,88 @@ const detailNotesList = document.getElementById('detail-notes-list');
 const detailNotesLoading = document.getElementById('detail-notes-loading');
 const detailNoteForm = document.getElementById('detail-note-form');
 const detailNoteText = document.getElementById('detail-note-text');
+const detailNoteFollowUp = document.getElementById('detail-note-follow-up');
 const detailItemIdEl = document.getElementById('detail-item-id');
+const detailFollowUpEl = document.getElementById('detail-follow-up');
+const detailFollowUpContentEl = document.getElementById('detail-follow-up-content');
+const detailFollowUpDeleteBtn = document.getElementById('detail-follow-up-delete');
+const metricsBtnEl = document.getElementById('metrics-btn');
+const metricsModal = document.getElementById('metrics-modal');
+const metricsModalBackdrop = document.getElementById('metrics-modal-backdrop');
+const metricsModalClose = document.getElementById('metrics-modal-close');
+const metricsLoading = document.getElementById('metrics-loading');
+const metricsError = document.getElementById('metrics-error');
+const metricsContent = document.getElementById('metrics-content');
+const metricsTotalCount = document.getElementById('metrics-total-count');
+const metricsStatusList = document.getElementById('metrics-status-list');
+const metricsWorkerSection = document.getElementById('metrics-worker-section');
+const metricsWorkerTotal = document.getElementById('metrics-worker-total');
+const metricsWorkerList = document.getElementById('metrics-worker-list');
+const searchInputEl = document.getElementById('search-input');
+const filterBtnEl = document.getElementById('filter-btn');
+const filterCountEl = document.getElementById('filter-count');
+const filterModal = document.getElementById('filter-modal');
+const filterModalBackdrop = document.getElementById('filter-modal-backdrop');
+const filterModalCloseBtn = document.getElementById('filter-modal-close');
+const filterTypesEl = document.getElementById('filter-types');
+const filterTagsEl = document.getElementById('filter-tags');
+const filterApplyBtn = document.getElementById('filter-apply-btn');
+const filterClearBtn = document.getElementById('filter-clear-btn');
+const tagEditorBtn = document.getElementById('tag-editor-btn');
+const tagEditorModal = document.getElementById('tag-editor-modal');
+const tagEditorModalBackdrop = document.getElementById('tag-editor-modal-backdrop');
+const tagEditorModalClose = document.getElementById('tag-editor-modal-close');
+const tagSearchInput = document.getElementById('tag-search-input');
+const tagSortSelect = document.getElementById('tag-sort-select');
+const tagEditorCount = document.getElementById('tag-editor-count');
+const tagEditorList = document.getElementById('tag-editor-list');
+const detailTimelineEl = document.getElementById('detail-timeline');
+const detailTimelineToggle = document.getElementById('detail-timeline-toggle');
+const detailTimelineContent = document.getElementById('detail-timeline-content');
+const detailTimelineCount = document.getElementById('detail-timeline-count');
+const detailTimelineDateView = document.getElementById('detail-timeline-date-view');
+const detailTimelineDateInput = document.getElementById('detail-timeline-date');
+const detailTimelineTimeView = document.getElementById('detail-timeline-time-view');
+const detailTimelineTimeInput = document.getElementById('detail-timeline-time');
+const detailTimelineDurationView = document.getElementById('detail-timeline-duration-view');
+const detailTimelineDurationInput = document.getElementById('detail-timeline-duration');
+const detailTimelinePrincipalView = document.getElementById('detail-timeline-principal-view');
+const detailTimelinePrincipalInput = document.getElementById('detail-timeline-principal');
+const detailTimelineLocationView = document.getElementById('detail-timeline-location-view');
+const detailTimelineLocationInput = document.getElementById('detail-timeline-location');
+const detailTimelinePurposeView = document.getElementById('detail-timeline-purpose-view');
+const detailTimelinePurposeInput = document.getElementById('detail-timeline-purpose');
 
 // State
 let allItems = [];
-let currentView = 'all'; // 'all', 'timeline', or 'follow_up'
-let currentTypeFilter = ''; // '' for all, or specific type
+let currentView = 'all'; // 'all', 'timeline', 'follow_up', or 'media'
+let selectedTypes = new Set();     // Empty = all types
+let selectedTags = new Set();      // Empty = no tag filter
+let searchQuery = '';              // Empty = no search
 let showHidden = false;
 let currentDetailItem = null;
 let detailEditMode = false;
 let editableTags = [];
 let noteCounts = {};
+let searchDebounceTimer;
+let pendingSelectedTypes = new Set();  // Temporary selection in modal
+let pendingSelectedTags = new Set();   // Temporary selection in modal
+let tagSearchQuery = '';               // Tag editor search
+let tagSortMode = 'name';              // Tag editor sort mode
+let currentUserTimezone = 'America/New_York'; // Default timezone
+let isTimelineExpanded = false;        // Timeline section expansion state
+
+// Helper to get cookies
+function getCookie(name) {
+    const value = `; ${document.cookie}`;
+    const parts = value.split(`; ${name}=`);
+    if (parts.length === 2) return parts.pop().split(';').shift();
+}
+
+function getCsrfHeaders() {
+    const token = getCookie('csrf_token');
+    return token ? { 'X-CSRF-Token': token } : {};
+}
 
 // Initialize the app
 async function init() {
@@ -56,6 +126,9 @@ async function init() {
             showLoginState();
             return;
         }
+        if (user.timezone) {
+            currentUserTimezone = user.timezone;
+        }
         userNameEl.textContent = `Welcome, ${user.name || user.email}`;
 
         // Show new item button for logged in users
@@ -64,10 +137,14 @@ async function init() {
         // Setup filter controls
         setupFilters();
         setupUserMenu();
+        setupSearchInput();
+        setupFilterModal();
 
         // Setup create modal
         setupCreateModal();
         setupDetailModal();
+        setupMetricsModal();
+        setupTagEditor();
 
         allItems = await fetchItems();
         await fetchNoteCounts(allItems);
@@ -105,6 +182,15 @@ function setupDetailModal() {
         detailTagInput.value = '';
     });
 
+    if (detailFollowUpDeleteBtn) {
+        detailFollowUpDeleteBtn.addEventListener('click', confirmDeleteFollowUp);
+    }
+
+    // Timeline toggle
+    if (detailTimelineToggle) {
+        detailTimelineToggle.addEventListener('click', toggleTimeline);
+    }
+
     detailNoteForm.addEventListener('submit', async (event) => {
         event.preventDefault();
         if (!currentDetailItem) return;
@@ -114,16 +200,22 @@ function setupDetailModal() {
 
         const formData = new FormData();
         formData.append('text', text);
+        const isFollowUp = detailNoteFollowUp.checked;
+        formData.append('note_type', isFollowUp ? 'follow_up' : 'context');
 
         try {
             const response = await fetch(`/api/items/${itemId}/notes`, {
                 method: 'POST',
+                headers: {
+                    ...getCsrfHeaders()
+                },
                 body: formData
             });
             if (!response.ok) {
                 throw new Error('Failed to add note');
             }
             detailNoteText.value = '';
+            detailNoteFollowUp.checked = false;
             const note = await response.json();
             await loadDetailNotes();
         } catch (error) {
@@ -231,6 +323,9 @@ async function handleCreateSubmit(e) {
 
         const response = await fetch('/api/share', {
             method: 'POST',
+            headers: {
+                ...getCsrfHeaders()
+            },
             body: formData
         });
 
@@ -264,12 +359,6 @@ function setupFilters() {
             currentView = btn.dataset.view;
             renderFilteredItems();
         });
-    });
-
-    // Type filter dropdown
-    typeFilterEl.addEventListener('change', () => {
-        currentTypeFilter = typeFilterEl.value;
-        renderFilteredItems();
     });
 
     if (showHiddenEl) {
@@ -311,6 +400,558 @@ function setupUserMenu() {
     });
 }
 
+function setupMetricsModal() {
+    if (!metricsModal) return;
+
+    if (metricsBtnEl) {
+        metricsBtnEl.addEventListener('click', () => {
+            closeUserMenu();
+            openMetricsModal();
+        });
+    }
+
+    if (metricsModalClose) {
+        metricsModalClose.addEventListener('click', closeMetricsModal);
+    }
+
+    if (metricsModalBackdrop) {
+        metricsModalBackdrop.addEventListener('click', closeMetricsModal);
+    }
+}
+
+function openMetricsModal() {
+    if (!metricsModal) return;
+    metricsModal.style.display = 'flex';
+    fetchMetrics();
+}
+
+// Tag Editor functions
+function setupTagEditor() {
+    if (!tagEditorModal) return;
+
+    if (tagEditorBtn) {
+        tagEditorBtn.addEventListener('click', () => {
+            closeUserMenu();
+            openTagEditorModal();
+        });
+    }
+
+    if (tagEditorModalClose) {
+        tagEditorModalClose.addEventListener('click', closeTagEditorModal);
+    }
+
+    if (tagEditorModalBackdrop) {
+        tagEditorModalBackdrop.addEventListener('click', closeTagEditorModal);
+    }
+
+    if (tagSearchInput) {
+        tagSearchInput.addEventListener('input', (e) => {
+            tagSearchQuery = e.target.value.toLowerCase();
+            renderTagEditorList();
+        });
+    }
+
+    if (tagSortSelect) {
+        tagSortSelect.addEventListener('change', (e) => {
+            tagSortMode = e.target.value;
+            renderTagEditorList();
+        });
+    }
+}
+
+function openTagEditorModal() {
+    if (!tagEditorModal) return;
+    // Reset state
+    tagSearchQuery = '';
+    tagSortMode = 'name';
+    if (tagSearchInput) tagSearchInput.value = '';
+    if (tagSortSelect) tagSortSelect.value = 'name';
+
+    tagEditorModal.style.display = 'flex';
+    renderTagEditorList();
+}
+
+function closeTagEditorModal() {
+    if (!tagEditorModal) return;
+    tagEditorModal.style.display = 'none';
+}
+
+function getTagStats() {
+    const tagStats = {};
+
+    allItems.forEach(item => {
+        const itemTags = item.analysis?.tags || [];
+        const itemDate = item.created_at ? new Date(item.created_at) : new Date(0);
+
+        itemTags.forEach(tag => {
+            if (!tagStats[tag]) {
+                tagStats[tag] = {
+                    name: tag,
+                    count: 0,
+                    newestDate: itemDate
+                };
+            }
+            tagStats[tag].count++;
+            if (itemDate > tagStats[tag].newestDate) {
+                tagStats[tag].newestDate = itemDate;
+            }
+        });
+    });
+
+    return tagStats;
+}
+
+function renderTagEditorList() {
+    if (!tagEditorList) return;
+
+    const tagStats = getTagStats();
+    let tags = Object.values(tagStats);
+
+    // Filter by search query
+    if (tagSearchQuery) {
+        tags = tags.filter(tag => tag.name.toLowerCase().includes(tagSearchQuery));
+    }
+
+    // Sort tags
+    switch (tagSortMode) {
+        case 'newest':
+            tags.sort((a, b) => b.newestDate - a.newestDate);
+            break;
+        case 'count':
+            tags.sort((a, b) => b.count - a.count);
+            break;
+        case 'name':
+        default:
+            tags.sort((a, b) => a.name.localeCompare(b.name));
+            break;
+    }
+
+    // Update count
+    if (tagEditorCount) {
+        tagEditorCount.textContent = `${tags.length} tag${tags.length === 1 ? '' : 's'}`;
+    }
+
+    // Render list
+    tagEditorList.innerHTML = '';
+
+    if (tags.length === 0) {
+        const emptyEl = document.createElement('div');
+        emptyEl.className = 'tag-editor-empty';
+        emptyEl.textContent = tagSearchQuery ? 'No tags match your search.' : 'No tags found.';
+        tagEditorList.appendChild(emptyEl);
+        return;
+    }
+
+    tags.forEach(tag => {
+        const row = document.createElement('div');
+        row.className = 'tag-editor-item';
+
+        const iconEl = document.createElement('div');
+        iconEl.className = 'tag-editor-icon';
+        iconEl.textContent = '🏷️';
+        row.appendChild(iconEl);
+
+        const infoEl = document.createElement('div');
+        infoEl.className = 'tag-editor-info';
+
+        const nameEl = document.createElement('div');
+        nameEl.className = 'tag-editor-name';
+        nameEl.textContent = tag.name;
+        infoEl.appendChild(nameEl);
+
+        const countEl = document.createElement('div');
+        countEl.className = 'tag-editor-count-label';
+        countEl.textContent = `${tag.count} item${tag.count === 1 ? '' : 's'}`;
+        infoEl.appendChild(countEl);
+
+        row.appendChild(infoEl);
+
+        const deleteBtn = document.createElement('button');
+        deleteBtn.className = 'tag-editor-delete';
+        deleteBtn.textContent = '🗑️';
+        deleteBtn.type = 'button';
+        deleteBtn.title = 'Delete tag';
+        deleteBtn.addEventListener('click', () => deleteTag(tag.name));
+        row.appendChild(deleteBtn);
+
+        tagEditorList.appendChild(row);
+    });
+}
+
+async function deleteTag(tagName) {
+    const tagStats = getTagStats();
+    const tag = tagStats[tagName];
+    if (!tag) return;
+
+    const confirmMsg = `Delete tag "${tagName}"?\n\nThis will remove the tag from ${tag.count} item${tag.count === 1 ? '' : 's'}.`;
+    if (!confirm(confirmMsg)) return;
+
+    // Find all items with this tag and update them
+    const itemsWithTag = allItems.filter(item => {
+        const itemTags = item.analysis?.tags || [];
+        return itemTags.includes(tagName);
+    });
+
+    try {
+        for (const item of itemsWithTag) {
+            const itemId = getItemId(item);
+            const currentTags = item.analysis?.tags || [];
+            const newTags = currentTags.filter(t => t !== tagName);
+
+            const response = await fetch(`/api/items/${itemId}`, {
+                method: 'PATCH',
+                headers: {
+                    'Content-Type': 'application/json',
+                    ...getCsrfHeaders()
+                },
+                body: JSON.stringify({ tags: newTags })
+            });
+
+            if (!response.ok) {
+                throw new Error(`Failed to update item ${itemId}`);
+            }
+
+            // Update local state
+            if (item.analysis) {
+                item.analysis.tags = newTags;
+            }
+        }
+
+        // Re-render tag list and main items list
+        renderTagEditorList();
+        renderFilteredItems();
+    } catch (error) {
+        console.error('Delete tag error:', error);
+        alert(error.message || 'Failed to delete tag');
+    }
+}
+
+// Escape HTML to prevent XSS
+function escapeHtml(str) {
+    if (!str) return '';
+    const div = document.createElement('div');
+    div.textContent = str;
+    return div.innerHTML;
+}
+
+function closeMetricsModal() {
+    if (!metricsModal) return;
+    metricsModal.style.display = 'none';
+}
+
+// Setup search input with debounce
+function setupSearchInput() {
+    if (!searchInputEl) return;
+
+    searchInputEl.addEventListener('input', (e) => {
+        clearTimeout(searchDebounceTimer);
+        searchDebounceTimer = setTimeout(() => {
+            searchQuery = e.target.value;
+            renderFilteredItems();
+        }, 300);
+    });
+}
+
+// Setup filter modal
+function setupFilterModal() {
+    if (!filterModal) return;
+
+    // Open modal
+    if (filterBtnEl) {
+        filterBtnEl.addEventListener('click', openFilterModal);
+    }
+
+    // Close modal
+    if (filterModalCloseBtn) {
+        filterModalCloseBtn.addEventListener('click', closeFilterModal);
+    }
+    if (filterModalBackdrop) {
+        filterModalBackdrop.addEventListener('click', closeFilterModal);
+    }
+
+    // Apply button
+    if (filterApplyBtn) {
+        filterApplyBtn.addEventListener('click', applyFilters);
+    }
+
+    // Clear button
+    if (filterClearBtn) {
+        filterClearBtn.addEventListener('click', clearFilters);
+    }
+}
+
+function openFilterModal() {
+    if (!filterModal) return;
+
+    // Copy current selections to pending
+    pendingSelectedTypes = new Set(selectedTypes);
+    pendingSelectedTags = new Set(selectedTags);
+
+    // Populate chips
+    populateFilterChips();
+
+    filterModal.style.display = 'flex';
+}
+
+function closeFilterModal() {
+    if (!filterModal) return;
+    filterModal.style.display = 'none';
+}
+
+function populateFilterChips() {
+    // Static list of types
+    const types = ['image', 'video', 'audio', 'file', 'screenshot', 'text', 'web_url'];
+
+    // Populate type chips
+    if (filterTypesEl) {
+        filterTypesEl.innerHTML = '';
+        types.forEach(type => {
+            const chip = document.createElement('button');
+            chip.type = 'button';
+            chip.className = 'filter-chip';
+            if (pendingSelectedTypes.has(type)) {
+                chip.classList.add('selected');
+            }
+            chip.textContent = formatType(type);
+            chip.dataset.value = type;
+            chip.addEventListener('click', () => toggleTypeChip(chip, type));
+            filterTypesEl.appendChild(chip);
+        });
+    }
+
+    // Populate tag chips from available tags
+    if (filterTagsEl) {
+        filterTagsEl.innerHTML = '';
+        const availableTags = getAllAvailableTags();
+        if (availableTags.size === 0) {
+            const emptyMsg = document.createElement('span');
+            emptyMsg.className = 'filter-empty-msg';
+            emptyMsg.textContent = 'No tags available';
+            filterTagsEl.appendChild(emptyMsg);
+        } else {
+            // Sort tags alphabetically
+            const sortedTags = [...availableTags].sort();
+            sortedTags.forEach(tag => {
+                const chip = document.createElement('button');
+                chip.type = 'button';
+                chip.className = 'filter-chip';
+                if (pendingSelectedTags.has(tag)) {
+                    chip.classList.add('selected');
+                }
+                chip.textContent = tag;
+                chip.dataset.value = tag;
+                chip.addEventListener('click', () => toggleTagChip(chip, tag));
+                filterTagsEl.appendChild(chip);
+            });
+        }
+    }
+}
+
+function toggleTypeChip(chip, type) {
+    if (pendingSelectedTypes.has(type)) {
+        pendingSelectedTypes.delete(type);
+        chip.classList.remove('selected');
+    } else {
+        pendingSelectedTypes.add(type);
+        chip.classList.add('selected');
+    }
+}
+
+function toggleTagChip(chip, tag) {
+    if (pendingSelectedTags.has(tag)) {
+        pendingSelectedTags.delete(tag);
+        chip.classList.remove('selected');
+    } else {
+        pendingSelectedTags.add(tag);
+        chip.classList.add('selected');
+    }
+}
+
+function applyFilters() {
+    // Copy pending selections to actual selections
+    selectedTypes = new Set(pendingSelectedTypes);
+    selectedTags = new Set(pendingSelectedTags);
+
+    // Update filter count badge
+    updateFilterCountBadge();
+
+    // Re-render items
+    renderFilteredItems();
+
+    // Close modal
+    closeFilterModal();
+}
+
+function clearFilters() {
+    // Clear pending selections
+    pendingSelectedTypes.clear();
+    pendingSelectedTags.clear();
+
+    // Re-populate chips to update visual state
+    populateFilterChips();
+}
+
+function updateFilterCountBadge() {
+    if (!filterCountEl) return;
+
+    const count = selectedTypes.size + selectedTags.size;
+    if (count > 0) {
+        filterCountEl.textContent = count;
+        filterCountEl.style.display = 'inline-flex';
+    } else {
+        filterCountEl.style.display = 'none';
+    }
+}
+
+async function fetchMetrics() {
+    if (!metricsLoading || !metricsError || !metricsContent) return;
+
+    metricsLoading.style.display = 'block';
+    metricsError.style.display = 'none';
+    metricsContent.style.display = 'none';
+
+    try {
+        const response = await fetch('/api/metrics');
+        if (!response.ok) {
+            throw new Error('Failed to fetch metrics');
+        }
+        const data = await response.json();
+        displayMetrics(data);
+    } catch (error) {
+        metricsLoading.style.display = 'none';
+        metricsError.style.display = 'block';
+        metricsError.textContent = error.message || 'Failed to load metrics';
+    }
+}
+
+function displayMetrics(data) {
+    metricsLoading.style.display = 'none';
+    metricsContent.style.display = 'block';
+
+    // Display total
+    metricsTotalCount.textContent = data.total_items || 0;
+
+    // Status labels and icons
+    const statusConfig = {
+        new: { label: 'New', icon: '🆕' },
+        analyzing: { label: 'Analyzing', icon: '⏳' },
+        analyzed: { label: 'Analyzed', icon: '✅' },
+        timeline: { label: 'Timeline', icon: '📅' },
+        follow_up: { label: 'Follow-up', icon: '🚩' },
+        processed: { label: 'Processed', icon: '✔️' },
+        soft_deleted: { label: 'Archived', icon: '📦' }
+    };
+
+    const statusOrder = ['new', 'analyzing', 'analyzed', 'timeline', 'follow_up', 'processed', 'soft_deleted'];
+    const byStatus = data.by_status || {};
+
+    // Clear existing items
+    metricsStatusList.innerHTML = '';
+
+    // Render status items
+    statusOrder.forEach(status => {
+        const count = byStatus[status] || 0;
+        // Always show new and follow_up, hide others if 0
+        if (count === 0 && status !== 'new' && status !== 'follow_up') {
+            return;
+        }
+
+        const config = statusConfig[status] || { label: status, icon: '●' };
+        const item = document.createElement('div');
+        item.className = 'metrics-status-item';
+        item.dataset.status = status;
+        item.innerHTML = `
+            <div class="metrics-status-item-left">
+                <div class="metrics-status-icon">${config.icon}</div>
+                <span class="metrics-status-label">${config.label}</span>
+            </div>
+            <span class="metrics-status-count">${count}</span>
+        `;
+        metricsStatusList.appendChild(item);
+    });
+
+    // Add any unknown statuses
+    Object.entries(byStatus).forEach(([status, count]) => {
+        if (!statusOrder.includes(status) && count > 0) {
+            const item = document.createElement('div');
+            item.className = 'metrics-status-item';
+            item.dataset.status = status;
+            item.innerHTML = `
+                <div class="metrics-status-item-left">
+                    <div class="metrics-status-icon">●</div>
+                    <span class="metrics-status-label">${status}</span>
+                </div>
+                <span class="metrics-status-count">${count}</span>
+            `;
+            metricsStatusList.appendChild(item);
+        }
+    });
+
+    // Display worker queue metrics
+    displayWorkerQueueMetrics(data.worker_queue);
+}
+
+function displayWorkerQueueMetrics(workerQueue) {
+    if (!metricsWorkerSection || !metricsWorkerTotal || !metricsWorkerList) return;
+
+    // Always show worker queue section
+    metricsWorkerSection.style.display = 'block';
+    const total = workerQueue?.total || 0;
+    metricsWorkerTotal.textContent = `${total} jobs`;
+
+    const workerStatusConfig = {
+        queued: { label: 'Queued', icon: '⏱️' },
+        leased: { label: 'Processing', icon: '🔄' },
+        completed: { label: 'Completed', icon: '✅' },
+        failed: { label: 'Failed', icon: '❌' }
+    };
+
+    const workerStatusOrder = ['queued', 'leased', 'completed', 'failed'];
+    const byStatus = workerQueue?.by_status || {};
+
+    // Clear existing items
+    metricsWorkerList.innerHTML = '';
+
+    // Render worker status items
+    workerStatusOrder.forEach(status => {
+        const count = byStatus[status] || 0;
+        // Always show queued and leased, hide completed/failed if 0
+        if (count === 0 && status !== 'queued' && status !== 'leased') {
+            return;
+        }
+
+        const config = workerStatusConfig[status] || { label: status, icon: '●' };
+        const item = document.createElement('div');
+        item.className = 'metrics-status-item';
+        item.dataset.status = status;
+        item.innerHTML = `
+            <div class="metrics-status-item-left">
+                <div class="metrics-status-icon">${config.icon}</div>
+                <span class="metrics-status-label">${config.label}</span>
+            </div>
+            <span class="metrics-status-count">${count}</span>
+        `;
+        metricsWorkerList.appendChild(item);
+    });
+
+    // Add any unknown worker statuses
+    Object.entries(byStatus).forEach(([status, count]) => {
+        if (!workerStatusOrder.includes(status) && count > 0) {
+            const item = document.createElement('div');
+            item.className = 'metrics-status-item';
+            item.dataset.status = status;
+            item.innerHTML = `
+                <div class="metrics-status-item-left">
+                    <div class="metrics-status-icon">●</div>
+                    <span class="metrics-status-label">${status}</span>
+                </div>
+                <span class="metrics-status-count">${count}</span>
+            `;
+            metricsWorkerList.appendChild(item);
+        }
+    });
+}
+
 function openUserMenu() {
     if (!userMenuEl) return;
     userMenuEl.classList.add('is-open');
@@ -332,6 +973,74 @@ function toggleUserMenu() {
     }
 }
 
+// Get all available tags from items
+function getAllAvailableTags() {
+    const tags = new Set();
+    allItems.forEach(item => {
+        const itemTags = item.analysis?.tags;
+        if (Array.isArray(itemTags)) {
+            itemTags.forEach(tag => tags.add(tag));
+        }
+    });
+    return tags;
+}
+
+const MEDIA_TAGS = new Set(['to_read', 'to_listen', 'to_watch']);
+
+function getConsumptionTime(item) {
+    const time = item.analysis?.consumption_time_minutes;
+    if (typeof time === 'number') return Math.round(time);
+    return null;
+}
+
+function isFutureAvailability(item) {
+    const eventDate = getEventDateTime(item);
+    if (!eventDate) return false;
+    return eventDate > new Date();
+}
+
+function formatConsumptionTime(minutes) {
+    if (minutes < 60) return `~${minutes} min`;
+    const hours = minutes / 60;
+    if (hours < 10) return `~${hours.toFixed(1)} hr`;
+    return `~${Math.round(hours)} hr`;
+}
+
+function formatAvailabilityDate(date) {
+    return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+}
+
+function groupItemsByMediaTag(items) {
+    const groups = {
+        to_watch: [],
+        to_listen: [],
+        to_read: [],
+    };
+
+    for (const item of items) {
+        const tags = item.analysis?.tags || [];
+        for (const tag of MEDIA_TAGS) {
+            if (tags.includes(tag)) {
+                groups[tag].push(item);
+            }
+        }
+    }
+
+    // Sort each group by consumption time (nulls last), then by created_at
+    for (const group of Object.values(groups)) {
+        group.sort((a, b) => {
+            const timeA = getConsumptionTime(a);
+            const timeB = getConsumptionTime(b);
+            if (timeA === null && timeB === null) return (new Date(b.created_at || 0)) - (new Date(a.created_at || 0));
+            if (timeA === null) return 1;
+            if (timeB === null) return -1;
+            return timeA - timeB;
+        });
+    }
+
+    return groups;
+}
+
 // Get event date from analysis details
 function getEventDateTime(item) {
     if (!item.analysis) return null;
@@ -342,11 +1051,21 @@ function getEventDateTime(item) {
         if (timeline.date) {
             try {
                 let dateStr = timeline.date;
-                if (timeline.time) {
+                let isAllDay = false;
+
+                // Check if time is present and not the string "null"
+                if (timeline.time && timeline.time !== "null") {
                     dateStr += ` ${timeline.time}`;
+                } else {
+                    // No time: use UTC Noon to ensure date stability across timezones
+                    // Append T12:00:00Z so it is parsed as UTC Noon
+                    dateStr += "T12:00:00Z";
+                    isAllDay = true;
                 }
+
                 const date = new Date(dateStr);
                 if (!isNaN(date.getTime())) {
+                    if (isAllDay) date.isAllDay = true;
                     return date;
                 }
             } catch (e) {
@@ -390,9 +1109,26 @@ function getFilteredItems() {
         items = items.filter(item => !item.hidden);
     }
 
-    // Apply type filter
-    if (currentTypeFilter) {
-        items = items.filter(item => normalizeType(item) === currentTypeFilter);
+    // Search filter
+    if (searchQuery) {
+        const query = searchQuery.toLowerCase();
+        items = items.filter(item =>
+            (item.title?.toLowerCase().includes(query)) ||
+            (item.content?.toLowerCase().includes(query))
+        );
+    }
+
+    // Type filter (multi-select)
+    if (selectedTypes.size > 0) {
+        items = items.filter(item => selectedTypes.has(normalizeType(item)));
+    }
+
+    // Tag filter
+    if (selectedTags.size > 0) {
+        items = items.filter(item => {
+            const itemTags = item.analysis?.tags || [];
+            return [...selectedTags].some(tag => itemTags.includes(tag));
+        });
     }
 
     // Apply view-specific filtering and sorting
@@ -416,6 +1152,12 @@ function getFilteredItems() {
             const dateB = new Date(b.created_at || 0);
             return dateB - dateA;
         });
+    } else if (currentView === 'media') {
+        items = items.filter(item => {
+            const tags = item.analysis?.tags || [];
+            return tags.some(t => MEDIA_TAGS.has(t));
+        });
+        // Sorting happens in groupItemsByMediaTag
     } else {
         // Default: sort by created_at descending (newest first)
         items.sort((a, b) => {
@@ -508,8 +1250,11 @@ function renderItems(items) {
             emptyStateEl.querySelector('p').textContent = 'No items with event dates found.';
         } else if (currentView === 'follow_up') {
             emptyStateEl.querySelector('p').textContent = 'No items need follow-up.';
-        } else if (currentTypeFilter) {
-            emptyStateEl.querySelector('p').textContent = `No ${formatType(currentTypeFilter)} items found.`;
+        } else if (currentView === 'media') {
+            emptyStateEl.querySelector('p').textContent = 'No media items found.';
+        } else if (selectedTypes.size > 0) {
+            const typeNames = [...selectedTypes].map(formatType).join(', ');
+            emptyStateEl.querySelector('p').textContent = `No ${typeNames} items found.`;
         } else {
             emptyStateEl.querySelector('p').textContent = 'No items yet. Share something from the mobile app or browser extension!';
         }
@@ -522,6 +1267,8 @@ function renderItems(items) {
 
     if (currentView === 'timeline') {
         renderTimelineItems(items);
+    } else if (currentView === 'media') {
+        renderMediaItems(items);
     } else {
         items.forEach(item => {
             const card = renderItem(item);
@@ -580,16 +1327,88 @@ function renderTimelineItems(items) {
     }
 }
 
+function renderMediaItems(items) {
+    const groups = groupItemsByMediaTag(items);
+    const groupLabels = {
+        to_watch: 'To Watch',
+        to_listen: 'To Listen',
+        to_read: 'To Read',
+    };
+
+    let hasAnyItems = false;
+
+    for (const tag of ['to_watch', 'to_listen', 'to_read']) {
+        const groupItems = groups[tag];
+        if (groupItems.length === 0) continue;
+
+        hasAnyItems = true;
+
+        // Section header
+        const header = document.createElement('div');
+        header.className = 'media-section-header';
+        header.textContent = groupLabels[tag];
+        itemsContainerEl.appendChild(header);
+
+        // Items
+        for (const item of groupItems) {
+            const card = renderItem(item);
+
+            // Add badges before the card content
+            const badgesRow = document.createElement('div');
+            badgesRow.className = 'media-badges';
+
+            const consumptionTime = getConsumptionTime(item);
+            if (consumptionTime !== null) {
+                const badge = document.createElement('span');
+                badge.className = 'consumption-time-badge';
+                badge.textContent = formatConsumptionTime(consumptionTime);
+                badgesRow.appendChild(badge);
+            }
+
+            if (isFutureAvailability(item)) {
+                const badge = document.createElement('span');
+                badge.className = 'availability-badge';
+                badge.textContent = `Available ${formatAvailabilityDate(getEventDateTime(item))}`;
+                badgesRow.appendChild(badge);
+            }
+
+            if (badgesRow.children.length > 0) {
+                // Insert badges after the header element
+                const headerEl = card.querySelector('.item-header');
+                if (headerEl && headerEl.nextSibling) {
+                    card.insertBefore(badgesRow, headerEl.nextSibling);
+                } else {
+                    card.appendChild(badgesRow);
+                }
+            }
+
+            itemsContainerEl.appendChild(card);
+        }
+    }
+
+    if (!hasAnyItems) {
+        emptyStateEl.style.display = 'block';
+        emptyStateEl.querySelector('p').textContent = 'No media items found.';
+    }
+}
+
 // Format event date for timeline display
 function formatEventDate(date) {
     if (!date) return '';
-    return date.toLocaleDateString(undefined, {
+    const options = {
         weekday: 'short',
         month: 'short',
         day: 'numeric',
-        hour: '2-digit',
-        minute: '2-digit'
-    });
+        timeZone: currentUserTimezone
+    };
+
+    // Only add time if NOT all day
+    if (!date.isAllDay) {
+        options.hour = '2-digit';
+        options.minute = '2-digit';
+    }
+
+    return date.toLocaleDateString(undefined, options);
 }
 
 // Render a single item, dispatching to type-specific renderer
@@ -610,7 +1429,15 @@ function renderItem(item) {
     if (item.title) {
         const title = document.createElement('div');
         title.className = 'item-title';
-        title.textContent = item.title;
+        // Show bullet indicator for unnormalized titles
+        if (!item.is_normalized) {
+            const indicator = document.createElement('span');
+            indicator.className = 'normalization-indicator';
+            indicator.textContent = '• ';
+            indicator.title = 'Title pending normalization';
+            title.appendChild(indicator);
+        }
+        title.appendChild(document.createTextNode(item.title));
         titleSection.appendChild(title);
     }
 
@@ -695,14 +1522,39 @@ function renderItem(item) {
 
     const idRow = document.createElement('div');
     idRow.className = 'item-details-row';
-    idRow.innerHTML = `<span class="item-details-label">ID:</span> <span class="item-details-value">${item.firestore_id || 'N/A'}</span>`;
+
+    const idLabel = document.createElement('span');
+    idLabel.className = 'item-details-label';
+    idLabel.textContent = 'ID: ';
+    idRow.appendChild(idLabel);
+
+    const idValue = document.createElement('span');
+    idValue.className = 'item-details-value';
+    idValue.textContent = item.firestore_id || 'N/A';
+    idRow.appendChild(idValue);
+
     details.appendChild(idRow);
 
     if (item.analysis?.tags && item.analysis.tags.length > 0) {
         const tagsRow = document.createElement('div');
         tagsRow.className = 'item-details-row';
-        const tagsHtml = item.analysis.tags.map(tag => `<span class="item-tag">${tag}</span>`).join('');
-        tagsRow.innerHTML = `<span class="item-details-label">Tags:</span> <span class="item-details-tags">${tagsHtml}</span>`;
+
+        const label = document.createElement('span');
+        label.className = 'item-details-label';
+        label.textContent = 'Tags: ';
+        tagsRow.appendChild(label);
+
+        const tagsContainer = document.createElement('span');
+        tagsContainer.className = 'item-details-tags';
+
+        item.analysis.tags.forEach(tag => {
+            const tagSpan = document.createElement('span');
+            tagSpan.className = 'item-tag';
+            tagSpan.textContent = tag;
+            tagsContainer.appendChild(tagSpan);
+        });
+
+        tagsRow.appendChild(tagsContainer);
         details.appendChild(tagsRow);
     }
 
@@ -797,7 +1649,13 @@ function openDetailModal(item) {
     detailTypeEl.textContent = formatType(normalizeType(item));
 
     if (typeof item.content === 'string' && item.content.startsWith('http')) {
-        detailContentEl.innerHTML = `<a href="${item.content}" target="_blank" rel="noopener noreferrer">${item.content}</a>`;
+        detailContentEl.innerHTML = '';
+        const link = document.createElement('a');
+        link.href = item.content;
+        link.target = '_blank';
+        link.rel = 'noopener noreferrer';
+        link.textContent = item.content;
+        detailContentEl.appendChild(link);
     } else {
         detailContentEl.textContent = item.content || '';
     }
@@ -805,19 +1663,39 @@ function openDetailModal(item) {
     // Display item ID with copy button
     const itemId = item.firestore_id || item.id || '';
     if (detailItemIdEl) {
-        detailItemIdEl.innerHTML = `
-            <code>${itemId}</code>
-            <button class="btn-icon" onclick="navigator.clipboard.writeText('${itemId}').then(() => alert('Item ID copied!'))" title="Copy ID">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        detailItemIdEl.innerHTML = '';
+        const code = document.createElement('code');
+        code.textContent = itemId;
+        detailItemIdEl.appendChild(code);
+
+        const btn = document.createElement('button');
+        btn.className = 'btn-icon';
+        btn.title = 'Copy ID';
+        btn.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                     <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
                     <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
-                </svg>
-            </button>
-        `;
+                </svg>`;
+        btn.onclick = () => navigator.clipboard.writeText(itemId).then(() => alert('Item ID copied!'));
+        detailItemIdEl.appendChild(btn);
     }
 
     editableTags = item.analysis?.tags ? [...item.analysis.tags] : [];
     renderDetailTags();
+
+    // Populate timeline section
+    populateTimelineSection(item);
+
+    // Display follow-up content if available
+    const followUp = item.analysis?.follow_up;
+    if (detailFollowUpEl && detailFollowUpContentEl) {
+        if (followUp && followUp.trim()) {
+            detailFollowUpContentEl.textContent = followUp;
+            detailFollowUpEl.style.display = 'block';
+        } else {
+            detailFollowUpEl.style.display = 'none';
+        }
+    }
+
     setDetailEditMode(false);
     loadDetailNotes();
 }
@@ -826,6 +1704,183 @@ function closeDetailModal() {
     if (!detailModal) return;
     detailModal.style.display = 'none';
     currentDetailItem = null;
+    isTimelineExpanded = false;
+}
+
+function toggleTimeline() {
+    isTimelineExpanded = !isTimelineExpanded;
+    if (detailTimelineContent) {
+        detailTimelineContent.style.display = isTimelineExpanded ? 'block' : 'none';
+    }
+    if (detailTimelineEl) {
+        if (isTimelineExpanded) {
+            detailTimelineEl.classList.add('expanded');
+        } else {
+            detailTimelineEl.classList.remove('expanded');
+        }
+    }
+}
+
+function getTimelineFromItem(item) {
+    if (!item.analysis?.timeline) {
+        return { date: '', time: '', duration: '', principal: '', location: '', purpose: '' };
+    }
+    const t = item.analysis.timeline;
+    return {
+        date: t.date || '',
+        time: t.time || '',
+        duration: t.duration || '',
+        principal: t.principal || '',
+        location: t.location || '',
+        purpose: t.purpose || ''
+    };
+}
+
+function countTimelineFields(timeline) {
+    let count = 0;
+    if (timeline.date) count++;
+    if (timeline.time) count++;
+    if (timeline.duration) count++;
+    if (timeline.principal) count++;
+    if (timeline.location) count++;
+    if (timeline.purpose) count++;
+    return count;
+}
+
+function populateTimelineSection(item) {
+    const timeline = getTimelineFromItem(item);
+    const count = countTimelineFields(timeline);
+
+    // Show/hide timeline section based on whether there's data or in edit mode
+    if (detailTimelineEl) {
+        if (count > 0 || detailEditMode) {
+            detailTimelineEl.style.display = 'block';
+        } else {
+            detailTimelineEl.style.display = 'none';
+        }
+    }
+
+    // Update count badge
+    if (detailTimelineCount) {
+        if (count > 0) {
+            detailTimelineCount.textContent = count;
+            detailTimelineCount.style.display = 'inline';
+        } else {
+            detailTimelineCount.style.display = 'none';
+        }
+    }
+
+    // Populate view elements
+    if (detailTimelineDateView) detailTimelineDateView.textContent = timeline.date;
+    if (detailTimelineTimeView) detailTimelineTimeView.textContent = timeline.time;
+    if (detailTimelineDurationView) detailTimelineDurationView.textContent = timeline.duration;
+    if (detailTimelinePrincipalView) detailTimelinePrincipalView.textContent = timeline.principal;
+    if (detailTimelineLocationView) detailTimelineLocationView.textContent = timeline.location;
+    if (detailTimelinePurposeView) detailTimelinePurposeView.textContent = timeline.purpose;
+
+    // Populate input elements
+    if (detailTimelineDateInput) detailTimelineDateInput.value = timeline.date;
+    if (detailTimelineTimeInput) detailTimelineTimeInput.value = timeline.time;
+    if (detailTimelineDurationInput) detailTimelineDurationInput.value = timeline.duration;
+    if (detailTimelinePrincipalInput) detailTimelinePrincipalInput.value = timeline.principal;
+    if (detailTimelineLocationInput) detailTimelineLocationInput.value = timeline.location;
+    if (detailTimelinePurposeInput) detailTimelinePurposeInput.value = timeline.purpose;
+
+    // Reset expansion state
+    isTimelineExpanded = false;
+    if (detailTimelineContent) detailTimelineContent.style.display = 'none';
+    if (detailTimelineEl) detailTimelineEl.classList.remove('expanded');
+}
+
+function updateTimelineEditMode(enabled) {
+    const views = [
+        detailTimelineDateView, detailTimelineTimeView, detailTimelineDurationView,
+        detailTimelinePrincipalView, detailTimelineLocationView, detailTimelinePurposeView
+    ];
+    const inputs = [
+        detailTimelineDateInput, detailTimelineTimeInput, detailTimelineDurationInput,
+        detailTimelinePrincipalInput, detailTimelineLocationInput, detailTimelinePurposeInput
+    ];
+
+    views.forEach(el => {
+        if (el) el.style.display = enabled ? 'none' : 'block';
+    });
+    inputs.forEach(el => {
+        if (el) el.style.display = enabled ? 'block' : 'none';
+    });
+
+    // Show timeline section in edit mode even if no data
+    if (detailTimelineEl && enabled) {
+        detailTimelineEl.style.display = 'block';
+    }
+}
+
+function getTimelineInputValues() {
+    return {
+        date: detailTimelineDateInput?.value?.trim() || null,
+        time: detailTimelineTimeInput?.value?.trim() || null,
+        duration: detailTimelineDurationInput?.value?.trim() || null,
+        principal: detailTimelinePrincipalInput?.value?.trim() || null,
+        location: detailTimelineLocationInput?.value?.trim() || null,
+        purpose: detailTimelinePurposeInput?.value?.trim() || null
+    };
+}
+
+function confirmDeleteFollowUp() {
+    if (!currentDetailItem) return;
+
+    if (confirm('This will remove the follow-up and mark the item as processed. Continue?')) {
+        deleteFollowUp();
+    }
+}
+
+async function deleteFollowUp() {
+    if (!currentDetailItem) return;
+
+    const itemId = getItemId(currentDetailItem);
+
+    try {
+        const response = await fetch(`/api/items/${itemId}`, {
+            method: 'PATCH',
+            headers: {
+                'Content-Type': 'application/json',
+                ...getCsrfHeaders()
+            },
+            body: JSON.stringify({
+                status: 'processed',
+                next_step: 'none',
+                follow_up: ''  // Empty string clears the follow_up
+            })
+        });
+
+        if (!response.ok) {
+            throw new Error('Failed to delete follow-up');
+        }
+
+        // Update local item data
+        currentDetailItem.status = 'processed';
+        currentDetailItem.next_step = 'none';
+        if (currentDetailItem.analysis) {
+            delete currentDetailItem.analysis.follow_up;
+        }
+
+        // Update the item in allItems array
+        const idx = allItems.findIndex(i => getItemId(i) === itemId);
+        if (idx !== -1) {
+            allItems[idx] = { ...currentDetailItem };
+        }
+
+        // Hide follow-up section
+        if (detailFollowUpEl) {
+            detailFollowUpEl.style.display = 'none';
+        }
+
+        // Refresh the list
+        renderFilteredItems();
+
+    } catch (error) {
+        alert('Failed to delete follow-up: ' + error.message);
+    }
 }
 
 function setDetailEditMode(enabled) {
@@ -838,7 +1893,9 @@ function setDetailEditMode(enabled) {
     if (!enabled && currentDetailItem) {
         detailTitleInput.value = currentDetailItem.title || '';
         editableTags = currentDetailItem.analysis?.tags ? [...currentDetailItem.analysis.tags] : [];
+        populateTimelineSection(currentDetailItem);
     }
+    updateTimelineEditMode(enabled);
     renderDetailTags();
 }
 
@@ -875,17 +1932,28 @@ async function saveDetailEdits() {
     const itemId = getItemId(currentDetailItem);
     const newTitle = detailTitleInput.value.trim();
     const tags = editableTags;
+    const timeline = getTimelineInputValues();
+
+    // Only include timeline if at least one field is set
+    const hasTimeline = Object.values(timeline).some(v => v);
+
+    const body = {
+        title: newTitle,
+        tags: tags
+    };
+
+    if (hasTimeline) {
+        body.timeline = timeline;
+    }
 
     try {
         const response = await fetch(`/api/items/${itemId}`, {
             method: 'PATCH',
             headers: {
-                'Content-Type': 'application/json'
+                'Content-Type': 'application/json',
+                ...getCsrfHeaders()
             },
-            body: JSON.stringify({
-                title: newTitle,
-                tags: tags
-            })
+            body: JSON.stringify(body)
         });
         if (!response.ok) {
             throw new Error('Failed to update item');
@@ -893,6 +1961,9 @@ async function saveDetailEdits() {
         currentDetailItem.title = newTitle;
         currentDetailItem.analysis = currentDetailItem.analysis || {};
         currentDetailItem.analysis.tags = tags;
+        if (hasTimeline) {
+            currentDetailItem.analysis.timeline = timeline;
+        }
         detailTitleEl.textContent = newTitle || 'Untitled';
         setDetailEditMode(false);
         renderFilteredItems();
@@ -932,6 +2003,13 @@ function renderDetailNotes(notes) {
     notes.forEach(note => {
         const noteEl = document.createElement('div');
         noteEl.className = 'detail-note';
+
+        if (note.note_type === 'follow_up') {
+            const badge = document.createElement('span');
+            badge.className = 'note-type-badge';
+            badge.textContent = 'Follow-up';
+            noteEl.appendChild(badge);
+        }
 
         const textEl = document.createElement('div');
         textEl.textContent = note.text || '';
@@ -985,7 +2063,8 @@ async function updateNote(noteId, text) {
         const response = await fetch(`/api/notes/${noteId}`, {
             method: 'PATCH',
             headers: {
-                'Content-Type': 'application/json'
+                'Content-Type': 'application/json',
+                ...getCsrfHeaders()
             },
             body: JSON.stringify({ text })
         });
@@ -1001,7 +2080,10 @@ async function updateNote(noteId, text) {
 async function deleteNote(noteId) {
     try {
         const response = await fetch(`/api/notes/${noteId}`, {
-            method: 'DELETE'
+            method: 'DELETE',
+            headers: {
+                ...getCsrfHeaders()
+            }
         });
         if (!response.ok) {
             throw new Error('Failed to delete note');
@@ -1148,7 +2230,10 @@ async function deleteItem(id) {
 
     try {
         const response = await fetch(`/api/items/${id}`, {
-            method: 'DELETE'
+            method: 'DELETE',
+            headers: {
+                ...getCsrfHeaders()
+            }
         });
 
         if (response.ok) {
@@ -1169,7 +2254,10 @@ async function setItemHidden(id, hidden) {
 
     try {
         const response = await fetch(`/api/items/${id}/${action}`, {
-            method: 'PATCH'
+            method: 'PATCH',
+            headers: {
+                ...getCsrfHeaders()
+            }
         });
 
         if (response.ok) {

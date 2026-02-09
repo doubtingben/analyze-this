@@ -41,104 +41,8 @@ backend-deploy: ## Deploy backend to Google Cloud Run
 	./backend/scripts/deploy.sh
 
 .PHONY: worker-deploy
-worker-deploy: ## Deploy worker to Google Cloud Run Jobs
+worker-deploy: ## Deploy worker to Google Cloud Run (Service)
 	./backend/scripts/deploy-worker.sh
-
-# ================================
-# Mobile - General
-# ================================
-
-.PHONY: mobile-install
-mobile-install: ## Install mobile dependencies
-	cd mobile && npm install
-
-.PHONY: mobile-start
-mobile-start: ## Start Expo development server
-	cd mobile && npm start
-
-.PHONY: mobile-lint
-mobile-lint: ## Run mobile linting
-	cd mobile && npm run lint
-
-.PHONY: mobile-build
-mobile-build: ## Build mobile app for both platforms
-	./mobile/scripts/build-mobile.sh
-
-.PHONY: mobile-eas-build
-mobile-eas-build: ## Build mobile app with EAS (Preview)
-	cd mobile && npx eas-cli build --platform all --profile preview --non-interactive
-
-.PHONY: mobile-eas-build-ios
-mobile-eas-build-ios: ## Build iOS app with EAS (Preview)
-	cd mobile && npx eas-cli build --platform ios --profile preview --non-interactive
-
-.PHONY: mobile-eas-submit-ios
-mobile-eas-submit-ios: ## Submit latest iOS build to TestFlight
-	cd mobile && npx eas-cli submit --platform ios --profile preview --latest
-
-.PHONY: mobile-eas-build-submit-ios
-mobile-eas-build-submit-ios: ## Build iOS and auto-submit to TestFlight
-	cd mobile && npx eas-cli build --platform ios --profile preview --auto-submit --non-interactive
-
-.PHONY: mobile-setup-devices
-mobile-setup-devices: ## Setup Android/iOS devices and emulators
-	cd mobile && npm run setup-devices
-
-.PHONY: mobile-reset
-mobile-reset: ## Reset mobile project to blank state
-	cd mobile && npm run reset-project
-
-# ================================
-# Mobile - Android
-# ================================
-
-.PHONY: android-run
-android-run: ## Build and run Android app
-	cd mobile && npm run android
-
-.PHONY: android-build
-android-build: ## Build Android release APK
-	cd mobile/android && ./gradlew assembleRelease
-
-.PHONY: android-build-debug
-android-build-debug: ## Build Android debug APK
-	cd mobile/android && ./gradlew assembleDebug
-
-.PHONY: android-clean
-android-clean: ## Clean Android build
-	cd mobile/android && ./gradlew clean
-
-# ================================
-# Mobile - iOS
-# ================================
-
-.PHONY: ios-run
-ios-run: ## Build and run iOS app
-	cd mobile && npm run ios
-
-.PHONY: ios-build
-ios-build: ## Build iOS app (requires macOS)
-	cd mobile/ios && xcodebuild -workspace AnalyzeThis.xcworkspace -scheme AnalyzeThis -configuration Release -sdk iphoneos
-
-.PHONY: ios-build-simulator
-ios-build-simulator: ## Build iOS app for simulator
-	cd mobile/ios && xcodebuild -workspace AnalyzeThis.xcworkspace -scheme AnalyzeThis -configuration Debug -sdk iphonesimulator
-
-.PHONY: ios-clean
-ios-clean: ## Clean iOS build
-	cd mobile/ios && xcodebuild clean
-
-.PHONY: ios-pod-install
-ios-pod-install: ## Install iOS CocoaPods dependencies
-	cd mobile/ios && pod install
-
-# ================================
-# Mobile - Web
-# ================================
-
-.PHONY: web-run
-web-run: ## Start web version
-	cd mobile && npm run web
 
 # ================================
 # Mobile - Flutter
@@ -146,51 +50,51 @@ web-run: ## Start web version
 
 .PHONY: flutter-install
 flutter-install: ## Install Flutter dependencies
-	cd analyze_this_flutter && flutter pub get
+	cd flutter && flutter pub get
 
 .PHONY: flutter-clean
 flutter-clean: ## Clean Flutter build
-	cd analyze_this_flutter && flutter clean
+	cd flutter && flutter clean
 
 .PHONY: flutter-run
 flutter-run: ## Run Flutter app
-	cd analyze_this_flutter && flutter run
+	cd flutter && flutter run
 
 .PHONY: flutter-run-android
 flutter-run-android: ## Run Flutter app on Android
-	cd analyze_this_flutter && flutter run -d android
+	cd flutter && flutter run -d android
 
 .PHONY: flutter-run-ios
 flutter-run-ios: ## Run Flutter app on iOS
-	cd analyze_this_flutter && flutter run -d ios
+	cd flutter && flutter run -d ios
 
 .PHONY: flutter-build-apk
 flutter-build-apk: ## Build Android APK (Release)
-	cd analyze_this_flutter && flutter build apk --release
+	cd flutter && flutter build apk --release
 
 .PHONY: flutter-build-appbundle
 flutter-build-appbundle: ## Build Android App Bundle (Release)
-	cd analyze_this_flutter && flutter build appbundle --release
+	cd flutter && flutter build appbundle --release
 
 .PHONY: flutter-build-ios
 flutter-build-ios: ## Build iOS app .app (Release, no codesign)
-	cd analyze_this_flutter && flutter build ios --release --no-codesign
+	cd flutter && flutter build ios --release --no-codesign
 
 .PHONY: flutter-build-ipa
 flutter-build-ipa: ## Build iOS app .ipa (Release, requires signing)
-	cd analyze_this_flutter && flutter build ipa --release
+	cd flutter && flutter build ipa --release
 
 .PHONY: flutter-test
 flutter-test: ## Run Flutter tests
-	cd analyze_this_flutter && flutter test
+	cd flutter && flutter test
 
 .PHONY: flutter-lint
 flutter-lint: ## Run Flutter analyzer
-	cd analyze_this_flutter && flutter analyze
+	cd flutter && flutter analyze
 
 .PHONY: flutter-format
 flutter-format: ## Format Flutter code
-	cd analyze_this_flutter && dart format .
+	cd flutter && dart format .
 
 # ================================
 # Worker Analysis
@@ -215,7 +119,7 @@ endif
 test: backend-test ## Run all tests
 
 .PHONY: verify
-verify: backend-check mobile-build ## Run full verification (backend + mobile builds)
+verify: backend-check flutter-build-appbundle ## Run full verification (backend + Flutter build)
 
 .PHONY: ci
 ci: test verify ## Run CI pipeline locally
@@ -225,11 +129,10 @@ ci: test verify ## Run CI pipeline locally
 # ================================
 
 .PHONY: install
-install: backend-install mobile-install ## Install all dependencies
+install: backend-install flutter-install ## Install all dependencies
 
 .PHONY: clean
-clean: android-clean ## Clean all builds
-	rm -rf mobile/node_modules
+clean: flutter-clean ## Clean all builds
 	rm -rf backend/__pycache__
 	find . -type d -name "__pycache__" -exec rm -rf {} + 2>/dev/null || true
 	find . -type f -name "*.pyc" -delete 2>/dev/null || true

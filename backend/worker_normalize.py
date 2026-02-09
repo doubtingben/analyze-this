@@ -5,9 +5,11 @@ import logging
 from dotenv import load_dotenv
 
 from normalization import normalize_item_title
+from notifications import format_item_message, send_irccat_message
 from database import DatabaseInterface, FirestoreDatabase, SQLiteDatabase
 from worker_analysis import get_db
 from worker_queue import process_queue_jobs
+from tracing import create_span, add_span_attributes, add_span_event, record_exception
 
 # Configure logging
 logging.basicConfig(
@@ -19,7 +21,7 @@ logger = logging.getLogger(__name__)
 # Load environment variables
 load_dotenv()
 
-async def process_normalization_async(limit: int = 10, item_id: str = None, force: bool = False):
+async def process_normalization_async(limit: int = 10, item_id: str = None, force: bool = False, allow_missing_analysis: bool = False):
     """
     Processes unnormalized items using DatabaseInterface.
     """
@@ -53,27 +55,45 @@ async def process_normalization_async(limit: int = 10, item_id: str = None, forc
         current_title = data.get('title')
         content = data.get('content')
         item_type = data.get('type', 'text')
+        analysis_data = data.get('analysis')
+
+        if not analysis_data and not allow_missing_analysis:
+            logger.info(f"Skipping item {doc_id}: Analysis is missing and --allow-no-analysis is not set.")
+            continue
         
         logger.info(f"Normalizing item {doc_id} ('{current_title}')...")
         
         try:
             # We run normalization in executor since it calls sync network (OpenAI client)
             loop = asyncio.get_running_loop()
-            new_title = await loop.run_in_executor(None, normalize_item_title, content, item_type, current_title)
+            new_title = await loop.run_in_executor(None, normalize_item_title, content, item_type, current_title, analysis_data)
             
             updates = {'is_normalized': True}
-            
+
             if new_title:
-                if new_title != current_title:
+                title_changed = new_title != current_title
+                if title_changed:
                     logger.info(f"Title changed: '{current_title}' -> '{new_title}'")
                     updates['title'] = new_title
                 else:
                     logger.info("Title unchanged.")
             else:
-                logger.warning(f"Normalization returned None/Failed for {doc_id}. Marking as normalized to prevent infinite loop.")
-            
+                logger.warning(f"Normalization returned None/Failed for {doc_id}. Marking as error.")
+                updates['status'] = 'error'
+
             await db.update_shared_item(doc_id, updates)
             logger.info(f"Successfully updated processing for item {doc_id}.")
+
+            if new_title:
+                detail = f"title: \"{new_title}\"" if title_changed else "title unchanged"
+                message = format_item_message(
+                    "normalized",
+                    data.get('user_email') or "unknown",
+                    doc_id,
+                    new_title if title_changed else current_title,
+                    detail=detail,
+                )
+                await send_irccat_message(message)
                 
         except Exception as e:
             logger.critical(f"FATAL: Failed to normalize item {doc_id}. internal error: {e}")
@@ -81,28 +101,73 @@ async def process_normalization_async(limit: int = 10, item_id: str = None, forc
             # We raise here to halt the worker as requested.
             raise e
 
-async def _process_normalize_item(db, data):
+async def _process_normalize_item(db, data, context, allow_missing_analysis=False):
     doc_id = data.get('firestore_id') or data.get('id')
     current_title = data.get('title')
     content = data.get('content')
     item_type = data.get('type', 'text')
+    analysis_data = data.get('analysis')
 
-    loop = asyncio.get_running_loop()
-    new_title = await loop.run_in_executor(None, normalize_item_title, content, item_type, current_title)
+    # Add tracing attributes
+    add_span_attributes({
+        "normalize.item_id": doc_id,
+        "normalize.item_type": item_type,
+        "normalize.has_analysis": analysis_data is not None,
+        "normalize.current_title": current_title[:50] if current_title else None,
+    })
+
+    if not analysis_data and not allow_missing_analysis:
+        logger.warning(f"Skipping item {doc_id}: Analysis is missing and --allow-no-analysis is not set. Marking as failed (will retry).")
+        add_span_event("skipped_missing_analysis", {"item_id": doc_id})
+        return False, "missing_analysis"
+
+    # Run LLM normalization
+    with create_span("llm_title_normalization", {"item.id": doc_id, "item.type": item_type}) as llm_span:
+        loop = asyncio.get_running_loop()
+        new_title = await loop.run_in_executor(None, normalize_item_title, content, item_type, current_title, analysis_data)
+
+        if new_title:
+            llm_span.set_attribute("normalization.success", True)
+            llm_span.set_attribute("normalization.title_changed", new_title != current_title)
+        else:
+            llm_span.set_attribute("normalization.success", False)
 
     updates = {'is_normalized': True}
     if new_title:
-        if new_title != current_title:
+        title_changed = new_title != current_title
+        if title_changed:
             logger.info(f"Title changed: '{current_title}' -> '{new_title}'")
             updates['title'] = new_title
         else:
             logger.info("Title unchanged.")
-    else:
-        logger.warning(f"Normalization returned None/Failed for {doc_id}. Marking as normalized.")
 
-    await db.update_shared_item(doc_id, updates)
-    logger.info(f"Successfully normalized item {doc_id}.")
-    return True, None
+        # Save results
+        with create_span("save_normalization_result", {"item.id": doc_id}) as save_span:
+            await db.update_shared_item(doc_id, updates)
+            save_span.set_attribute("save.title_changed", title_changed)
+
+        logger.info(f"Successfully normalized item {doc_id}.")
+        add_span_event("normalization_completed", {
+            "item_id": doc_id,
+            "title_changed": title_changed,
+        })
+
+        detail = f"title: \"{new_title}\"" if title_changed else "title unchanged"
+        message = format_item_message(
+            "normalized",
+            data.get('user_email') or "unknown",
+            doc_id,
+            new_title if title_changed else current_title,
+            detail=detail,
+        )
+        await send_irccat_message(message)
+        return True, None
+    else:
+        logger.warning(f"Normalization returned None/Failed for {doc_id}. Marking as error.")
+        add_span_event("normalization_failed", {"item_id": doc_id})
+        updates['status'] = 'error'
+        await db.update_shared_item(doc_id, updates)
+        return False, "normalization_returned_none"
 
 def main():
     parser = argparse.ArgumentParser(description="Worker to normalize titles of shared items.")
@@ -111,22 +176,47 @@ def main():
     parser.add_argument("--force", action="store_true", help="Force re-normalization (works with --id or batch mode)")
     parser.add_argument("--queue", action="store_true", help="Process jobs from the worker queue")
     parser.add_argument("--lease-seconds", type=int, default=600, help="Lease duration for queued jobs (seconds)")
+    parser.add_argument("--loop", action="store_true", help="Run in continuous loop mode (only with --queue)")
+    parser.add_argument("--allow-no-analysis", action="store_true", help="Allow validation even if analysis data is missing")
     
     args = parser.parse_args()
     
     if args.queue:
-        asyncio.run(process_queue_jobs(
-            job_type="normalize",
-            limit=args.limit,
-            lease_seconds=args.lease_seconds,
-            get_db=get_db,
-            process_item_fn=_process_normalize_item,
-            logger=logger,
-            halt_on_error=True,
-        ))
+        from functools import partial
+        
+        async def run_queue_mode():
+            # Automatically retry items that failed due to "missing_analysis"
+            # This ensures that if we have fixed the logic or the data, they get processed.
+            try:
+                db_instance = await get_db()
+                count = await db_instance.reset_failed_jobs('normalize', 'missing_analysis')
+                if count > 0:
+                    logger.info(f"Reset {count} failed jobs with 'missing_analysis' error to 'queued' state.")
+            except Exception as e:
+                logger.warning(f"Failed to reset failed jobs: {e}")
+
+            process_fn = partial(_process_normalize_item, allow_missing_analysis=args.allow_no_analysis)
+            
+            await process_queue_jobs(
+                job_type="normalize",
+                limit=args.limit,
+                lease_seconds=args.lease_seconds,
+                get_db=get_db,
+                process_item_fn=process_fn,
+                logger=logger,
+                halt_on_error=True,
+                continuous=args.loop,
+            )
+
+        asyncio.run(run_queue_mode())
         return
 
-    asyncio.run(process_normalization_async(limit=args.limit, item_id=args.id, force=args.force))
+    asyncio.run(process_normalization_async(
+        limit=args.limit, 
+        item_id=args.id, 
+        force=args.force, 
+        allow_missing_analysis=args.allow_no_analysis
+    ))
 
 if __name__ == "__main__":
     main()

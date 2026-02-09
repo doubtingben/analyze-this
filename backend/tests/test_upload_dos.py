@@ -28,6 +28,10 @@ class TestUploadDoS(unittest.TestCase):
     def setUp(self):
         self.client = TestClient(app)
 
+        # Patch APP_ENV to production for these tests
+        self.env_patcher = patch("main.APP_ENV", "production")
+        self.env_patcher.start()
+
         # Patch verify_google_token
         self.verify_patcher = patch("main.verify_google_token")
         self.mock_verify = self.verify_patcher.start()
@@ -53,6 +57,7 @@ class TestUploadDoS(unittest.TestCase):
         # Since we mocked FirestoreDatabase class, it should be fine.
 
     def tearDown(self):
+        self.env_patcher.stop()
         self.verify_patcher.stop()
         self.storage_patcher.stop()
         self.db_patcher.stop()

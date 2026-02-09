@@ -24,6 +24,13 @@ class ItemStatus(str, Enum):
     processed = 'processed'
     soft_deleted = 'soft_deleted'
 
+
+class WorkerJobStatus(str, Enum):
+    queued = 'queued'
+    leased = 'leased'
+    completed = 'completed'
+    failed = 'failed'
+
 class TimelineEvent(BaseModel):
     date: Optional[str] = None
     time: Optional[str] = None
@@ -42,6 +49,7 @@ class User(BaseModel):
     email: str
     name: Optional[str] = None
     picture: Optional[str] = None
+    timezone: str = Field(default="America/New_York")
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 class SharedItem(BaseModel):
@@ -58,6 +66,11 @@ class SharedItem(BaseModel):
     image: Optional[str] = Field(default=None)
     is_normalized: bool = Field(default=False)
     hidden: bool = Field(default=False)
+    embedding: Optional[list[float]] = Field(default=None) # Vector embedding for semantic search
+
+class NoteType(str, Enum):
+    context = "context"
+    follow_up = "follow_up"
 
 class ItemNote(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid4()))
@@ -65,5 +78,6 @@ class ItemNote(BaseModel):
     user_email: str
     text: Optional[str] = None
     image_path: Optional[str] = None
+    note_type: str = Field(default="context")
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)

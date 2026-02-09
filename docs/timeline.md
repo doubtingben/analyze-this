@@ -54,7 +54,7 @@ Optional fields that enhance display:
 - Implement "Now" divider rendering
 - Auto-scroll to "Now" on timeline view activation
 
-### Mobile (React Native)
+### Mobile (Flutter)
 - Similar controls in the history tab
 - FlatList with section headers for "Past" / "Now" / "Upcoming"
 

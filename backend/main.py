@@ -4,12 +4,13 @@ import asyncio
 import functools
 import datetime
 import json
+import secrets
 import tempfile
 import zipfile
 from pathlib import Path
 from contextlib import asynccontextmanager
 from typing import Optional, List
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, field_validator
 from fastapi import FastAPI, Request, Depends, HTTPException, status, File, UploadFile, Form, BackgroundTasks
 from fastapi.responses import HTMLResponse, RedirectResponse, FileResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
@@ -24,7 +25,15 @@ import firebase_admin
 from firebase_admin import credentials, storage
 
 from models import User, SharedItem, ShareType, ItemNote
+from notifications import format_item_message, send_irccat_message
 from database import DatabaseInterface, FirestoreDatabase, SQLiteDatabase
+from analysis import generate_embedding
+from tracing import (
+    init_tracing, shutdown_tracing, get_tracer, create_span,
+    add_span_attributes, record_exception, add_span_event,
+    inject_trace_context
+)
+from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
 
 # Load environment variables
 load_dotenv()
@@ -37,6 +46,43 @@ GOOGLE_IOS_CLIENT_ID = (os.getenv("GOOGLE_IOS_CLIENT_ID") or "").strip() or None
 GOOGLE_ANDROID_CLIENT_ID = (os.getenv("GOOGLE_ANDROID_CLIENT_ID") or "").strip() or None
 GOOGLE_ANDROID_DEBUG_CLIENT_ID = (os.getenv("GOOGLE_ANDROID_DEBUG_CLIENT_ID") or "").strip() or None
 APP_ENV = os.getenv("APP_ENV", "production").strip()
+
+if APP_ENV == "production" and (not SECRET_KEY or SECRET_KEY == "super-secret-key-please-change"):
+    raise RuntimeError("CRITICAL SECURITY ERROR: SECRET_KEY must be set to a secure value in production!")
+
+MAX_TITLE_LENGTH = 255
+MAX_TEXT_LENGTH = 10000
+CSRF_KEY = "csrf_token"
+
+ALLOWED_MIME_TYPES = {
+    "text/plain",
+    "application/pdf",
+    "application/zip",
+    "application/x-zip-compressed",
+    "image/jpeg",
+    "image/png",
+    "image/gif",
+    "image/webp",
+    "image/bmp",
+    "image/tiff",
+    "video/mp4",
+    "video/quicktime",
+    "video/webm",
+    "video/x-msvideo",
+    "audio/mpeg",
+    "audio/wav",
+    "audio/aac",
+    "audio/ogg",
+    "audio/mp4",
+    "audio/x-m4a",
+}
+
+ALLOWED_EXTENSIONS = {
+    ".txt", ".pdf", ".zip",
+    ".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp", ".tiff",
+    ".mp4", ".mpeg", ".mov", ".webm", ".avi", ".mkv",
+    ".mp3", ".wav", ".aac", ".ogg", ".flac", ".m4a"
+}
 
 # Read Version
 try:
@@ -52,6 +98,10 @@ db: DatabaseInterface = None
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global db
+
+    # Initialize OpenTelemetry tracing
+    init_tracing()
+
     if APP_ENV == "development":
         print("Starting in DEVELOPMENT mode using SQLite")
         db = SQLiteDatabase()
@@ -62,8 +112,14 @@ async def lifespan(app: FastAPI):
         db = FirestoreDatabase()
     yield
 
+    # Shutdown tracing on app shutdown
+    shutdown_tracing()
+
 
 app = FastAPI(lifespan=lifespan)
+
+# Instrument FastAPI for OpenTelemetry tracing
+FastAPIInstrumentor.instrument_app(app)
 
 # CORS Setup
 ALLOWED_ORIGINS_ENV = os.getenv("ALLOWED_ORIGINS")
@@ -84,6 +140,13 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+@app.middleware("http")
+async def add_security_headers(request: Request, call_next):
+    response = await call_next(request)
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "DENY"
+    return response
 
 app.add_middleware(SessionMiddleware, secret_key=SECRET_KEY)
 app.mount("/static", StaticFiles(directory="static"), name="static")
@@ -107,10 +170,30 @@ oauth.register(
 
 # --- Routes ---
 
+async def check_csrf(request: Request):
+    auth_header = request.headers.get("Authorization")
+    if auth_header and auth_header.startswith("Bearer "):
+        return
+
+    if "user" in request.session:
+        session_token = request.session.get(CSRF_KEY)
+        header_token = request.headers.get("X-CSRF-Token")
+
+        if not session_token or not header_token or session_token != header_token:
+            raise HTTPException(status_code=403, detail="CSRF token mismatch or missing")
+
 @app.get("/")
 async def read_root(request: Request):
+    user = request.session.get('user')
+    csrf_token = None
+
+    if user:
+        csrf_token = request.session.get(CSRF_KEY)
+        if not csrf_token:
+            csrf_token = secrets.token_hex(32)
+            request.session[CSRF_KEY] = csrf_token
+
     if APP_ENV == "development":
-        user = request.session.get('user')
         if user:
             # Firestore Query
             items = await db.get_shared_items(user['email'])
@@ -122,12 +205,16 @@ async def read_root(request: Request):
                     <title>Analyze This Dashboard</title>
                     <link rel="icon" href="/static/favicon.png">
                     <script>
+                        const CSRF_TOKEN = "{{ csrf_token }}";
                         async function deleteItem(itemId) {
                             if (!confirm('Are you sure you want to delete this item?')) return;
                             
                             try {
                                 const response = await fetch('/api/items/' + itemId, {
-                                    method: 'DELETE'
+                                    method: 'DELETE',
+                                    headers: {
+                                        'X-CSRF-Token': CSRF_TOKEN
+                                    }
                                 });
                                 
                                 if (response.ok) {
@@ -179,10 +266,16 @@ async def read_root(request: Request):
             """
 
             from jinja2 import Template
-            return HTMLResponse(Template(template, autoescape=True).render(user=user, items=items))
+            response = HTMLResponse(Template(template, autoescape=True).render(user=user, items=items, csrf_token=csrf_token))
+            if csrf_token:
+                 response.set_cookie(key="csrf_token", value=csrf_token, httponly=False, samesite="lax")
+            return response
         return HTMLResponse('<a href="/login">Login with Google</a>')
     
-    return FileResponse("static/index.html")
+    response = FileResponse("static/index.html")
+    if csrf_token:
+         response.set_cookie(key="csrf_token", value=csrf_token, httponly=False, samesite="lax")
+    return response
 
 @app.get("/login")
 async def login(request: Request):
@@ -394,7 +487,7 @@ def normalize_share_type(raw_type: Optional[str], content: Optional[str], file: 
 
     return ShareType.text
 
-@app.post("/api/share")
+@app.post("/api/share", dependencies=[Depends(check_csrf)])
 async def share_item(
     request: Request,
     title: str = Form(None),
@@ -435,9 +528,9 @@ async def share_item(
         raise HTTPException(status_code=401, detail="Unauthorized")
 
     # Input Validation
-    if title and len(title) > 255:
+    if title and len(title) > MAX_TITLE_LENGTH:
         raise HTTPException(status_code=400, detail="Title too long")
-    if content and len(content) > 10000:
+    if content and len(content) > MAX_TEXT_LENGTH:
         raise HTTPException(status_code=400, detail="Content too long")
 
     # Determine Input Type
@@ -474,6 +567,13 @@ async def share_item(
         
         # Handle File Upload
         if file:
+            if file.content_type not in ALLOWED_MIME_TYPES:
+                raise HTTPException(status_code=400, detail=f"Unsupported file type: {file.content_type}")
+
+            ext = os.path.splitext(file.filename)[1].lower()
+            if ext not in ALLOWED_EXTENSIONS:
+                raise HTTPException(status_code=400, detail=f"Unsupported file extension: {ext}")
+
             try:
                 # Create a unique filename
                 extension = file.filename.split('.')[-1] if '.' in file.filename else 'bin'
@@ -532,6 +632,32 @@ async def share_item(
         item_data.get('item_metadata')
     )
 
+    # Security Validation: URL Sanitization for XSS Prevention
+    content_val = item_data.get('content')
+    if content_val:
+        lower_content = content_val.lower().strip()
+
+        # 1. Block dangerous schemes for web_url
+        if normalized_type == ShareType.web_url:
+            if not (lower_content.startswith('http://') or lower_content.startswith('https://')):
+                raise HTTPException(status_code=400, detail="Invalid URL scheme: Only http/https allowed")
+
+        # 2. Global block for javascript:/data:text payloads
+        if lower_content.startswith(('javascript:', 'vbscript:')):
+             raise HTTPException(status_code=400, detail="Invalid content: Unsafe scheme")
+
+        if lower_content.startswith('data:') and not lower_content.startswith('data:image/'):
+             raise HTTPException(status_code=400, detail="Invalid content: Unsafe data URL")
+
+    # Enforce Input Limits on Resolved Data (Fixes JSON bypass)
+    final_title = item_data.get('title')
+    final_content = item_data.get('content')
+
+    if final_title and len(final_title) > MAX_TITLE_LENGTH:
+        raise HTTPException(status_code=400, detail="Title too long")
+    if final_content and len(final_content) > MAX_TEXT_LENGTH:
+        raise HTTPException(status_code=400, detail="Content too long")
+
     # Security Validation: Prevent IDOR/Traversal on image content paths
     # If the backend is going to read this file (images/screenshots), ensure it belongs to the user.
     content_val = item_data.get('content')
@@ -573,11 +699,29 @@ async def share_item(
     await db.create_shared_item(new_item)
 
     # Enqueue worker jobs for analysis + normalization
-    try:
-        await db.enqueue_worker_job(new_item.id, user_email, "analysis", {"source": "share"})
-        await db.enqueue_worker_job(new_item.id, user_email, "normalize", {"source": "share"})
-    except Exception as e:
-        print(f"Failed to enqueue worker jobs for item {new_item.id}: {e}")
+    with create_span("enqueue_worker_jobs", {"item.id": new_item.id}) as enqueue_span:
+        try:
+            # Inject trace context for distributed tracing
+            analysis_payload = inject_trace_context({"source": "share"})
+            normalize_payload = inject_trace_context({"source": "share"})
+
+            await db.enqueue_worker_job(new_item.id, user_email, "analysis", analysis_payload)
+            await db.enqueue_worker_job(new_item.id, user_email, "normalize", normalize_payload)
+            enqueue_span.set_attribute("jobs.enqueued", True)
+            add_span_event("worker_jobs_enqueued", {"item_id": new_item.id, "jobs": ["analysis", "normalize"]})
+        except Exception as e:
+            enqueue_span.set_attribute("jobs.enqueued", False)
+            record_exception(e)
+            print(f"Failed to enqueue worker jobs for item {new_item.id}: {e}")
+
+    message = format_item_message(
+        "shared",
+        user_email,
+        new_item.id,
+        new_item.title,
+        detail=f"type={new_item.type}"
+    )
+    asyncio.create_task(send_irccat_message(message))
     
     return new_item
 
@@ -699,10 +843,39 @@ async def get_content(blob_path: str, request: Request):
 
 @app.get("/api/user")
 async def get_current_user(request: Request):
-    user = request.session.get('user')
-    if not user:
+    auth_header = request.headers.get('Authorization')
+    user_email = None
+    user_info = None
+    
+    if auth_header and auth_header.startswith('Bearer '):
+        token = auth_header.split(' ')[1]
+        user_info = await verify_google_token(token)
+        if user_info:
+            user_email = user_info['email']
+    elif 'user' in request.session:
+        user_info = request.session['user']
+        user_email = user_info.get('email')
+        
+    if not user_email:
         raise HTTPException(status_code=401, detail="Not authenticated")
-    return {"email": user.get('email'), "name": user.get('name'), "picture": user.get('picture')}
+    
+    # Fetch full user profile from DB to get timezone
+    db_user = await db.get_user(user_email)
+    if db_user:
+        return {
+            "email": db_user.email, 
+            "name": db_user.name, 
+            "picture": db_user.picture,
+            "timezone": db_user.timezone
+        }
+    
+    # Fallback to token/session data if DB fetch fails
+    return {
+        "email": user_email, 
+        "name": user_info.get('name'), 
+        "picture": user_info.get('picture'),
+        "timezone": "America/New_York" # Default
+    }
 
 def _serialize_value(value):
     if isinstance(value, datetime.datetime):
@@ -850,15 +1023,15 @@ async def set_item_hidden_status(item_id: str, request: Request, hidden: bool):
 
     return {"status": "success", "item_id": item_id, "hidden": hidden}
 
-@app.patch("/api/items/{item_id}/hide")
+@app.patch("/api/items/{item_id}/hide", dependencies=[Depends(check_csrf)])
 async def hide_item(item_id: str, request: Request):
     return await set_item_hidden_status(item_id, request, True)
 
-@app.patch("/api/items/{item_id}/unhide")
+@app.patch("/api/items/{item_id}/unhide", dependencies=[Depends(check_csrf)])
 async def unhide_item(item_id: str, request: Request):
     return await set_item_hidden_status(item_id, request, False)
 
-@app.delete("/api/items/{item_id}")
+@app.delete("/api/items/{item_id}", dependencies=[Depends(check_csrf)])
 async def delete_item(item_id: str, request: Request):
     user_email = await get_authenticated_email(request)
 
@@ -880,43 +1053,95 @@ async def delete_item(item_id: str, request: Request):
 class NoteCountRequest(BaseModel):
     item_ids: List[str]
 
+class TimelineUpdate(BaseModel):
+    date: Optional[str] = Field(None, max_length=10)  # YYYY-MM-DD
+    time: Optional[str] = Field(None, max_length=8)   # HH:MM:SS
+    duration: Optional[str] = Field(None, max_length=8)  # HH:MM:SS
+    principal: Optional[str] = Field(None, max_length=255)
+    location: Optional[str] = Field(None, max_length=255)
+    purpose: Optional[str] = Field(None, max_length=500)
+
 class ItemUpdateRequest(BaseModel):
-    title: Optional[str] = None
+    title: Optional[str] = Field(None, max_length=MAX_TITLE_LENGTH)
     tags: Optional[List[str]] = None
+    status: Optional[str] = None
+    next_step: Optional[str] = Field(None, max_length=MAX_TITLE_LENGTH)
+    follow_up: Optional[str] = Field(None, max_length=MAX_TEXT_LENGTH)
+    timeline: Optional[TimelineUpdate] = None
+
+    @field_validator('tags')
+    @classmethod
+    def validate_tags(cls, v):
+        if v is not None:
+            if len(v) > 50:
+                raise ValueError('Too many tags')
+            for tag in v:
+                if len(tag) > 50:
+                    raise ValueError('Tag too long')
+        return v
 
 
-@app.post("/api/items/{item_id}/notes")
+@app.post("/api/items/{item_id}/notes", dependencies=[Depends(check_csrf)])
 async def create_item_note(
     item_id: str,
     request: Request,
     text: str = Form(None),
-    file: UploadFile = File(None)
+    file: UploadFile = File(None),
+    note_type: str = Form("context")
 ):
     """Create a note for an item (multipart: text + optional file)"""
-    user_email = await get_authenticated_email(request)
+    # Add tracing attributes for this request
+    add_span_attributes({
+        "note.item_id": item_id,
+        "note.type": note_type,
+        "note.has_file": file is not None,
+        "note.has_text": text is not None
+    })
+
+    # Authentication
+    with create_span("authenticate_user") as auth_span:
+        user_email = await get_authenticated_email(request)
+        auth_span.set_attribute("user.email", user_email)
+
+    add_span_attributes({"user.email": user_email})
 
     # Verify the item exists and belongs to the user
-    item = await db.get_shared_item(item_id)
-    if not item:
-        raise HTTPException(status_code=404, detail="Item not found")
-    if item.get('user_email') != user_email:
-        raise HTTPException(status_code=403, detail="Forbidden: You do not own this item")
+    with create_span("lookup_item", {"item.id": item_id}) as lookup_span:
+        item = await db.get_shared_item(item_id)
+        if not item:
+            lookup_span.set_attribute("item.found", False)
+            raise HTTPException(status_code=404, detail="Item not found")
+        lookup_span.set_attribute("item.found", True)
+        lookup_span.set_attribute("item.type", item.get('type', 'unknown'))
+        if item.get('user_email') != user_email:
+            lookup_span.set_attribute("item.access_denied", True)
+            raise HTTPException(status_code=403, detail="Forbidden: You do not own this item")
 
     # Validate that at least text or file is provided
     if not text and not file:
         raise HTTPException(status_code=400, detail="Either text or file must be provided")
 
+    if text and len(text) > MAX_TEXT_LENGTH:
+        raise HTTPException(status_code=400, detail="Note text too long")
+
+    if note_type not in ("context", "follow_up"):
+        raise HTTPException(status_code=400, detail="note_type must be 'context' or 'follow_up'")
+
     image_path = None
 
     # Handle file upload if provided
     if file:
-        try:
-            extension = file.filename.split('.')[-1] if '.' in file.filename else 'bin'
-            blob_name_relative = f"uploads/{user_email}/notes/{uuid.uuid4()}.{extension}"
+        with create_span("upload_file") as upload_span:
+            try:
+                extension = file.filename.split('.')[-1] if '.' in file.filename else 'bin'
+                blob_name_relative = f"uploads/{user_email}/notes/{uuid.uuid4()}.{extension}"
+                upload_span.set_attribute("file.extension", extension)
+                upload_span.set_attribute("file.storage_path", blob_name_relative)
 
-            if APP_ENV == "development":
-                local_path = Path("static") / blob_name_relative
-                local_path.parent.mkdir(parents=True, exist_ok=True)
+                if APP_ENV == "development":
+                    upload_span.set_attribute("file.storage_type", "local")
+                    local_path = Path("static") / blob_name_relative
+                    local_path.parent.mkdir(parents=True, exist_ok=True)
 
                 loop = asyncio.get_running_loop()
                 await loop.run_in_executor(
@@ -926,33 +1151,43 @@ async def create_item_note(
                     local_path
                 )
 
-                image_path = blob_name_relative
-            else:
-                # Production: Firebase Storage
-                bucket = storage.bucket()
-                blob = bucket.blob(blob_name_relative)
+                    image_path = blob_name_relative
+                else:
+                    # Production: Firebase Storage
+                    upload_span.set_attribute("file.storage_type", "firebase")
+                    bucket = storage.bucket()
+                    blob = bucket.blob(blob_name_relative)
 
-                await file.seek(0)
-                loop = asyncio.get_running_loop()
-                await loop.run_in_executor(
-                    None,
-                    functools.partial(blob.upload_from_file, file.file, content_type=file.content_type)
-                )
-                image_path = blob_name_relative
+                    await file.seek(0)
+                    loop = asyncio.get_running_loop()
+                    await loop.run_in_executor(
+                        None,
+                        functools.partial(blob.upload_from_file, file.file, content_type=file.content_type)
+                    )
+                    image_path = blob_name_relative
 
-        except Exception as e:
-            print(f"Note file upload failed: {e}")
-            raise HTTPException(status_code=500, detail=f"File upload failed: {str(e)}")
+                upload_span.set_attribute("file.upload_success", True)
 
-    # Create the note
-    note = ItemNote(
-        item_id=item_id,
-        user_email=user_email,
-        text=text,
-        image_path=image_path
-    )
+            except Exception as e:
+                upload_span.set_attribute("file.upload_success", False)
+                record_exception(e)
+                print(f"Note file upload failed: {e}")
+                raise HTTPException(status_code=500, detail=f"File upload failed: {str(e)}")
 
-    created_note = await db.create_item_note(note)
+    # Create the note in database
+    with create_span("create_note_db") as db_span:
+        note = ItemNote(
+            item_id=item_id,
+            user_email=user_email,
+            text=text,
+            image_path=image_path,
+            note_type=note_type
+        )
+
+        created_note = await db.create_item_note(note)
+        db_span.set_attribute("note.id", str(created_note.id))
+
+    add_span_attributes({"note.id": str(created_note.id)})
 
     # Return note data with image URL if applicable
     response_data = {
@@ -961,6 +1196,7 @@ async def create_item_note(
         'user_email': created_note.user_email,
         'text': created_note.text,
         'image_path': created_note.image_path,
+        'note_type': created_note.note_type,
         'created_at': created_note.created_at,
         'updated_at': created_note.updated_at
     }
@@ -973,6 +1209,22 @@ async def create_item_note(
         else:
             base_url = base_url.replace("http://", "https://")
             response_data['image_path'] = f"{base_url}/api/content/{response_data['image_path']}"
+
+    # Enqueue follow_up worker job if this is a follow_up note
+    if note_type == "follow_up":
+        with create_span("enqueue_follow_up_job") as job_span:
+            job_span.set_attribute("job.type", "follow_up")
+            job_span.set_attribute("job.item_id", item_id)
+            try:
+                # Inject trace context into job payload for distributed tracing
+                job_payload = inject_trace_context({"source": "note"})
+                await db.enqueue_worker_job(item_id, user_email, "follow_up", job_payload)
+                job_span.set_attribute("job.enqueued", True)
+                add_span_event("follow_up_job_enqueued", {"item_id": item_id})
+            except Exception as e:
+                job_span.set_attribute("job.enqueued", False)
+                record_exception(e)
+                print(f"Failed to enqueue follow_up job for item {item_id}: {e}")
 
     return response_data
 
@@ -1006,7 +1258,7 @@ async def get_item_notes(item_id: str, request: Request):
     return notes
 
 
-@app.patch("/api/notes/{note_id}")
+@app.patch("/api/notes/{note_id}", dependencies=[Depends(check_csrf)])
 async def update_item_note(note_id: str, request: Request):
     """Update a note"""
     user_email = await get_authenticated_email(request)
@@ -1020,7 +1272,13 @@ async def update_item_note(note_id: str, request: Request):
     # Only allow updating text field
     updates = {}
     if 'text' in body:
-        updates['text'] = body['text']
+        text_val = body['text']
+        if text_val is not None:
+            if not isinstance(text_val, str):
+                raise HTTPException(status_code=400, detail="Text must be a string")
+            if len(text_val) > MAX_TEXT_LENGTH:
+                raise HTTPException(status_code=400, detail="Note text too long")
+        updates['text'] = text_val
 
     if not updates:
         raise HTTPException(status_code=400, detail="No valid fields to update")
@@ -1038,7 +1296,7 @@ async def update_item_note(note_id: str, request: Request):
     return {"status": "success", "note_id": note_id}
 
 
-@app.delete("/api/notes/{note_id}")
+@app.delete("/api/notes/{note_id}", dependencies=[Depends(check_csrf)])
 async def delete_item_note(note_id: str, request: Request):
     """Delete a note"""
     user_email = await get_authenticated_email(request)
@@ -1053,9 +1311,9 @@ async def delete_item_note(note_id: str, request: Request):
     return {"status": "success", "deleted_id": note_id}
 
 
-@app.patch("/api/items/{item_id}")
+@app.patch("/api/items/{item_id}", dependencies=[Depends(check_csrf)])
 async def update_item(item_id: str, request: Request, body: ItemUpdateRequest):
-    """Update item (title, tags)"""
+    """Update item (title, tags, status, next_step, follow_up)"""
     user_email = await get_authenticated_email(request)
 
     # Verify the item exists and belongs to the user
@@ -1066,19 +1324,63 @@ async def update_item(item_id: str, request: Request, body: ItemUpdateRequest):
         raise HTTPException(status_code=403, detail="Forbidden: You do not own this item")
 
     updates = {}
+    previous_status = item.get('status')
 
     # Update title directly
     if body.title is not None:
         updates['title'] = body.title
 
+    # Update status directly
+    if body.status is not None:
+        updates['status'] = body.status
+
+    # Update next_step directly
+    if body.next_step is not None:
+        updates['next_step'] = body.next_step
+
+    # Handle analysis fields (tags, follow_up)
+    current_analysis = item.get('analysis') or {}
+    if not isinstance(current_analysis, dict):
+        current_analysis = {}
+    analysis_updated = False
+
     # Update tags within analysis object
     if body.tags is not None:
-        current_analysis = item.get('analysis') or {}
-        if isinstance(current_analysis, dict):
-            current_analysis['tags'] = body.tags
+        current_analysis['tags'] = body.tags
+        analysis_updated = True
+
+    # Update follow_up within analysis object (empty string clears it)
+    if body.follow_up is not None:
+        if body.follow_up == "":
+            current_analysis.pop('follow_up', None)
         else:
-            # If analysis is not a dict, create a new one with tags
-            current_analysis = {'tags': body.tags}
+            current_analysis['follow_up'] = body.follow_up
+        analysis_updated = True
+
+    # Update timeline within analysis object
+    if body.timeline is not None:
+        current_timeline = current_analysis.get('timeline') or {}
+        if not isinstance(current_timeline, dict):
+            current_timeline = {}
+
+        # Update only non-None fields
+        if body.timeline.date is not None:
+            current_timeline['date'] = body.timeline.date
+        if body.timeline.time is not None:
+            current_timeline['time'] = body.timeline.time
+        if body.timeline.duration is not None:
+            current_timeline['duration'] = body.timeline.duration
+        if body.timeline.principal is not None:
+            current_timeline['principal'] = body.timeline.principal
+        if body.timeline.location is not None:
+            current_timeline['location'] = body.timeline.location
+        if body.timeline.purpose is not None:
+            current_timeline['purpose'] = body.timeline.purpose
+
+        current_analysis['timeline'] = current_timeline
+        analysis_updated = True
+
+    if analysis_updated:
         updates['analysis'] = current_analysis
 
     if not updates:
@@ -1088,21 +1390,108 @@ async def update_item(item_id: str, request: Request, body: ItemUpdateRequest):
     if not success:
         raise HTTPException(status_code=404, detail="Item not found")
 
+    new_status = updates.get('status', previous_status)
+    if new_status in ('timeline', 'follow_up') and new_status != previous_status:
+        event = "added to timeline" if new_status == 'timeline' else "marked for follow up"
+        title = updates.get('title', item.get('title'))
+        message = format_item_message(event, user_email, item_id, title)
+        asyncio.create_task(send_irccat_message(message))
+
     return {"status": "success", "item_id": item_id}
 
 
-@app.post("/api/items/note-counts")
+@app.post("/api/items/note-counts", dependencies=[Depends(check_csrf)])
 async def get_note_counts(request: Request, body: NoteCountRequest):
     """Batch get note counts for multiple items"""
     user_email = await get_authenticated_email(request)
 
     # Security: Filter item_ids to only include items owned by the user
-    # Get user's items and intersect with requested item_ids
-    user_items = await db.get_shared_items(user_email)
-    user_item_ids = {item.get('firestore_id') for item in user_items}
-    authorized_item_ids = [item_id for item_id in body.item_ids if item_id in user_item_ids]
+    # Query only for the requested item_ids that belong to the user
+    authorized_item_ids = await db.validate_user_item_ownership(user_email, body.item_ids)
 
     # Get note counts only for authorized items
     counts = await db.get_item_note_count(authorized_item_ids)
 
     return counts
+
+
+@app.get("/api/metrics")
+async def get_user_metrics(request: Request):
+    """Get user metrics including item counts by status and worker queue status"""
+    user_email = await get_authenticated_email(request)
+
+    # Get item counts grouped by status
+    status_counts = await db.get_user_item_counts_by_status(user_email)
+
+    # Get worker queue counts grouped by status
+    worker_counts = await db.get_user_worker_job_counts_by_status(user_email)
+
+    # Calculate totals
+    total_items = sum(status_counts.values())
+    total_jobs = sum(worker_counts.values())
+
+    return {
+        "total_items": total_items,
+        "by_status": status_counts,
+        "worker_queue": {
+            "total": total_jobs,
+            "by_status": worker_counts
+        }
+    }
+
+
+@app.get("/api/search")
+async def search_items_endpoint(request: Request, q: str, limit: int = 10):
+    """
+    Semantic search for items using vector embeddings.
+    """
+    user_email = await get_authenticated_email(request)
+
+    if not q:
+        raise HTTPException(status_code=400, detail="Query string 'q' is required")
+
+    add_span_attributes({
+        "search.query": q,
+        "search.user_email": user_email
+    })
+
+    try:
+        # Generate embedding for the query
+        with create_span("generate_search_embedding", {"query": q}) as embed_span:
+            # Run in executor to avoid blocking event loop
+            loop = asyncio.get_running_loop()
+            query_embedding = await loop.run_in_executor(None, generate_embedding, q)
+            
+            if not query_embedding:
+                embed_span.set_attribute("embedding.success", False)
+                # Fallback to empty or error? 
+                # Be graceful: return empty results if embedding fails
+                return []
+            embed_span.set_attribute("embedding.success", True)
+
+        # Search in DB
+        with create_span("db_vector_search") as search_span:
+            results = await db.search_similar_items(query_embedding, user_email, limit=limit)
+            search_span.set_attribute("results.count", len(results))
+
+        # Build response (similar to get_items but maybe simplified)
+        # Re-use get_items logic for URL transformation if needed
+        base_url = str(request.base_url).rstrip('/')
+        if APP_ENV != "development":
+             base_url = base_url.replace("http://", "https://")
+             
+        for item in results:
+            if item.get('content') and not item.get('content').startswith('http'):
+                 # Transform content path
+                 if APP_ENV == "development":
+                     item['content'] = f"{base_url}/static/{item['content']}"
+                 else:
+                     item['content'] = f"{base_url}/api/content/{item['content']}"
+        
+        return results
+
+    except Exception as e:
+        record_exception(e)
+        print(f"Search failed: {e}")
+        raise HTTPException(status_code=500, detail="Search failed")
+

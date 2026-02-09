@@ -15,3 +15,8 @@ aiosqlite
 sqlalchemy
 httpx
 greenlet
+opentelemetry-api
+opentelemetry-sdk
+opentelemetry-exporter-otlp
+opentelemetry-instrumentation-fastapi
+opentelemetry-instrumentation-httpx

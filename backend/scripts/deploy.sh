@@ -1,71 +1,115 @@
 #!/bin/bash
 set -e
 
-# Get the directory where the script is located
+# Script directory
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
-BACKEND_DIR="$(dirname "$SCRIPT_DIR")"
 
-# Ensure we are in the backend directory
-cd "$BACKEND_DIR"
-
-# Configuration
-SERVICE_NAME="analyze-this-backend"
-REGION="us-central1"
-
-PROJECT_ID="analyze-this-2026"
-
-echo "Deploying $SERVICE_NAME to Google Cloud Run..."
-
-# Helper function to check if secret exists
-check_secret() {
-    local SECRET_NAME=$1
-
-    if ! gcloud secrets describe "$SECRET_NAME" --project "$PROJECT_ID" > /dev/null 2>&1; then
-        echo "Error: Secret '$SECRET_NAME' does not exist in project '$PROJECT_ID'."
-        echo "Please create it using: printf 'YOUR_SECRET' | gcloud secrets create $SECRET_NAME --data-file=-"
-        exit 1
-    else
-        echo "Secret '$SECRET_NAME' verified."
-    fi
+# Help function
+show_help() {
+    echo "Usage: ./deploy.sh [OPTIONS]"
+    echo "Deploys backend services. If no options are provided, deploys ALL services."
+    echo ""
+    echo "Options:"
+    echo "  --backend       Deploy the main backend API"
+    echo "  --analysis      Deploy the analysis worker"
+    echo "  --normalize     Deploy the normalization worker"
+    echo "  --manager       Deploy the manager worker"
+    echo "  --followup      Deploy the follow-up worker"
+    echo "  --all           Deploy all services (default)"
+    echo "  --help          Show this help message"
 }
 
-echo "Verifying required secrets in Secret Manager..."
-check_secret "SECRET_KEY"
-check_secret "GOOGLE_CLIENT_ID"
-check_secret "GOOGLE_CLIENT_SECRET"
-check_secret "FIREBASE_STORAGE_BUCKET"
-check_secret "GOOGLE_EXTENSION_CLIENT_ID"
-check_secret "GOOGLE_IOS_CLIENT_ID"
-check_secret "GOOGLE_ANDROID_CLIENT_ID"
-check_secret "GOOGLE_ANDROID_DEBUG_CLIENT_ID"
+# State variables
+DEPLOY_BACKEND=false
+DEPLOY_ANALYSIS=false
+DEPLOY_NORMALIZE=false
+DEPLOY_MANAGER=false
+DEPLOY_FOLLOWUP=false
 
-# Generate version file
-GIT_HASH=$(git rev-parse HEAD)
-echo "$GIT_HASH" > version.txt
-echo "Version set to: $GIT_HASH"
+# Check args
+if [ $# -eq 0 ]; then
+    DEPLOY_BACKEND=true
+    DEPLOY_ANALYSIS=true
+    DEPLOY_NORMALIZE=true
+    DEPLOY_MANAGER=true
+    DEPLOY_FOLLOWUP=true
+else
+    for arg in "$@"; do
+        case $arg in
+            --backend)
+                DEPLOY_BACKEND=true
+                ;;
+            --analysis)
+                DEPLOY_ANALYSIS=true
+                ;;
+            --normalize|--normalization)
+                DEPLOY_NORMALIZE=true
+                ;;
+            --manager)
+                DEPLOY_MANAGER=true
+                ;;
+            --followup)
+                DEPLOY_FOLLOWUP=true
+                ;;
+            --all)
+                DEPLOY_BACKEND=true
+                DEPLOY_ANALYSIS=true
+                DEPLOY_NORMALIZE=true
+                DEPLOY_MANAGER=true
+                DEPLOY_FOLLOWUP=true
+                ;;
+            --help)
+                show_help
+                exit 0
+                ;;
+            *)
+                echo "Unknown argument: $arg"
+                show_help
+                exit 1
+                ;;
+        esac
+    done
+fi
 
-# Deploy from source (requires Cloud Build api enabled)
-# Ensure we are in the backend directory
-cd "$BACKEND_DIR"
+# Execute deployments
+if [ "$DEPLOY_BACKEND" = true ]; then
+    echo "========================================"
+    echo "Deploying Backend API..."
+    echo "========================================"
+    "$SCRIPT_DIR/deploy-backend.sh"
+    echo ""
+fi
 
-gcloud run deploy $SERVICE_NAME \
-  --source . \
-  --platform managed \
-  --region $REGION \
-  --project $PROJECT_ID \
-  --allow-unauthenticated \
-  --set-env-vars "^@^ALLOWED_ORIGINS=https://interestedparticipant.org,chrome-extension://ilbniloahihehnhalvffoelaliheab" \
-  --set-secrets "SECRET_KEY=SECRET_KEY:latest" \
-  --set-secrets "GOOGLE_CLIENT_ID=GOOGLE_CLIENT_ID:latest" \
-  --set-secrets "GOOGLE_CLIENT_SECRET=GOOGLE_CLIENT_SECRET:latest" \
-  --set-secrets "FIREBASE_STORAGE_BUCKET=FIREBASE_STORAGE_BUCKET:latest" \
-  --set-secrets "GOOGLE_EXTENSION_CLIENT_ID=GOOGLE_EXTENSION_CLIENT_ID:latest" \
-  --set-secrets "GOOGLE_IOS_CLIENT_ID=GOOGLE_IOS_CLIENT_ID:latest" \
-  --set-secrets "GOOGLE_ANDROID_CLIENT_ID=GOOGLE_ANDROID_CLIENT_ID:latest" \
-  --set-secrets "GOOGLE_ANDROID_DEBUG_CLIENT_ID=GOOGLE_ANDROID_DEBUG_CLIENT_ID:latest" \
-  ${RUNTIME_SERVICE_ACCOUNT:+--service-account "$RUNTIME_SERVICE_ACCOUNT"}
+if [ "$DEPLOY_ANALYSIS" = true ]; then
+    echo "========================================"
+    echo "Deploying Analysis Worker..."
+    echo "========================================"
+    "$SCRIPT_DIR/deploy-worker.sh" analysis
+    echo ""
+fi
 
-# Cleanup
-rm version.txt
+if [ "$DEPLOY_NORMALIZE" = true ]; then
+    echo "========================================"
+    echo "Deploying Normalization Worker..."
+    echo "========================================"
+    "$SCRIPT_DIR/deploy-worker.sh" normalize
+    echo ""
+fi
 
-echo "Deployment complete."
+if [ "$DEPLOY_MANAGER" = true ]; then
+    echo "========================================"
+    echo "Deploying Manager Worker..."
+    echo "========================================"
+    "$SCRIPT_DIR/deploy-worker.sh" manager
+    echo ""
+fi
+
+if [ "$DEPLOY_FOLLOWUP" = true ]; then
+    echo "========================================"
+    echo "Deploying Follow-up Worker..."
+    echo "========================================"
+    "$SCRIPT_DIR/deploy-worker.sh" follow_up
+    echo ""
+fi
+
+echo "All requested deployments completed."

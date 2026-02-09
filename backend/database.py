@@ -6,18 +6,21 @@ from abc import ABC, abstractmethod
 from typing import List, Optional, Dict, Any
 import logging
 
-from models import User, SharedItem, ItemNote
+from models import User, SharedItem, ItemNote, WorkerJobStatus
 
 # Firestore imports
 import firebase_admin
 from firebase_admin import credentials, firestore
+from firebase_admin import credentials, firestore
 from google.cloud.firestore import Client as FirestoreClient
 from google.cloud.firestore_v1.base_query import FieldFilter
+from google.cloud.firestore_v1.batch import WriteBatch
 
 # SQLAlchemy imports
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
 from sqlalchemy.orm import sessionmaker, declarative_base
 from sqlalchemy import Column, String, DateTime, JSON, Boolean, Integer, inspect, text, func
+from sqlalchemy import Column, String, DateTime, JSON, Boolean, Integer, inspect, text, func, update
 from sqlalchemy.future import select
 
 # --- Interface ---
@@ -37,6 +40,10 @@ class DatabaseInterface(ABC):
 
     @abstractmethod
     async def get_shared_items(self, user_email: str) -> List[dict]:
+        pass
+
+    @abstractmethod
+    async def validate_user_item_ownership(self, user_email: str, item_ids: List[str]) -> List[str]:
         pass
 
     @abstractmethod
@@ -80,7 +87,23 @@ class DatabaseInterface(ABC):
         pass
 
     @abstractmethod
+    async def get_follow_up_notes(self, item_id: str) -> List[dict]:
+        pass
+
+    @abstractmethod
     async def get_item_note_count(self, item_ids: List[str]) -> Dict[str, int]:
+        pass
+
+    @abstractmethod
+    async def get_user_tags(self, user_email: str) -> List[str]:
+        pass
+
+    @abstractmethod
+    async def get_user_item_counts_by_status(self, user_email: str) -> Dict[str, int]:
+        pass
+
+    @abstractmethod
+    async def get_user_worker_job_counts_by_status(self, user_email: str) -> Dict[str, int]:
         pass
 
     @abstractmethod
@@ -97,6 +120,22 @@ class DatabaseInterface(ABC):
 
     @abstractmethod
     async def fail_worker_job(self, job_id: str, error: str) -> bool:
+        pass
+
+    @abstractmethod
+    async def reset_failed_jobs(self, job_type: str, error_msg: str) -> int:
+        pass
+
+    @abstractmethod
+    async def get_failed_worker_jobs(self, job_type: Optional[str] = None, max_attempts: Optional[int] = None) -> List[dict]:
+        pass
+
+    @abstractmethod
+    async def reset_worker_job(self, job_id: str) -> bool:
+        pass
+
+    @abstractmethod
+    async def search_similar_items(self, embedding: List[float], user_email: str, limit: int = 10) -> List[dict]:
         pass
 
 
@@ -146,6 +185,28 @@ class FirestoreDatabase(DatabaseInterface):
 
         loop = asyncio.get_running_loop()
         return await loop.run_in_executor(None, get_docs)
+
+    async def validate_user_item_ownership(self, user_email: str, item_ids: List[str]) -> List[str]:
+        if not item_ids:
+            return []
+
+        def validate():
+            authorized_ids = []
+            # Firestore get_all can take many document references.
+            # We chunk them to be safe and efficient.
+            for i in range(0, len(item_ids), 100):
+                chunk = item_ids[i:i + 100]
+                doc_refs = [self.db.collection('shared_items').document(tid) for tid in chunk]
+                snapshots = self.db.get_all(doc_refs)
+                for snap in snapshots:
+                    if snap.exists:
+                        data = snap.to_dict()
+                        if data.get('user_email') == user_email:
+                            authorized_ids.append(snap.id)
+            return authorized_ids
+
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(None, validate)
 
     async def delete_shared_item(self, item_id: str, user_email: str) -> bool:
         item_ref = self.db.collection('shared_items').document(item_id)
@@ -233,6 +294,7 @@ class FirestoreDatabase(DatabaseInterface):
             'user_email': note.user_email,
             'text': note.text,
             'image_path': note.image_path,
+            'note_type': note.note_type,
             'created_at': note.created_at,
             'updated_at': note.updated_at,
         }
@@ -243,6 +305,24 @@ class FirestoreDatabase(DatabaseInterface):
         notes_ref = self.db.collection('item_notes')
         query = notes_ref.where(
             filter=FieldFilter('item_id', '==', item_id)
+        ).order_by('created_at', direction=firestore.Query.ASCENDING)
+
+        def get_docs():
+            notes = []
+            for doc in query.stream():
+                data = doc.to_dict()
+                notes.append(data)
+            return notes
+
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(None, get_docs)
+
+    async def get_follow_up_notes(self, item_id: str) -> List[dict]:
+        notes_ref = self.db.collection('item_notes')
+        query = notes_ref.where(
+            filter=FieldFilter('item_id', '==', item_id)
+        ).where(
+            filter=FieldFilter('note_type', '==', 'follow_up')
         ).order_by('created_at', direction=firestore.Query.ASCENDING)
 
         def get_docs():
@@ -305,12 +385,62 @@ class FirestoreDatabase(DatabaseInterface):
         loop = asyncio.get_running_loop()
         return await loop.run_in_executor(None, get_counts)
 
+    async def get_user_tags(self, user_email: str) -> List[str]:
+        items_ref = self.db.collection('shared_items')
+        query = items_ref.where(filter=FieldFilter('user_email', '==', user_email))
+
+        def get_tags():
+            tags = set()
+            for doc in query.stream():
+                data = doc.to_dict() or {}
+                analysis = data.get('analysis') or {}
+                raw_tags = analysis.get('tags') or []
+                if isinstance(raw_tags, list):
+                    for tag in raw_tags:
+                        tag_str = str(tag).strip()
+                        if tag_str:
+                            tags.add(tag_str)
+            return sorted(tags, key=str.lower)
+
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(None, get_tags)
+
+    async def get_user_item_counts_by_status(self, user_email: str) -> Dict[str, int]:
+        def get_counts():
+            items_ref = self.db.collection('shared_items')
+            query = items_ref.where(filter=FieldFilter('user_email', '==', user_email))
+
+            counts = {}
+            for doc in query.stream():
+                data = doc.to_dict()
+                status = data.get('status', 'new')
+                counts[status] = counts.get(status, 0) + 1
+            return counts
+
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(None, get_counts)
+
+    async def get_user_worker_job_counts_by_status(self, user_email: str) -> Dict[str, int]:
+        def get_counts():
+            jobs_ref = self.db.collection('worker_queue')
+            query = jobs_ref.where(filter=FieldFilter('user_email', '==', user_email))
+
+            counts = {}
+            for doc in query.stream():
+                data = doc.to_dict()
+                status = data.get('status', WorkerJobStatus.queued.value)
+                counts[status] = counts.get(status, 0) + 1
+            return counts
+
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(None, get_counts)
+
     async def enqueue_worker_job(self, item_id: str, user_email: str, job_type: str, payload: Optional[dict] = None) -> str:
         job_data = {
             'item_id': item_id,
             'user_email': user_email,
             'job_type': job_type,
-            'status': 'queued',
+            'status': WorkerJobStatus.queued.value,
             'attempts': 0,
             'payload': payload or {},
             'created_at': firestore.SERVER_TIMESTAMP,
@@ -328,7 +458,7 @@ class FirestoreDatabase(DatabaseInterface):
             query = (
                 self.db.collection('worker_queue')
                 .where(filter=FieldFilter('job_type', '==', job_type))
-                .where(filter=FieldFilter('status', '==', 'queued'))
+                .where(filter=FieldFilter('status', '==', WorkerJobStatus.queued.value))
                 .order_by('created_at')
                 .limit(limit)
             )
@@ -336,27 +466,28 @@ class FirestoreDatabase(DatabaseInterface):
             for doc in query.stream():
                 transaction = self.db.transaction()
 
+                @firestore.transactional
                 def _claim(transaction):
                     snapshot = doc.reference.get(transaction=transaction)
                     data = snapshot.to_dict() or {}
-                    if data.get('status') != 'queued':
+                    if data.get('status') != WorkerJobStatus.queued.value:
                         return
                     attempts = int(data.get('attempts', 0)) + 1
                     transaction.update(doc.reference, {
-                        'status': 'leased',
+                        'status': WorkerJobStatus.leased.value,
                         'worker_id': worker_id,
                         'lease_expires_at': lease_expires_at,
                         'attempts': attempts,
                         'updated_at': firestore.SERVER_TIMESTAMP
                     })
                     data['firestore_id'] = snapshot.id
-                    data['status'] = 'leased'
+                    data['status'] = WorkerJobStatus.leased.value
                     data['worker_id'] = worker_id
                     data['lease_expires_at'] = lease_expires_at
                     data['attempts'] = attempts
                     jobs.append(data)
 
-                transaction.call(_claim)
+                _claim(transaction)
 
             return jobs
 
@@ -369,7 +500,7 @@ class FirestoreDatabase(DatabaseInterface):
         if not doc.exists:
             return False
         job_ref.update({
-            'status': 'completed',
+            'status': WorkerJobStatus.completed.value,
             'updated_at': firestore.SERVER_TIMESTAMP
         })
         return True
@@ -380,11 +511,114 @@ class FirestoreDatabase(DatabaseInterface):
         if not doc.exists:
             return False
         job_ref.update({
-            'status': 'failed',
+            'status': WorkerJobStatus.failed.value,
             'error': error,
             'updated_at': firestore.SERVER_TIMESTAMP
         })
         return True
+
+    async def reset_failed_jobs(self, job_type: str, error_msg: str) -> int:
+        job_ref = self.db.collection('worker_queue')
+        query = (
+            job_ref
+            .where(filter=FieldFilter('job_type', '==', job_type))
+            .where(filter=FieldFilter('status', '==', WorkerJobStatus.failed.value))
+            .where(filter=FieldFilter('error', '==', error_msg))
+        )
+        
+        count = 0
+        batch = self.db.batch()
+        
+        for doc in query.stream():
+            batch.update(doc.reference, {
+                'status': WorkerJobStatus.queued.value,
+                'error': firestore.DELETE_FIELD,
+                'attempts': 0,
+                'updated_at': firestore.SERVER_TIMESTAMP
+            })
+            count += 1
+            if count % 400 == 0:
+                batch.commit()
+                batch = self.db.batch()
+        
+        if count % 400 != 0 or count == 0:
+            # Commit remaining or if we had a batch that wasn't committed yet (though count==0 means empty batch)
+            # Safe to commit empty batch? Yes.
+            batch.commit()
+            
+        return count
+
+    async def get_failed_worker_jobs(self, job_type: Optional[str] = None, max_attempts: Optional[int] = None) -> List[dict]:
+        def get_jobs():
+            query = (
+                self.db.collection('worker_queue')
+                .where(filter=FieldFilter('status', '==', WorkerJobStatus.failed.value))
+            )
+            if job_type:
+                query = query.where(filter=FieldFilter('job_type', '==', job_type))
+
+            results = []
+            for doc in query.stream():
+                data = doc.to_dict()
+                data['firestore_id'] = doc.id
+                attempts = int(data.get('attempts', 0))
+                if max_attempts is not None and attempts > max_attempts:
+                    continue
+                results.append(data)
+            return results
+
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(None, get_jobs)
+
+    async def reset_worker_job(self, job_id: str) -> bool:
+        job_ref = self.db.collection('worker_queue').document(job_id)
+        doc = job_ref.get()
+        if not doc.exists:
+            return False
+        job_ref.update({
+            'status': WorkerJobStatus.queued.value,
+            'error': firestore.DELETE_FIELD,
+            'worker_id': firestore.DELETE_FIELD,
+            'lease_expires_at': firestore.DELETE_FIELD,
+        })
+        return True
+
+    async def search_similar_items(self, embedding: List[float], user_email: str, limit: int = 10) -> List[dict]:
+        # Firestore Vector Search using `find_nearest`
+        try:
+            from google.cloud.firestore_v1.vector import Vector
+            
+            # Create a vector from the list of floats
+            query_vector = Vector(embedding)
+            
+            items_ref = self.db.collection('shared_items')
+            
+            # Initial query with user filter
+            base_query = items_ref.where(filter=FieldFilter('user_email', '==', user_email))
+
+            # Use find_nearest on the filtered query
+            # Note: This requires a composite index including the vector field and user_email
+            query = base_query.find_nearest(
+                vector_field="embedding",
+                query_vector=query_vector,
+                distance_measure="COSINE",
+                limit=limit
+            )
+            
+            results = []
+            for doc in query.stream():
+                data = doc.to_dict()
+                data['firestore_id'] = doc.id
+                results.append(data)
+                
+            return results
+        except ImportError:
+            # Fallback if vector search is not available in the library version
+            logging.error("google.cloud.firestore_v1.vector not available")
+            return []
+        except Exception as e:
+            logging.error(f"Vector search failed: {e}")
+            return []
 
 
 # --- SQLite Implementation ---
@@ -396,6 +630,7 @@ class DBUser(Base):
     email = Column(String, primary_key=True)
     name = Column(String, nullable=True)
     picture = Column(String, nullable=True)
+    timezone = Column(String, default="America/New_York")
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
 
 class DBSharedItem(Base):
@@ -412,6 +647,7 @@ class DBSharedItem(Base):
     next_step = Column(String, nullable=True)
     is_normalized = Column(Boolean, default=False)
     hidden = Column(Boolean, default=False)
+    embedding = Column(JSON, nullable=True)
 
 class DBItemNote(Base):
     __tablename__ = 'item_notes'
@@ -420,6 +656,7 @@ class DBItemNote(Base):
     user_email = Column(String, nullable=False)
     text = Column(String, nullable=True)
     image_path = Column(String, nullable=True)
+    note_type = Column(String, default='context')
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.datetime.utcnow)
 
@@ -478,6 +715,14 @@ class SQLiteDatabase(DatabaseInterface):
 
             await conn.run_sync(ensure_item_notes_table)
 
+            def ensure_note_type_column(sync_conn):
+                inspector = inspect(sync_conn)
+                columns = [col['name'] for col in inspector.get_columns('item_notes')]
+                if 'note_type' not in columns:
+                    sync_conn.execute(text("ALTER TABLE item_notes ADD COLUMN note_type VARCHAR DEFAULT 'context'"))
+
+            await conn.run_sync(ensure_note_type_column)
+
             def ensure_worker_queue_table(sync_conn):
                 inspector = inspect(sync_conn)
                 if 'worker_queue' not in inspector.get_table_names():
@@ -503,6 +748,14 @@ class SQLiteDatabase(DatabaseInterface):
 
             await conn.run_sync(ensure_worker_queue_table)
 
+            def ensure_user_timezone_column(sync_conn):
+                inspector = inspect(sync_conn)
+                columns = [col['name'] for col in inspector.get_columns('users')]
+                if 'timezone' not in columns:
+                    sync_conn.execute(text("ALTER TABLE users ADD COLUMN timezone VARCHAR DEFAULT 'America/New_York'"))
+
+            await conn.run_sync(ensure_user_timezone_column)
+
     async def close(self):
         await self.engine.dispose()
 
@@ -515,9 +768,15 @@ class SQLiteDatabase(DatabaseInterface):
                     email=db_user.email,
                     name=db_user.name,
                     picture=db_user.picture,
+                    timezone=db_user.timezone or "America/New_York",
                     created_at=db_user.created_at
                 )
             return None
+
+    async def search_similar_items(self, embedding: List[float], user_email: str, limit: int = 10) -> List[dict]:
+        # SQLite doesn't support vector search easily. Return empty.
+        # Could implement basic cosine similarity in python if needed but slow.
+        return []
 
     async def upsert_user(self, user: User) -> User:
         async with self.SessionLocal() as session:
@@ -533,6 +792,7 @@ class SQLiteDatabase(DatabaseInterface):
                     email=user.email,
                     name=user.name,
                     picture=user.picture,
+                    timezone=user.timezone,
                     created_at=user.created_at or datetime.datetime.now(datetime.timezone.utc)
                 )
                 session.add(db_user)
@@ -564,7 +824,8 @@ class SQLiteDatabase(DatabaseInterface):
                 status=item.status,
                 next_step=item.next_step,
                 is_normalized=item.is_normalized,
-                hidden=item.hidden
+                hidden=item.hidden,
+                embedding=item.embedding
             )
             session.add(db_item)
             await session.commit()
@@ -597,6 +858,17 @@ class SQLiteDatabase(DatabaseInterface):
                 }
                 for item in items
             ]
+
+    async def validate_user_item_ownership(self, user_email: str, item_ids: List[str]) -> List[str]:
+        if not item_ids:
+            return []
+        async with self.SessionLocal() as session:
+            result = await session.execute(
+                select(DBSharedItem.id)
+                .where(DBSharedItem.user_email == user_email)
+                .where(DBSharedItem.id.in_(item_ids))
+            )
+            return [row[0] for row in result.all()]
 
     async def delete_shared_item(self, item_id: str, user_email: str) -> bool:
         async with self.SessionLocal() as session:
@@ -735,12 +1007,70 @@ class SQLiteDatabase(DatabaseInterface):
                 user_email=note.user_email,
                 text=note.text,
                 image_path=note.image_path,
+                note_type=note.note_type,
                 created_at=note.created_at or datetime.datetime.utcnow(),
                 updated_at=note.updated_at or datetime.datetime.utcnow()
             )
             session.add(db_note)
             await session.commit()
             return note
+
+    async def reset_failed_jobs(self, job_type: str, error_msg: str) -> int:
+        async with self.SessionLocal() as session:
+            stmt = (
+                update(DBWorkerJob)
+                .where(DBWorkerJob.job_type == job_type)
+                .where(DBWorkerJob.status == 'failed')
+                .where(DBWorkerJob.error == error_msg)
+                .values(
+                    status='queued', 
+                    error=None, 
+                    attempts=0, 
+                    updated_at=datetime.datetime.utcnow()
+                )
+            )
+            result = await session.execute(stmt)
+            await session.commit()
+            return result.rowcount
+
+    async def get_failed_worker_jobs(self, job_type: Optional[str] = None, max_attempts: Optional[int] = None) -> List[dict]:
+        async with self.SessionLocal() as session:
+            query = select(DBWorkerJob).where(DBWorkerJob.status == 'failed')
+            if job_type:
+                query = query.where(DBWorkerJob.job_type == job_type)
+            if max_attempts is not None:
+                query = query.where(DBWorkerJob.attempts <= max_attempts)
+
+            result = await session.execute(query)
+            jobs = result.scalars().all()
+            return [
+                {
+                    'firestore_id': job.id,
+                    'item_id': job.item_id,
+                    'user_email': job.user_email,
+                    'job_type': job.job_type,
+                    'status': job.status,
+                    'attempts': job.attempts,
+                    'error': job.error,
+                    'created_at': job.created_at.isoformat() if job.created_at else None,
+                    'updated_at': job.updated_at.isoformat() if job.updated_at else None,
+                }
+                for job in jobs
+            ]
+
+    async def reset_worker_job(self, job_id: str) -> bool:
+        async with self.SessionLocal() as session:
+            result = await session.execute(select(DBWorkerJob).where(DBWorkerJob.id == job_id))
+            job = result.scalar_one_or_none()
+            if not job:
+                return False
+            job.status = WorkerJobStatus.queued.value
+            job.error = None
+            job.worker_id = None
+            job.lease_expires_at = None
+            job.updated_at = datetime.datetime.now(datetime.timezone.utc)
+            await session.commit()
+            return True
 
     async def get_item_notes(self, item_id: str) -> List[dict]:
         async with self.SessionLocal() as session:
@@ -758,6 +1088,30 @@ class SQLiteDatabase(DatabaseInterface):
                     'user_email': note.user_email,
                     'text': note.text,
                     'image_path': note.image_path,
+                    'note_type': note.note_type,
+                    'created_at': note.created_at,
+                    'updated_at': note.updated_at
+                }
+                for note in notes
+            ]
+
+    async def get_follow_up_notes(self, item_id: str) -> List[dict]:
+        async with self.SessionLocal() as session:
+            result = await session.execute(
+                select(DBItemNote)
+                .where(DBItemNote.item_id == item_id)
+                .where(DBItemNote.note_type == 'follow_up')
+                .order_by(DBItemNote.created_at.asc())
+            )
+            notes = result.scalars().all()
+            return [
+                {
+                    'id': note.id,
+                    'item_id': note.item_id,
+                    'user_email': note.user_email,
+                    'text': note.text,
+                    'image_path': note.image_path,
+                    'note_type': note.note_type,
                     'created_at': note.created_at,
                     'updated_at': note.updated_at
                 }
@@ -822,6 +1176,54 @@ class SQLiteDatabase(DatabaseInterface):
 
             return counts
 
+    async def get_user_tags(self, user_email: str) -> List[str]:
+        async with self.SessionLocal() as session:
+            result = await session.execute(
+                select(DBSharedItem.analysis)
+                .where(DBSharedItem.user_email == user_email)
+            )
+            rows = result.all()
+            tags = set()
+            for (analysis,) in rows:
+                analysis = analysis or {}
+                raw_tags = analysis.get('tags') or []
+                if isinstance(raw_tags, list):
+                    for tag in raw_tags:
+                        tag_str = str(tag).strip()
+                        if tag_str:
+                            tags.add(tag_str)
+            return sorted(tags, key=str.lower)
+
+    async def get_user_item_counts_by_status(self, user_email: str) -> Dict[str, int]:
+        async with self.SessionLocal() as session:
+            result = await session.execute(
+                select(DBSharedItem.status, func.count(DBSharedItem.id))
+                .where(DBSharedItem.user_email == user_email)
+                .group_by(DBSharedItem.status)
+            )
+            rows = result.all()
+
+            counts = {}
+            for status, count in rows:
+                counts[status or 'new'] = count
+
+            return counts
+
+    async def get_user_worker_job_counts_by_status(self, user_email: str) -> Dict[str, int]:
+        async with self.SessionLocal() as session:
+            result = await session.execute(
+                select(DBWorkerJob.status, func.count(DBWorkerJob.id))
+                .where(DBWorkerJob.user_email == user_email)
+                .group_by(DBWorkerJob.status)
+            )
+            rows = result.all()
+
+            counts = {}
+            for status, count in rows:
+                counts[status or WorkerJobStatus.queued.value] = count
+
+            return counts
+
     async def enqueue_worker_job(self, item_id: str, user_email: str, job_type: str, payload: Optional[dict] = None) -> str:
         async with self.SessionLocal() as session:
             job_id = str(uuid4())
@@ -831,7 +1233,7 @@ class SQLiteDatabase(DatabaseInterface):
                 item_id=item_id,
                 user_email=user_email,
                 job_type=job_type,
-                status='queued',
+                status=WorkerJobStatus.queued.value,
                 attempts=0,
                 payload=payload or {},
                 created_at=now,
@@ -849,7 +1251,7 @@ class SQLiteDatabase(DatabaseInterface):
             result = await session.execute(
                 select(DBWorkerJob)
                 .where(DBWorkerJob.job_type == job_type)
-                .where(DBWorkerJob.status == 'queued')
+                .where(DBWorkerJob.status == WorkerJobStatus.queued.value)
                 .order_by(DBWorkerJob.created_at.asc())
                 .limit(limit)
             )
@@ -857,7 +1259,7 @@ class SQLiteDatabase(DatabaseInterface):
 
             leased = []
             for job in jobs:
-                job.status = 'leased'
+                job.status = WorkerJobStatus.leased.value
                 job.worker_id = worker_id
                 job.lease_expires_at = lease_expires_at
                 job.attempts = (job.attempts or 0) + 1
@@ -883,7 +1285,7 @@ class SQLiteDatabase(DatabaseInterface):
             job = result.scalar_one_or_none()
             if not job:
                 return False
-            job.status = 'completed'
+            job.status = WorkerJobStatus.completed.value
             job.updated_at = datetime.datetime.now(datetime.timezone.utc)
             await session.commit()
             return True
@@ -894,7 +1296,7 @@ class SQLiteDatabase(DatabaseInterface):
             job = result.scalar_one_or_none()
             if not job:
                 return False
-            job.status = 'failed'
+            job.status = WorkerJobStatus.failed.value
             job.error = error
             job.updated_at = datetime.datetime.now(datetime.timezone.utc)
             await session.commit()

@@ -23,6 +23,8 @@
                             <span>Show Archive</span>
                             <input type="checkbox" id="show-archive" />
                         </label>
+                        <button class="user-menu-item" id="metrics-btn" type="button">Metrics</button>
+                        <button class="user-menu-item" id="tag-editor-btn" type="button">Tag Editor</button>
                         <button class="user-menu-item" id="export-btn" type="button">Export</button>
                         <a href="/logout" class="user-menu-item">Logout</a>
                     </div>
@@ -84,6 +86,38 @@
             </div>
         </div>
 
+        <!-- Metrics Modal -->
+        <div id="metrics-modal" class="modal" style="display: none;">
+            <div class="modal-backdrop" id="metrics-modal-backdrop"></div>
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h2>Metrics</h2>
+                    <button class="modal-close" id="metrics-modal-close" type="button">&times;</button>
+                </div>
+                <div class="metrics-body">
+                    <div id="metrics-loading" class="loading">Loading metrics...</div>
+                    <div id="metrics-error" class="metrics-error" style="display: none;"></div>
+                    <div id="metrics-content" style="display: none;">
+                        <div class="metrics-total">
+                            <div class="metrics-total-count" id="metrics-total-count">0</div>
+                            <div class="metrics-total-label">Total Items</div>
+                        </div>
+                        <div class="metrics-breakdown">
+                            <h3>Items by Status</h3>
+                            <div id="metrics-status-list" class="metrics-status-list"></div>
+                        </div>
+                        <div class="metrics-breakdown metrics-worker-queue" id="metrics-worker-section">
+                            <div class="metrics-worker-header">
+                                <h3>Worker Queue</h3>
+                                <span class="metrics-worker-total" id="metrics-worker-total">0 jobs</span>
+                            </div>
+                            <div id="metrics-worker-list" class="metrics-status-list"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
         <!-- Detail / Follow-up Modal -->
         <div id="detail-modal" class="modal" style="display: none;">
             <div class="modal-backdrop" id="detail-modal-backdrop"></div>
@@ -121,10 +155,67 @@
                         <label class="detail-label">Item ID</label>
                         <div id="detail-item-id" class="detail-text detail-item-id"></div>
                     </div>
+
+                    <!-- Timeline Section (collapsible) -->
+                    <div id="detail-timeline" class="detail-timeline" style="display: none;">
+                        <button type="button" class="detail-timeline-header" id="detail-timeline-toggle">
+                            <span class="detail-timeline-icon">📅</span>
+                            <span class="detail-timeline-title">Timeline</span>
+                            <span id="detail-timeline-count" class="detail-timeline-count"></span>
+                            <span class="detail-timeline-caret">▾</span>
+                        </button>
+                        <div id="detail-timeline-content" class="detail-timeline-content" style="display: none;">
+                            <div class="detail-timeline-fields">
+                                <div class="detail-timeline-field">
+                                    <label class="detail-label" for="detail-timeline-date">Date</label>
+                                    <div id="detail-timeline-date-view" class="detail-text"></div>
+                                    <input id="detail-timeline-date" class="detail-input" type="text" placeholder="YYYY-MM-DD" style="display: none;" />
+                                </div>
+                                <div class="detail-timeline-field">
+                                    <label class="detail-label" for="detail-timeline-time">Time</label>
+                                    <div id="detail-timeline-time-view" class="detail-text"></div>
+                                    <input id="detail-timeline-time" class="detail-input" type="text" placeholder="HH:MM:SS" style="display: none;" />
+                                </div>
+                                <div class="detail-timeline-field">
+                                    <label class="detail-label" for="detail-timeline-duration">Duration</label>
+                                    <div id="detail-timeline-duration-view" class="detail-text"></div>
+                                    <input id="detail-timeline-duration" class="detail-input" type="text" placeholder="HH:MM:SS" style="display: none;" />
+                                </div>
+                                <div class="detail-timeline-field">
+                                    <label class="detail-label" for="detail-timeline-principal">Principal</label>
+                                    <div id="detail-timeline-principal-view" class="detail-text"></div>
+                                    <input id="detail-timeline-principal" class="detail-input" type="text" placeholder="Person or organization" style="display: none;" />
+                                </div>
+                                <div class="detail-timeline-field">
+                                    <label class="detail-label" for="detail-timeline-location">Location</label>
+                                    <div id="detail-timeline-location-view" class="detail-text"></div>
+                                    <input id="detail-timeline-location" class="detail-input" type="text" placeholder="Where it takes place" style="display: none;" />
+                                </div>
+                                <div class="detail-timeline-field">
+                                    <label class="detail-label" for="detail-timeline-purpose">Purpose</label>
+                                    <div id="detail-timeline-purpose-view" class="detail-text"></div>
+                                    <input id="detail-timeline-purpose" class="detail-input" type="text" placeholder="What the event is about" style="display: none;" />
+                                </div>
+                            </div>
+                        </div>
+                    </div>
                 </div>
                 <div class="detail-footer" id="detail-edit-actions" style="display: none;">
                     <button class="btn-secondary" id="detail-cancel-btn" type="button">Cancel</button>
                     <button class="btn-primary" id="detail-save-btn" type="button">Save changes</button>
+                </div>
+
+                <div id="detail-follow-up" class="detail-follow-up" style="display: none;">
+                    <div class="detail-follow-up-header">
+                        <span class="detail-follow-up-icon">🚩</span>
+                        <h3>Follow-up</h3>
+                        <button id="detail-follow-up-delete" class="btn-icon btn-danger" title="Delete follow-up">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
+                            </svg>
+                        </button>
+                    </div>
+                    <div id="detail-follow-up-content" class="detail-follow-up-content"></div>
                 </div>
 
                 <div class="detail-notes">
@@ -135,9 +226,59 @@
                     <div id="detail-notes-list" class="detail-notes-list"></div>
                     <form id="detail-note-form" class="detail-note-form">
                         <textarea id="detail-note-text" rows="3" placeholder="Add a note..."></textarea>
+                        <label class="note-type-toggle">
+                            <input type="checkbox" id="detail-note-follow-up" />
+                            <span>Follow-up response</span>
+                        </label>
                         <button class="btn-primary" type="submit">Add note</button>
                     </form>
                 </div>
+            </div>
+        </div>
+
+        <!-- Filter Modal -->
+        <div id="filter-modal" class="modal" style="display: none;">
+            <div class="modal-backdrop" id="filter-modal-backdrop"></div>
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h2>Filters</h2>
+                    <button class="modal-close" id="filter-modal-close">&times;</button>
+                </div>
+                <div class="filter-modal-body">
+                    <div class="filter-section">
+                        <h3>Types</h3>
+                        <div id="filter-types" class="filter-chips"></div>
+                    </div>
+                    <div class="filter-section">
+                        <h3>Tags</h3>
+                        <div id="filter-tags" class="filter-chips"></div>
+                    </div>
+                </div>
+                <div class="filter-modal-footer">
+                    <button class="btn-secondary" id="filter-clear-btn">Clear</button>
+                    <button class="btn-primary" id="filter-apply-btn">Apply</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Tag Editor Modal -->
+        <div id="tag-editor-modal" class="modal" style="display: none;">
+            <div class="modal-backdrop" id="tag-editor-modal-backdrop"></div>
+            <div class="modal-content modal-large">
+                <div class="modal-header">
+                    <h2>Tag Editor</h2>
+                    <button class="modal-close" id="tag-editor-modal-close">&times;</button>
+                </div>
+                <div class="tag-editor-controls">
+                    <input type="text" id="tag-search-input" class="tag-search-input" placeholder="Search tags...">
+                    <select id="tag-sort-select" class="tag-sort-select">
+                        <option value="name">Sort by Name</option>
+                        <option value="newest">Sort by Newest</option>
+                        <option value="count">Sort by Most Used</option>
+                    </select>
+                </div>
+                <div class="tag-editor-count" id="tag-editor-count"></div>
+                <div class="tag-editor-list" id="tag-editor-list"></div>
             </div>
         </div>
 
@@ -157,18 +298,14 @@
                     <button class="view-btn active" data-view="all">All</button>
                     <button class="view-btn" data-view="timeline">Timeline</button>
                     <button class="view-btn" data-view="follow_up">Follow-up</button>
+                    <button class="view-btn" data-view="media">Media</button>
                 </div>
-                <div class="type-filter">
-                    <select id="type-filter">
-                        <option value="">All Types</option>
-                        <option value="screenshot">Screenshot</option>
-                        <option value="image">Image</option>
-                        <option value="web_url">Web URL</option>
-                        <option value="text">Text</option>
-                        <option value="video">Video</option>
-                        <option value="audio">Audio</option>
-                        <option value="file">File</option>
-                    </select>
+                <div class="filter-controls">
+                    <input type="text" id="search-input" class="search-input" placeholder="Search items...">
+                    <button id="filter-btn" class="filter-btn" type="button">
+                        <span class="filter-icon">Filters</span>
+                        <span id="filter-count" class="filter-count" style="display: none;"></span>
+                    </button>
                 </div>
             </div>
 

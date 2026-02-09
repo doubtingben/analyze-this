@@ -15,7 +15,6 @@ def query_firestore():
     print("Initializing Firestore connection...")
     try:
         # Initialize the database wrapper (handles auth)
-        # We use the existing class to ensure consistent initialization
         db_wrapper = FirestoreDatabase()
         db = db_wrapper.db # This is the raw google.cloud.firestore.Client
     except Exception as e:
@@ -25,51 +24,46 @@ def query_firestore():
 
     collection_ref = db.collection('shared_items')
 
-    # Example 1: Query for analysis == None
-    print("\n--- 1. Items where analysis is null (None) ---")
-    # This checks if the field is explicitly set to null
-    # Using FieldFilter to avoid UserWarning about positional arguments
-    query1 = collection_ref.where(filter=FieldFilter('analysis', '==', None))
-    results1 = list(query1.stream())
-    print(f"Found {len(results1)} items.")
-    for doc in results1[:5]: # Show first 5
+    print("\n--- Items where is_normalized == False ---")
+    
+    # Query for items where is_normalized is explicitly False
+    query = collection_ref.where(filter=FieldFilter('is_normalized', '==', False))
+    results = list(query.stream())
+    
+    print(f"Found {len(results)} unnormalized items.")
+    
+    unnormalized_ids = []
+    
+    for i, doc in enumerate(results):
+        unnormalized_ids.append(doc.id)
         data = doc.to_dict()
-        print(f" - {doc.id} | Title: {data.get('title', 'No Title')} | Status: {data.get('status')}")
+        print(f"\n[{i+1}/{len(results)}] Item ID: {doc.id}")
+        print("Fields:")
+        # Sort keys for easier reading
+        for key in sorted(data.keys()):
+            value = data[key]
+            print(f"  {key}: {value}")
+        print("-" * 50)
 
-    # Example 2: Query for analysis.follow_up == True
-    # Note: querying nested fields uses dot notation.
-    # This works if 'analysis' is a map and has a boolean key 'follow_up'.
-    print("\n--- 2. Items where analysis.follow_up is True ---")
-    query2 = collection_ref.where(filter=FieldFilter('analysis.follow_up', '==', True))
-    results2 = list(query2.stream())
-    print(f"Found {len(results2)} items.")
-    for doc in results2[:5]:
-        data = doc.to_dict()
-        analysis = data.get('analysis', {})
-        # Handle case where analysis might be None in python dict even if query matched (unlikely but safe)
-        if analysis:
-            follow_up = analysis.get('follow_up')
-        else:
-            follow_up = "N/A"
-        print(f" - {doc.id} | Follow Up: {follow_up}")
+    if unnormalized_ids:
+        print("\n\n--- Worker Queue Jobs for these Items ---")
+        worker_queue_ref = db.collection('worker_queue')
         
-    # Example 3: Query for analysis.action == 'follow_up' (Alternative interpretation)
-    print("\n--- 3. Items where analysis.action is 'follow_up' ---")
-    query3 = collection_ref.where(filter=FieldFilter('analysis.action', '==', 'follow_up'))
-    results3 = list(query3.stream())
-    print(f"Found {len(results3)} items.")
-    for doc in results3[:5]:
-        data = doc.to_dict()
-        print(f" - {doc.id} | Action: {data.get('analysis', {}).get('action')}")
-
-    # Example 4: Query for status == 'follow_up'
-    print("\n--- 4. Items where status is 'follow_up' ---")
-    query4 = collection_ref.where(filter=FieldFilter('status', '==', 'follow_up'))
-    results4 = list(query4.stream())
-    print(f"Found {len(results4)} items.")
-    for doc in results4[:5]:
-        data = doc.to_dict()
-        print(f" - {doc.id} | Status: {data.get('status')}")
+        for item_id in unnormalized_ids:
+            print(f"\nChecking Queue for Item ID: {item_id}")
+            # Query for jobs related to this item_id
+            queue_query = worker_queue_ref.where(filter=FieldFilter('item_id', '==', item_id))
+            queue_docs = list(queue_query.stream())
+            
+            if not queue_docs:
+                print("  No worker jobs found.")
+            else:
+                for q_doc in queue_docs:
+                    q_data = q_doc.to_dict()
+                    print(f"  [Job ID: {q_doc.id}]")
+                    for key in sorted(q_data.keys()):
+                        print(f"    {key}: {q_data[key]}")
+                    print("  " + "-" * 20)
 
 if __name__ == "__main__":
     query_firestore()
