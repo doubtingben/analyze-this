@@ -146,6 +146,30 @@ async def add_security_headers(request: Request, call_next):
     response = await call_next(request)
     response.headers["X-Content-Type-Options"] = "nosniff"
     response.headers["X-Frame-Options"] = "DENY"
+
+    # CSP: Restrict sources to self and Google Auth/APIs.
+    # 'unsafe-inline' is currently required for the dashboard.
+    csp = (
+        "default-src 'self'; "
+        "script-src 'self' 'unsafe-inline' https://accounts.google.com https://apis.google.com; "
+        "style-src 'self' 'unsafe-inline'; "
+        "img-src 'self' data: https:; "
+        "media-src 'self' https:; "
+        "font-src 'self' https: data:; "
+        "connect-src 'self'; "
+        "object-src 'none'; "
+        "base-uri 'self'; "
+        "frame-ancestors 'none'; "
+        "upgrade-insecure-requests;"
+    )
+    response.headers["Content-Security-Policy"] = csp
+
+    # Permissions Policy: Disable sensitive features
+    response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=(), payment=()"
+
+    # Referrer Policy: strict-origin-when-cross-origin (modern default, but explicit is good)
+    response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+
     return response
 
 app.add_middleware(SessionMiddleware, secret_key=SECRET_KEY)
