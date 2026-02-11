@@ -52,6 +52,7 @@ if APP_ENV == "production" and (not SECRET_KEY or SECRET_KEY == "super-secret-ke
 
 MAX_TITLE_LENGTH = 255
 MAX_TEXT_LENGTH = 10000
+MAX_FILE_SIZE = 50 * 1024 * 1024  # 50 MB
 CSRF_KEY = "csrf_token"
 
 ALLOWED_MIME_TYPES = {
@@ -548,6 +549,14 @@ async def share_item(
         raise HTTPException(status_code=401, detail="Unauthorized")
 
     # Input Validation
+    content_length = request.headers.get('content-length')
+    if content_length:
+        try:
+            if int(content_length) > MAX_FILE_SIZE:
+                raise HTTPException(status_code=413, detail="File too large")
+        except ValueError:
+            pass
+
     if title and len(title) > MAX_TITLE_LENGTH:
         raise HTTPException(status_code=400, detail="Title too long")
     if content and len(content) > MAX_TEXT_LENGTH:
@@ -587,6 +596,14 @@ async def share_item(
         
         # Handle File Upload
         if file:
+            # Check actual file size
+            await run_in_threadpool(file.file.seek, 0, 2)
+            size = await run_in_threadpool(file.file.tell)
+            await run_in_threadpool(file.file.seek, 0)
+
+            if size > MAX_FILE_SIZE:
+                raise HTTPException(status_code=413, detail="File too large")
+
             if file.content_type not in ALLOWED_MIME_TYPES:
                 raise HTTPException(status_code=400, detail=f"Unsupported file type: {file.content_type}")
 
@@ -1105,6 +1122,15 @@ async def create_item_note(
     note_type: str = Form("context")
 ):
     """Create a note for an item (multipart: text + optional file)"""
+    # Check Content-Length header
+    content_length = request.headers.get('content-length')
+    if content_length:
+        try:
+            if int(content_length) > MAX_FILE_SIZE:
+                raise HTTPException(status_code=413, detail="File too large")
+        except ValueError:
+            pass
+
     # Add tracing attributes for this request
     add_span_attributes({
         "note.item_id": item_id,
@@ -1146,6 +1172,14 @@ async def create_item_note(
 
     # Handle file upload if provided
     if file:
+        # Check actual file size
+        await run_in_threadpool(file.file.seek, 0, 2)
+        size = await run_in_threadpool(file.file.tell)
+        await run_in_threadpool(file.file.seek, 0)
+
+        if size > MAX_FILE_SIZE:
+            raise HTTPException(status_code=413, detail="File too large")
+
         with create_span("upload_file") as upload_span:
             try:
                 extension = file.filename.split('.')[-1] if '.' in file.filename else 'bin'
