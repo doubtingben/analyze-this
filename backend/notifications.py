@@ -4,7 +4,7 @@ import httpx
 
 logger = logging.getLogger(__name__)
 
-IRCCAT_URL = os.getenv("IRCCAT_URL", "https://chat.interestedparticipant.org/send")
+IRCCAT_URL = os.getenv("IRCCAT_URL", "https://irccat.interestedparticipant.org/send")
 IRCCAT_TIMEOUT = float(os.getenv("IRCCAT_TIMEOUT", "2.5"))
 IRCCAT_ENABLED = os.getenv("IRCCAT_ENABLED", "true").lower() in ("1", "true", "yes")
 IRCCAT_MAX_LEN = int(os.getenv("IRCCAT_MAX_LEN", "400"))
