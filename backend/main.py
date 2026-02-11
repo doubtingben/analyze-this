@@ -1180,6 +1180,13 @@ async def create_item_note(
         if size > MAX_FILE_SIZE:
             raise HTTPException(status_code=413, detail="File too large")
 
+        if file.content_type not in ALLOWED_MIME_TYPES:
+            raise HTTPException(status_code=400, detail=f"Unsupported file type: {file.content_type}")
+
+        ext = os.path.splitext(file.filename)[1].lower()
+        if ext not in ALLOWED_EXTENSIONS:
+            raise HTTPException(status_code=400, detail=f"Unsupported file extension: {ext}")
+
         with create_span("upload_file") as upload_span:
             try:
                 extension = file.filename.split('.')[-1] if '.' in file.filename else 'bin'
