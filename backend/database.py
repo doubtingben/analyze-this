@@ -43,6 +43,10 @@ class DatabaseInterface(ABC):
         pass
 
     @abstractmethod
+    async def validate_user_item_ownership(self, user_email: str, item_ids: List[str]) -> List[str]:
+        pass
+
+    @abstractmethod
     async def delete_shared_item(self, item_id: str, user_email: str) -> bool:
         pass
 
@@ -130,6 +134,10 @@ class DatabaseInterface(ABC):
     async def reset_worker_job(self, job_id: str) -> bool:
         pass
 
+    @abstractmethod
+    async def search_similar_items(self, embedding: List[float], user_email: str, limit: int = 10) -> List[dict]:
+        pass
+
 
 # --- Firestore Implementation ---
 
@@ -177,6 +185,28 @@ class FirestoreDatabase(DatabaseInterface):
 
         loop = asyncio.get_running_loop()
         return await loop.run_in_executor(None, get_docs)
+
+    async def validate_user_item_ownership(self, user_email: str, item_ids: List[str]) -> List[str]:
+        if not item_ids:
+            return []
+
+        def validate():
+            authorized_ids = []
+            # Firestore get_all can take many document references.
+            # We chunk them to be safe and efficient.
+            for i in range(0, len(item_ids), 100):
+                chunk = item_ids[i:i + 100]
+                doc_refs = [self.db.collection('shared_items').document(tid) for tid in chunk]
+                snapshots = self.db.get_all(doc_refs)
+                for snap in snapshots:
+                    if snap.exists:
+                        data = snap.to_dict()
+                        if data.get('user_email') == user_email:
+                            authorized_ids.append(snap.id)
+            return authorized_ids
+
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(None, validate)
 
     async def delete_shared_item(self, item_id: str, user_email: str) -> bool:
         item_ref = self.db.collection('shared_items').document(item_id)
@@ -550,9 +580,45 @@ class FirestoreDatabase(DatabaseInterface):
             'error': firestore.DELETE_FIELD,
             'worker_id': firestore.DELETE_FIELD,
             'lease_expires_at': firestore.DELETE_FIELD,
-            'updated_at': firestore.SERVER_TIMESTAMP
         })
         return True
+
+    async def search_similar_items(self, embedding: List[float], user_email: str, limit: int = 10) -> List[dict]:
+        # Firestore Vector Search using `find_nearest`
+        try:
+            from google.cloud.firestore_v1.vector import Vector
+            
+            # Create a vector from the list of floats
+            query_vector = Vector(embedding)
+            
+            items_ref = self.db.collection('shared_items')
+            
+            # Initial query with user filter
+            base_query = items_ref.where(filter=FieldFilter('user_email', '==', user_email))
+
+            # Use find_nearest on the filtered query
+            # Note: This requires a composite index including the vector field and user_email
+            query = base_query.find_nearest(
+                vector_field="embedding",
+                query_vector=query_vector,
+                distance_measure="COSINE",
+                limit=limit
+            )
+            
+            results = []
+            for doc in query.stream():
+                data = doc.to_dict()
+                data['firestore_id'] = doc.id
+                results.append(data)
+                
+            return results
+        except ImportError:
+            # Fallback if vector search is not available in the library version
+            logging.error("google.cloud.firestore_v1.vector not available")
+            return []
+        except Exception as e:
+            logging.error(f"Vector search failed: {e}")
+            return []
 
 
 # --- SQLite Implementation ---
@@ -581,6 +647,7 @@ class DBSharedItem(Base):
     next_step = Column(String, nullable=True)
     is_normalized = Column(Boolean, default=False)
     hidden = Column(Boolean, default=False)
+    embedding = Column(JSON, nullable=True)
 
 class DBItemNote(Base):
     __tablename__ = 'item_notes'
@@ -706,6 +773,11 @@ class SQLiteDatabase(DatabaseInterface):
                 )
             return None
 
+    async def search_similar_items(self, embedding: List[float], user_email: str, limit: int = 10) -> List[dict]:
+        # SQLite doesn't support vector search easily. Return empty.
+        # Could implement basic cosine similarity in python if needed but slow.
+        return []
+
     async def upsert_user(self, user: User) -> User:
         async with self.SessionLocal() as session:
             result = await session.execute(select(DBUser).where(DBUser.email == user.email))
@@ -752,7 +824,8 @@ class SQLiteDatabase(DatabaseInterface):
                 status=item.status,
                 next_step=item.next_step,
                 is_normalized=item.is_normalized,
-                hidden=item.hidden
+                hidden=item.hidden,
+                embedding=item.embedding
             )
             session.add(db_item)
             await session.commit()
@@ -785,6 +858,17 @@ class SQLiteDatabase(DatabaseInterface):
                 }
                 for item in items
             ]
+
+    async def validate_user_item_ownership(self, user_email: str, item_ids: List[str]) -> List[str]:
+        if not item_ids:
+            return []
+        async with self.SessionLocal() as session:
+            result = await session.execute(
+                select(DBSharedItem.id)
+                .where(DBSharedItem.user_email == user_email)
+                .where(DBSharedItem.id.in_(item_ids))
+            )
+            return [row[0] for row in result.all()]
 
     async def delete_shared_item(self, item_id: str, user_email: str) -> bool:
         async with self.SessionLocal() as session:

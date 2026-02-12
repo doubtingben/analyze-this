@@ -4,10 +4,11 @@ import asyncio
 import logging
 from dotenv import load_dotenv
 
-from analysis import analyze_content
+from analysis import analyze_content, generate_embedding
 from notifications import format_item_message, send_irccat_message
 from database import DatabaseInterface, FirestoreDatabase, SQLiteDatabase
 from worker_queue import process_queue_jobs
+from tracing import create_span, add_span_attributes, add_span_event, record_exception
 
 # Configure logging
 logging.basicConfig(
@@ -100,12 +101,25 @@ async def process_items_async(limit: int = 10, item_id: str = None, force: bool 
                 elif analysis_result.get('follow_up'):
                     new_status = 'follow_up'
 
+                # Generate embedding
+                embedding = None
+                try:
+                    overview = analysis_result.get('overview', '')
+                    if overview:
+                         embedding = await loop.run_in_executor(None, generate_embedding, overview)
+                except Exception as e:
+                    logger.error(f"Failed to generate embedding: {e}")
+
                 # Update DB
-                await db.update_shared_item(doc_id, {
+                update_data = {
                     'analysis': analysis_result,
                     'status': new_status,
                     'next_step': new_status
-                })
+                }
+                if embedding:
+                    update_data['embedding'] = embedding
+
+                await db.update_shared_item(doc_id, update_data)
                 logger.info(f"Successfully analyzed item {doc_id}.")
                 message = format_item_message(
                     "analyzed",
@@ -147,37 +161,83 @@ async def _process_analysis_item(db, data, context):
     if context and user_email:
         preferred_tags = context.get('tags_by_user', {}).get(user_email)
 
+    # Add tracing attributes
+    add_span_attributes({
+        "analysis.item_id": doc_id,
+        "analysis.user_email": user_email or "unknown",
+    })
+
     # 1. Mark as Analyzing
-    try:
-        await db.update_shared_item(doc_id, {'status': 'analyzing'})
-    except Exception as e:
-        logger.error(f"Failed to update status to analyzing for {doc_id}: {e}")
+    with create_span("update_status_analyzing", {"item.id": doc_id}) as status_span:
+        try:
+            await db.update_shared_item(doc_id, {'status': 'analyzing'})
+            status_span.set_attribute("status.updated", True)
+        except Exception as e:
+            logger.error(f"Failed to update status to analyzing for {doc_id}: {e}")
+            status_span.set_attribute("status.updated", False)
+            record_exception(e)
 
     content = data.get('content')
     item_type = data.get('type', 'text')
 
+    add_span_attributes({
+        "analysis.item_type": item_type,
+        "analysis.has_content": content is not None,
+    })
+
     if not content:
         logger.warning(f"Item {doc_id} has no content. Skipping.")
+        add_span_event("skipped_no_content", {"item_id": doc_id})
         await db.update_shared_item(doc_id, {'status': 'processed', 'next_step': 'no_content'})
         return True, None
 
     try:
-        loop = asyncio.get_running_loop()
-        analysis_result = await loop.run_in_executor(None, analyze_content, content, item_type, preferred_tags)
+        # Run LLM analysis
+        with create_span("llm_content_analysis", {"item.id": doc_id, "item.type": item_type}) as llm_span:
+            loop = asyncio.get_running_loop()
+            analysis_result = await loop.run_in_executor(None, analyze_content, content, item_type, preferred_tags)
+
+            if analysis_result and not analysis_result.get('error'):
+                llm_span.set_attribute("analysis.success", True)
+                new_status = 'analyzed'
+                if analysis_result.get('timeline'):
+                    new_status = 'timeline'
+                    llm_span.set_attribute("analysis.has_timeline", True)
+                elif analysis_result.get('follow_up'):
+                    new_status = 'follow_up'
+                    llm_span.set_attribute("analysis.has_follow_up", True)
+                llm_span.set_attribute("analysis.new_status", new_status)
+            else:
+                llm_span.set_attribute("analysis.success", False)
+                if analysis_result:
+                    llm_span.set_attribute("analysis.error", analysis_result.get('error', 'Unknown'))
 
         if analysis_result and not analysis_result.get('error'):
-            new_status = 'analyzed'
-            if analysis_result.get('timeline'):
-                new_status = 'timeline'
-            elif analysis_result.get('follow_up'):
-                new_status = 'follow_up'
+            # Generate embedding
+            embedding = None
+            try:
+                overview = analysis_result.get('overview', '')
+                if overview:
+                    # Optional: wrapping embedding generation in a span if tracing is desired for it
+                    embedding = await loop.run_in_executor(None, generate_embedding, overview)
+            except Exception as e:
+                logger.error(f"Failed to generate embedding: {e}")
 
-            await db.update_shared_item(doc_id, {
-                'analysis': analysis_result,
-                'status': new_status,
-                'next_step': new_status
-            })
+            # Save results
+            with create_span("save_analysis_result", {"item.id": doc_id}) as save_span:
+                update_data = {
+                    'analysis': analysis_result,
+                    'status': new_status,
+                    'next_step': new_status
+                }
+                if embedding:
+                    update_data['embedding'] = embedding
+
+                await db.update_shared_item(doc_id, update_data)
+                save_span.set_attribute("save.status", new_status)
             logger.info(f"Successfully analyzed item {doc_id}.")
+            add_span_event("analysis_completed", {"item_id": doc_id, "status": new_status})
+
             message = format_item_message(
                 "analyzed",
                 data.get('user_email') or "unknown",
@@ -200,16 +260,18 @@ async def _process_analysis_item(db, data, context):
         error_msg = "Unknown error"
         if analysis_result:
             error_msg = analysis_result.get('error', error_msg)
-            
+
         logger.warning(f"Analysis failed for item {doc_id}: {error_msg}")
+        add_span_event("analysis_failed", {"item_id": doc_id, "error": error_msg})
         await db.update_shared_item(doc_id, {
-            'status': 'error', 
+            'status': 'error',
             'next_step': 'error',
             'analysis': analysis_result
         })
         return False, f"analysis_failed: {error_msg}"
     except Exception as e:
         logger.error(f"Failed to analyze item {doc_id}: {e}")
+        record_exception(e)
         await db.update_shared_item(doc_id, {'status': 'error', 'next_step': 'error'})
         return False, str(e)
 

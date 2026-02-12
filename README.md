@@ -50,3 +50,39 @@ To run the project locally without modifying the production environment:
 
 1.  Ensure `extension/config.js` has `API_BASE_URL` set to `http://localhost:8000`.
 2.  Load the extension unpacked in Chrome (Developer Mode).
+
+## MCP Server for Application Monitoring
+
+The project includes an MCP (Model Context Protocol) server that provides monitoring tools for AI agents and clients. The server allows querying user information, item processing status, worker queues, and error logs.
+
+### Features
+
+- **User Monitoring**: Get user statistics, item counts, and activity information
+- **Worker Queue Status**: View current queue status, job types, and processing progress
+- **Error Tracking**: Analyze failed jobs, group errors by type, and identify patterns
+- **Item Status**: Filter and view items by processing status
+
+### Quick Start
+
+1. Install MCP dependency:
+   ```bash
+   cd backend
+   pip install mcp
+   ```
+
+2. Run the MCP server:
+   ```bash
+   ./backend/run_mcp_server.sh
+   ```
+
+3. Configure your MCP client (e.g., Claude Desktop) to use the server. See `backend/MCP_SERVER.md` for detailed configuration instructions.
+
+### Tools Available
+
+- `get_users_info` - Summary of all users with item counts
+- `get_user_details` - Detailed user information including tags and activity
+- `get_worker_queue_status` - Current worker queue status and jobs
+- `get_errors` - Error analysis from failed worker jobs
+- `get_items_by_status` - Filter items by processing status
+
+For complete documentation, see [backend/MCP_SERVER.md](backend/MCP_SERVER.md).

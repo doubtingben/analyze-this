@@ -8,6 +8,8 @@ from dotenv import load_dotenv
 import firebase_admin
 from firebase_admin import storage
 
+from tracing import create_span, record_exception
+
 load_dotenv()
 
 # Configure logging
@@ -135,38 +137,66 @@ def normalize_item_title(content: str, item_type: str = 'text', current_title: s
             {"role": "user", "content": user_content}
         ]
 
-    try:
-        logger.info(f"Sending normalization request to OpenRouter model: {OPENROUTER_MODEL}")
-        completion = client.chat.completions.create(
-            model=OPENROUTER_MODEL,
-            messages=messages,
-            response_format={"type": "json_object"}
-        )
-        
-        result_content = completion.choices[0].message.content
-        logger.info("Received normalization result")
-        
+    # Trace the LLM API call
+    with create_span("openrouter_api_call", {
+        "llm.provider": "openrouter",
+        "llm.model": OPENROUTER_MODEL,
+        "llm.item_type": item_type,
+        "llm.operation": "normalization",
+        "llm.has_current_title": current_title is not None,
+        "llm.has_analysis": analysis_data is not None,
+    }) as llm_span:
         try:
-            parsed = json.loads(result_content)
-            
-            new_title = parsed.get("title") or parsed.get("item.title") or parsed.get("normalized_title")
-            
-            if not new_title and "item" in parsed:
-                 new_title = parsed["item"].get("title")
+            logger.info(f"Sending normalization request to OpenRouter model: {OPENROUTER_MODEL}")
+            completion = client.chat.completions.create(
+                model=OPENROUTER_MODEL,
+                messages=messages,
+                response_format={"type": "json_object"}
+            )
 
-            if new_title:
-                return str(new_title)
-            
-            if len(parsed) == 1:
-                return str(list(parsed.values())[0])
-                
-            logger.warning(f"Could not extract title from response: {result_content}")
+            result_content = completion.choices[0].message.content
+            logger.info("Received normalization result")
+
+            # Add usage info if available
+            if hasattr(completion, 'usage') and completion.usage:
+                llm_span.set_attribute("llm.prompt_tokens", completion.usage.prompt_tokens or 0)
+                llm_span.set_attribute("llm.completion_tokens", completion.usage.completion_tokens or 0)
+                llm_span.set_attribute("llm.total_tokens", completion.usage.total_tokens or 0)
+
+            llm_span.set_attribute("llm.response_length", len(result_content) if result_content else 0)
+
+            try:
+                parsed = json.loads(result_content)
+                llm_span.set_attribute("llm.parse_success", True)
+
+                new_title = parsed.get("title") or parsed.get("item.title") or parsed.get("normalized_title")
+
+                if not new_title and "item" in parsed:
+                    new_title = parsed["item"].get("title")
+
+                if new_title:
+                    llm_span.set_attribute("llm.title_extracted", True)
+                    llm_span.set_attribute("llm.title_changed", new_title != current_title)
+                    return str(new_title)
+
+                if len(parsed) == 1:
+                    new_title = str(list(parsed.values())[0])
+                    llm_span.set_attribute("llm.title_extracted", True)
+                    llm_span.set_attribute("llm.title_changed", new_title != current_title)
+                    return new_title
+
+                logger.warning(f"Could not extract title from response: {result_content}")
+                llm_span.set_attribute("llm.title_extracted", False)
+                return None
+
+            except json.JSONDecodeError as json_err:
+                logger.error("Failed to decode JSON from AI response")
+                llm_span.set_attribute("llm.parse_success", False)
+                record_exception(json_err)
+                return None
+
+        except Exception as e:
+            logger.error(f"Error during normalization: {e}")
+            llm_span.set_attribute("llm.api_error", str(e))
+            record_exception(e)
             return None
-
-        except json.JSONDecodeError:
-            logger.error("Failed to decode JSON from AI response")
-            return None
-
-    except Exception as e:
-        logger.error(f"Error during normalization: {e}")
-        return None

@@ -70,6 +70,22 @@ const tagSearchInput = document.getElementById('tag-search-input');
 const tagSortSelect = document.getElementById('tag-sort-select');
 const tagEditorCount = document.getElementById('tag-editor-count');
 const tagEditorList = document.getElementById('tag-editor-list');
+const detailTimelineEl = document.getElementById('detail-timeline');
+const detailTimelineToggle = document.getElementById('detail-timeline-toggle');
+const detailTimelineContent = document.getElementById('detail-timeline-content');
+const detailTimelineCount = document.getElementById('detail-timeline-count');
+const detailTimelineDateView = document.getElementById('detail-timeline-date-view');
+const detailTimelineDateInput = document.getElementById('detail-timeline-date');
+const detailTimelineTimeView = document.getElementById('detail-timeline-time-view');
+const detailTimelineTimeInput = document.getElementById('detail-timeline-time');
+const detailTimelineDurationView = document.getElementById('detail-timeline-duration-view');
+const detailTimelineDurationInput = document.getElementById('detail-timeline-duration');
+const detailTimelinePrincipalView = document.getElementById('detail-timeline-principal-view');
+const detailTimelinePrincipalInput = document.getElementById('detail-timeline-principal');
+const detailTimelineLocationView = document.getElementById('detail-timeline-location-view');
+const detailTimelineLocationInput = document.getElementById('detail-timeline-location');
+const detailTimelinePurposeView = document.getElementById('detail-timeline-purpose-view');
+const detailTimelinePurposeInput = document.getElementById('detail-timeline-purpose');
 
 // State
 let allItems = [];
@@ -88,6 +104,7 @@ let pendingSelectedTags = new Set();   // Temporary selection in modal
 let tagSearchQuery = '';               // Tag editor search
 let tagSortMode = 'name';              // Tag editor sort mode
 let currentUserTimezone = 'America/New_York'; // Default timezone
+let isTimelineExpanded = false;        // Timeline section expansion state
 
 // Helper to get cookies
 function getCookie(name) {
@@ -167,6 +184,11 @@ function setupDetailModal() {
 
     if (detailFollowUpDeleteBtn) {
         detailFollowUpDeleteBtn.addEventListener('click', confirmDeleteFollowUp);
+    }
+
+    // Timeline toggle
+    if (detailTimelineToggle) {
+        detailTimelineToggle.addEventListener('click', toggleTimeline);
     }
 
     detailNoteForm.addEventListener('submit', async (event) => {
@@ -1660,6 +1682,9 @@ function openDetailModal(item) {
     editableTags = item.analysis?.tags ? [...item.analysis.tags] : [];
     renderDetailTags();
 
+    // Populate timeline section
+    populateTimelineSection(item);
+
     // Display follow-up content if available
     const followUp = item.analysis?.follow_up;
     if (detailFollowUpEl && detailFollowUpContentEl) {
@@ -1679,6 +1704,126 @@ function closeDetailModal() {
     if (!detailModal) return;
     detailModal.style.display = 'none';
     currentDetailItem = null;
+    isTimelineExpanded = false;
+}
+
+function toggleTimeline() {
+    isTimelineExpanded = !isTimelineExpanded;
+    if (detailTimelineContent) {
+        detailTimelineContent.style.display = isTimelineExpanded ? 'block' : 'none';
+    }
+    if (detailTimelineEl) {
+        if (isTimelineExpanded) {
+            detailTimelineEl.classList.add('expanded');
+        } else {
+            detailTimelineEl.classList.remove('expanded');
+        }
+    }
+}
+
+function getTimelineFromItem(item) {
+    if (!item.analysis?.timeline) {
+        return { date: '', time: '', duration: '', principal: '', location: '', purpose: '' };
+    }
+    const t = item.analysis.timeline;
+    return {
+        date: t.date || '',
+        time: t.time || '',
+        duration: t.duration || '',
+        principal: t.principal || '',
+        location: t.location || '',
+        purpose: t.purpose || ''
+    };
+}
+
+function countTimelineFields(timeline) {
+    let count = 0;
+    if (timeline.date) count++;
+    if (timeline.time) count++;
+    if (timeline.duration) count++;
+    if (timeline.principal) count++;
+    if (timeline.location) count++;
+    if (timeline.purpose) count++;
+    return count;
+}
+
+function populateTimelineSection(item) {
+    const timeline = getTimelineFromItem(item);
+    const count = countTimelineFields(timeline);
+
+    // Show/hide timeline section based on whether there's data or in edit mode
+    if (detailTimelineEl) {
+        if (count > 0 || detailEditMode) {
+            detailTimelineEl.style.display = 'block';
+        } else {
+            detailTimelineEl.style.display = 'none';
+        }
+    }
+
+    // Update count badge
+    if (detailTimelineCount) {
+        if (count > 0) {
+            detailTimelineCount.textContent = count;
+            detailTimelineCount.style.display = 'inline';
+        } else {
+            detailTimelineCount.style.display = 'none';
+        }
+    }
+
+    // Populate view elements
+    if (detailTimelineDateView) detailTimelineDateView.textContent = timeline.date;
+    if (detailTimelineTimeView) detailTimelineTimeView.textContent = timeline.time;
+    if (detailTimelineDurationView) detailTimelineDurationView.textContent = timeline.duration;
+    if (detailTimelinePrincipalView) detailTimelinePrincipalView.textContent = timeline.principal;
+    if (detailTimelineLocationView) detailTimelineLocationView.textContent = timeline.location;
+    if (detailTimelinePurposeView) detailTimelinePurposeView.textContent = timeline.purpose;
+
+    // Populate input elements
+    if (detailTimelineDateInput) detailTimelineDateInput.value = timeline.date;
+    if (detailTimelineTimeInput) detailTimelineTimeInput.value = timeline.time;
+    if (detailTimelineDurationInput) detailTimelineDurationInput.value = timeline.duration;
+    if (detailTimelinePrincipalInput) detailTimelinePrincipalInput.value = timeline.principal;
+    if (detailTimelineLocationInput) detailTimelineLocationInput.value = timeline.location;
+    if (detailTimelinePurposeInput) detailTimelinePurposeInput.value = timeline.purpose;
+
+    // Reset expansion state
+    isTimelineExpanded = false;
+    if (detailTimelineContent) detailTimelineContent.style.display = 'none';
+    if (detailTimelineEl) detailTimelineEl.classList.remove('expanded');
+}
+
+function updateTimelineEditMode(enabled) {
+    const views = [
+        detailTimelineDateView, detailTimelineTimeView, detailTimelineDurationView,
+        detailTimelinePrincipalView, detailTimelineLocationView, detailTimelinePurposeView
+    ];
+    const inputs = [
+        detailTimelineDateInput, detailTimelineTimeInput, detailTimelineDurationInput,
+        detailTimelinePrincipalInput, detailTimelineLocationInput, detailTimelinePurposeInput
+    ];
+
+    views.forEach(el => {
+        if (el) el.style.display = enabled ? 'none' : 'block';
+    });
+    inputs.forEach(el => {
+        if (el) el.style.display = enabled ? 'block' : 'none';
+    });
+
+    // Show timeline section in edit mode even if no data
+    if (detailTimelineEl && enabled) {
+        detailTimelineEl.style.display = 'block';
+    }
+}
+
+function getTimelineInputValues() {
+    return {
+        date: detailTimelineDateInput?.value?.trim() || null,
+        time: detailTimelineTimeInput?.value?.trim() || null,
+        duration: detailTimelineDurationInput?.value?.trim() || null,
+        principal: detailTimelinePrincipalInput?.value?.trim() || null,
+        location: detailTimelineLocationInput?.value?.trim() || null,
+        purpose: detailTimelinePurposeInput?.value?.trim() || null
+    };
 }
 
 function confirmDeleteFollowUp() {
@@ -1748,7 +1893,9 @@ function setDetailEditMode(enabled) {
     if (!enabled && currentDetailItem) {
         detailTitleInput.value = currentDetailItem.title || '';
         editableTags = currentDetailItem.analysis?.tags ? [...currentDetailItem.analysis.tags] : [];
+        populateTimelineSection(currentDetailItem);
     }
+    updateTimelineEditMode(enabled);
     renderDetailTags();
 }
 
@@ -1785,6 +1932,19 @@ async function saveDetailEdits() {
     const itemId = getItemId(currentDetailItem);
     const newTitle = detailTitleInput.value.trim();
     const tags = editableTags;
+    const timeline = getTimelineInputValues();
+
+    // Only include timeline if at least one field is set
+    const hasTimeline = Object.values(timeline).some(v => v);
+
+    const body = {
+        title: newTitle,
+        tags: tags
+    };
+
+    if (hasTimeline) {
+        body.timeline = timeline;
+    }
 
     try {
         const response = await fetch(`/api/items/${itemId}`, {
@@ -1793,10 +1953,7 @@ async function saveDetailEdits() {
                 'Content-Type': 'application/json',
                 ...getCsrfHeaders()
             },
-            body: JSON.stringify({
-                title: newTitle,
-                tags: tags
-            })
+            body: JSON.stringify(body)
         });
         if (!response.ok) {
             throw new Error('Failed to update item');
@@ -1804,6 +1961,9 @@ async function saveDetailEdits() {
         currentDetailItem.title = newTitle;
         currentDetailItem.analysis = currentDetailItem.analysis || {};
         currentDetailItem.analysis.tags = tags;
+        if (hasTimeline) {
+            currentDetailItem.analysis.timeline = timeline;
+        }
         detailTitleEl.textContent = newTitle || 'Untitled';
         setDetailEditMode(false);
         renderFilteredItems();

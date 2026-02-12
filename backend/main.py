@@ -27,6 +27,13 @@ from firebase_admin import credentials, storage
 from models import User, SharedItem, ShareType, ItemNote
 from notifications import format_item_message, send_irccat_message
 from database import DatabaseInterface, FirestoreDatabase, SQLiteDatabase
+from analysis import generate_embedding
+from tracing import (
+    init_tracing, shutdown_tracing, get_tracer, create_span,
+    add_span_attributes, record_exception, add_span_event,
+    inject_trace_context
+)
+from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
 
 # Load environment variables
 load_dotenv()
@@ -45,7 +52,38 @@ if APP_ENV == "production" and (not SECRET_KEY or SECRET_KEY == "super-secret-ke
 
 MAX_TITLE_LENGTH = 255
 MAX_TEXT_LENGTH = 10000
+MAX_FILE_SIZE = 50 * 1024 * 1024  # 50 MB
 CSRF_KEY = "csrf_token"
+
+ALLOWED_MIME_TYPES = {
+    "text/plain",
+    "application/pdf",
+    "application/zip",
+    "application/x-zip-compressed",
+    "image/jpeg",
+    "image/png",
+    "image/gif",
+    "image/webp",
+    "image/bmp",
+    "image/tiff",
+    "video/mp4",
+    "video/quicktime",
+    "video/webm",
+    "video/x-msvideo",
+    "audio/mpeg",
+    "audio/wav",
+    "audio/aac",
+    "audio/ogg",
+    "audio/mp4",
+    "audio/x-m4a",
+}
+
+ALLOWED_EXTENSIONS = {
+    ".txt", ".pdf", ".zip",
+    ".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp", ".tiff",
+    ".mp4", ".mpeg", ".mov", ".webm", ".avi", ".mkv",
+    ".mp3", ".wav", ".aac", ".ogg", ".flac", ".m4a"
+}
 
 # Read Version
 try:
@@ -61,6 +99,10 @@ db: DatabaseInterface = None
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global db
+
+    # Initialize OpenTelemetry tracing
+    init_tracing()
+
     if APP_ENV == "development":
         print("Starting in DEVELOPMENT mode using SQLite")
         db = SQLiteDatabase()
@@ -70,6 +112,9 @@ async def lifespan(app: FastAPI):
         print("Starting in PRODUCTION mode using Firestore")
         db = FirestoreDatabase()
     yield
+
+    # Shutdown tracing on app shutdown
+    shutdown_tracing()
 
 
 app = FastAPI(lifespan=lifespan)
@@ -93,6 +138,8 @@ async def add_security_headers(request: Request, call_next):
     )
     response.headers["Content-Security-Policy"] = csp
     return response
+# Instrument FastAPI for OpenTelemetry tracing
+FastAPIInstrumentor.instrument_app(app)
 
 # CORS Setup
 ALLOWED_ORIGINS_ENV = os.getenv("ALLOWED_ORIGINS")
@@ -113,6 +160,37 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+@app.middleware("http")
+async def add_security_headers(request: Request, call_next):
+    response = await call_next(request)
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "DENY"
+
+    # CSP: Restrict sources to self and Google Auth/APIs.
+    # 'unsafe-inline' is currently required for the dashboard.
+    csp = (
+        "default-src 'self'; "
+        "script-src 'self' 'unsafe-inline' https://accounts.google.com https://apis.google.com; "
+        "style-src 'self' 'unsafe-inline'; "
+        "img-src 'self' data: https:; "
+        "media-src 'self' https:; "
+        "font-src 'self' https: data:; "
+        "connect-src 'self'; "
+        "object-src 'none'; "
+        "base-uri 'self'; "
+        "frame-ancestors 'none'; "
+        "upgrade-insecure-requests;"
+    )
+    response.headers["Content-Security-Policy"] = csp
+
+    # Permissions Policy: Disable sensitive features
+    response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=(), payment=()"
+
+    # Referrer Policy: strict-origin-when-cross-origin (modern default, but explicit is good)
+    response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+
+    return response
 
 app.add_middleware(SessionMiddleware, secret_key=SECRET_KEY)
 app.mount("/static", StaticFiles(directory="static"), name="static")
@@ -490,6 +568,14 @@ async def share_item(
         raise HTTPException(status_code=401, detail="Unauthorized")
 
     # Input Validation
+    content_length = request.headers.get('content-length')
+    if content_length:
+        try:
+            if int(content_length) > MAX_FILE_SIZE:
+                raise HTTPException(status_code=413, detail="File too large")
+        except ValueError:
+            pass
+
     if title and len(title) > MAX_TITLE_LENGTH:
         raise HTTPException(status_code=400, detail="Title too long")
     if content and len(content) > MAX_TEXT_LENGTH:
@@ -529,6 +615,21 @@ async def share_item(
         
         # Handle File Upload
         if file:
+            # Check actual file size
+            await run_in_threadpool(file.file.seek, 0, 2)
+            size = await run_in_threadpool(file.file.tell)
+            await run_in_threadpool(file.file.seek, 0)
+
+            if size > MAX_FILE_SIZE:
+                raise HTTPException(status_code=413, detail="File too large")
+
+            if file.content_type not in ALLOWED_MIME_TYPES:
+                raise HTTPException(status_code=400, detail=f"Unsupported file type: {file.content_type}")
+
+            ext = os.path.splitext(file.filename)[1].lower()
+            if ext not in ALLOWED_EXTENSIONS:
+                raise HTTPException(status_code=400, detail=f"Unsupported file extension: {ext}")
+
             try:
                 # Create a unique filename
                 extension = file.filename.split('.')[-1] if '.' in file.filename else 'bin'
@@ -649,11 +750,20 @@ async def share_item(
     await db.create_shared_item(new_item)
 
     # Enqueue worker jobs for analysis + normalization
-    try:
-        await db.enqueue_worker_job(new_item.id, user_email, "analysis", {"source": "share"})
-        await db.enqueue_worker_job(new_item.id, user_email, "normalize", {"source": "share"})
-    except Exception as e:
-        print(f"Failed to enqueue worker jobs for item {new_item.id}: {e}")
+    with create_span("enqueue_worker_jobs", {"item.id": new_item.id}) as enqueue_span:
+        try:
+            # Inject trace context for distributed tracing
+            analysis_payload = inject_trace_context({"source": "share"})
+            normalize_payload = inject_trace_context({"source": "share"})
+
+            await db.enqueue_worker_job(new_item.id, user_email, "analysis", analysis_payload)
+            await db.enqueue_worker_job(new_item.id, user_email, "normalize", normalize_payload)
+            enqueue_span.set_attribute("jobs.enqueued", True)
+            add_span_event("worker_jobs_enqueued", {"item_id": new_item.id, "jobs": ["analysis", "normalize"]})
+        except Exception as e:
+            enqueue_span.set_attribute("jobs.enqueued", False)
+            record_exception(e)
+            print(f"Failed to enqueue worker jobs for item {new_item.id}: {e}")
 
     message = format_item_message(
         "shared",
@@ -994,12 +1104,21 @@ async def delete_item(item_id: str, request: Request):
 class NoteCountRequest(BaseModel):
     item_ids: List[str]
 
+class TimelineUpdate(BaseModel):
+    date: Optional[str] = Field(None, max_length=10)  # YYYY-MM-DD
+    time: Optional[str] = Field(None, max_length=8)   # HH:MM:SS
+    duration: Optional[str] = Field(None, max_length=8)  # HH:MM:SS
+    principal: Optional[str] = Field(None, max_length=255)
+    location: Optional[str] = Field(None, max_length=255)
+    purpose: Optional[str] = Field(None, max_length=500)
+
 class ItemUpdateRequest(BaseModel):
     title: Optional[str] = Field(None, max_length=MAX_TITLE_LENGTH)
     tags: Optional[List[str]] = None
     status: Optional[str] = None
     next_step: Optional[str] = Field(None, max_length=MAX_TITLE_LENGTH)
     follow_up: Optional[str] = Field(None, max_length=MAX_TEXT_LENGTH)
+    timeline: Optional[TimelineUpdate] = None
 
     @field_validator('tags')
     @classmethod
@@ -1022,14 +1141,41 @@ async def create_item_note(
     note_type: str = Form("context")
 ):
     """Create a note for an item (multipart: text + optional file)"""
-    user_email = await get_authenticated_email(request)
+    # Check Content-Length header
+    content_length = request.headers.get('content-length')
+    if content_length:
+        try:
+            if int(content_length) > MAX_FILE_SIZE:
+                raise HTTPException(status_code=413, detail="File too large")
+        except ValueError:
+            pass
+
+    # Add tracing attributes for this request
+    add_span_attributes({
+        "note.item_id": item_id,
+        "note.type": note_type,
+        "note.has_file": file is not None,
+        "note.has_text": text is not None
+    })
+
+    # Authentication
+    with create_span("authenticate_user") as auth_span:
+        user_email = await get_authenticated_email(request)
+        auth_span.set_attribute("user.email", user_email)
+
+    add_span_attributes({"user.email": user_email})
 
     # Verify the item exists and belongs to the user
-    item = await db.get_shared_item(item_id)
-    if not item:
-        raise HTTPException(status_code=404, detail="Item not found")
-    if item.get('user_email') != user_email:
-        raise HTTPException(status_code=403, detail="Forbidden: You do not own this item")
+    with create_span("lookup_item", {"item.id": item_id}) as lookup_span:
+        item = await db.get_shared_item(item_id)
+        if not item:
+            lookup_span.set_attribute("item.found", False)
+            raise HTTPException(status_code=404, detail="Item not found")
+        lookup_span.set_attribute("item.found", True)
+        lookup_span.set_attribute("item.type", item.get('type', 'unknown'))
+        if item.get('user_email') != user_email:
+            lookup_span.set_attribute("item.access_denied", True)
+            raise HTTPException(status_code=403, detail="Forbidden: You do not own this item")
 
     # Validate that at least text or file is provided
     if not text and not file:
@@ -1045,45 +1191,73 @@ async def create_item_note(
 
     # Handle file upload if provided
     if file:
-        try:
-            extension = file.filename.split('.')[-1] if '.' in file.filename else 'bin'
-            blob_name_relative = f"uploads/{user_email}/notes/{uuid.uuid4()}.{extension}"
+        # Check actual file size
+        await run_in_threadpool(file.file.seek, 0, 2)
+        size = await run_in_threadpool(file.file.tell)
+        await run_in_threadpool(file.file.seek, 0)
 
-            if APP_ENV == "development":
-                local_path = Path("static") / blob_name_relative
-                local_path.parent.mkdir(parents=True, exist_ok=True)
+        if size > MAX_FILE_SIZE:
+            raise HTTPException(status_code=413, detail="File too large")
 
-                with open(local_path, "wb") as buffer:
-                    shutil.copyfileobj(file.file, buffer)
+        if file.content_type not in ALLOWED_MIME_TYPES:
+            raise HTTPException(status_code=400, detail=f"Unsupported file type: {file.content_type}")
 
-                image_path = blob_name_relative
-            else:
-                # Production: Firebase Storage
-                bucket = storage.bucket()
-                blob = bucket.blob(blob_name_relative)
+        ext = os.path.splitext(file.filename)[1].lower()
+        if ext not in ALLOWED_EXTENSIONS:
+            raise HTTPException(status_code=400, detail=f"Unsupported file extension: {ext}")
 
-                await file.seek(0)
-                loop = asyncio.get_running_loop()
-                await loop.run_in_executor(
-                    None,
-                    functools.partial(blob.upload_from_file, file.file, content_type=file.content_type)
-                )
-                image_path = blob_name_relative
+        with create_span("upload_file") as upload_span:
+            try:
+                extension = file.filename.split('.')[-1] if '.' in file.filename else 'bin'
+                blob_name_relative = f"uploads/{user_email}/notes/{uuid.uuid4()}.{extension}"
+                upload_span.set_attribute("file.extension", extension)
+                upload_span.set_attribute("file.storage_path", blob_name_relative)
 
-        except Exception as e:
-            print(f"Note file upload failed: {e}")
-            raise HTTPException(status_code=500, detail=f"File upload failed: {str(e)}")
+                if APP_ENV == "development":
+                    upload_span.set_attribute("file.storage_type", "local")
+                    local_path = Path("static") / blob_name_relative
+                    local_path.parent.mkdir(parents=True, exist_ok=True)
 
-    # Create the note
-    note = ItemNote(
-        item_id=item_id,
-        user_email=user_email,
-        text=text,
-        image_path=image_path,
-        note_type=note_type
-    )
+                    with open(local_path, "wb") as buffer:
+                        shutil.copyfileobj(file.file, buffer)
 
-    created_note = await db.create_item_note(note)
+                    image_path = blob_name_relative
+                else:
+                    # Production: Firebase Storage
+                    upload_span.set_attribute("file.storage_type", "firebase")
+                    bucket = storage.bucket()
+                    blob = bucket.blob(blob_name_relative)
+
+                    await file.seek(0)
+                    loop = asyncio.get_running_loop()
+                    await loop.run_in_executor(
+                        None,
+                        functools.partial(blob.upload_from_file, file.file, content_type=file.content_type)
+                    )
+                    image_path = blob_name_relative
+
+                upload_span.set_attribute("file.upload_success", True)
+
+            except Exception as e:
+                upload_span.set_attribute("file.upload_success", False)
+                record_exception(e)
+                print(f"Note file upload failed: {e}")
+                raise HTTPException(status_code=500, detail=f"File upload failed: {str(e)}")
+
+    # Create the note in database
+    with create_span("create_note_db") as db_span:
+        note = ItemNote(
+            item_id=item_id,
+            user_email=user_email,
+            text=text,
+            image_path=image_path,
+            note_type=note_type
+        )
+
+        created_note = await db.create_item_note(note)
+        db_span.set_attribute("note.id", str(created_note.id))
+
+    add_span_attributes({"note.id": str(created_note.id)})
 
     # Return note data with image URL if applicable
     response_data = {
@@ -1106,12 +1280,21 @@ async def create_item_note(
             base_url = base_url.replace("http://", "https://")
             response_data['image_path'] = f"{base_url}/api/content/{response_data['image_path']}"
 
-    # Enqueue follow_up worker job if this is a follow_up note on a follow_up item
-    if note_type == "follow_up" and item.get('status') == 'follow_up':
-        try:
-            await db.enqueue_worker_job(item_id, user_email, "follow_up", {"source": "note"})
-        except Exception as e:
-            print(f"Failed to enqueue follow_up job for item {item_id}: {e}")
+    # Enqueue follow_up worker job if this is a follow_up note
+    if note_type == "follow_up":
+        with create_span("enqueue_follow_up_job") as job_span:
+            job_span.set_attribute("job.type", "follow_up")
+            job_span.set_attribute("job.item_id", item_id)
+            try:
+                # Inject trace context into job payload for distributed tracing
+                job_payload = inject_trace_context({"source": "note"})
+                await db.enqueue_worker_job(item_id, user_email, "follow_up", job_payload)
+                job_span.set_attribute("job.enqueued", True)
+                add_span_event("follow_up_job_enqueued", {"item_id": item_id})
+            except Exception as e:
+                job_span.set_attribute("job.enqueued", False)
+                record_exception(e)
+                print(f"Failed to enqueue follow_up job for item {item_id}: {e}")
 
     return response_data
 
@@ -1244,6 +1427,29 @@ async def update_item(item_id: str, request: Request, body: ItemUpdateRequest):
             current_analysis['follow_up'] = body.follow_up
         analysis_updated = True
 
+    # Update timeline within analysis object
+    if body.timeline is not None:
+        current_timeline = current_analysis.get('timeline') or {}
+        if not isinstance(current_timeline, dict):
+            current_timeline = {}
+
+        # Update only non-None fields
+        if body.timeline.date is not None:
+            current_timeline['date'] = body.timeline.date
+        if body.timeline.time is not None:
+            current_timeline['time'] = body.timeline.time
+        if body.timeline.duration is not None:
+            current_timeline['duration'] = body.timeline.duration
+        if body.timeline.principal is not None:
+            current_timeline['principal'] = body.timeline.principal
+        if body.timeline.location is not None:
+            current_timeline['location'] = body.timeline.location
+        if body.timeline.purpose is not None:
+            current_timeline['purpose'] = body.timeline.purpose
+
+        current_analysis['timeline'] = current_timeline
+        analysis_updated = True
+
     if analysis_updated:
         updates['analysis'] = current_analysis
 
@@ -1270,10 +1476,8 @@ async def get_note_counts(request: Request, body: NoteCountRequest):
     user_email = await get_authenticated_email(request)
 
     # Security: Filter item_ids to only include items owned by the user
-    # Get user's items and intersect with requested item_ids
-    user_items = await db.get_shared_items(user_email)
-    user_item_ids = {item.get('firestore_id') for item in user_items}
-    authorized_item_ids = [item_id for item_id in body.item_ids if item_id in user_item_ids]
+    # Query only for the requested item_ids that belong to the user
+    authorized_item_ids = await db.validate_user_item_ownership(user_email, body.item_ids)
 
     # Get note counts only for authorized items
     counts = await db.get_item_note_count(authorized_item_ids)
@@ -1304,3 +1508,60 @@ async def get_user_metrics(request: Request):
             "by_status": worker_counts
         }
     }
+
+
+@app.get("/api/search")
+async def search_items_endpoint(request: Request, q: str, limit: int = 10):
+    """
+    Semantic search for items using vector embeddings.
+    """
+    user_email = await get_authenticated_email(request)
+
+    if not q:
+        raise HTTPException(status_code=400, detail="Query string 'q' is required")
+
+    add_span_attributes({
+        "search.query": q,
+        "search.user_email": user_email
+    })
+
+    try:
+        # Generate embedding for the query
+        with create_span("generate_search_embedding", {"query": q}) as embed_span:
+            # Run in executor to avoid blocking event loop
+            loop = asyncio.get_running_loop()
+            query_embedding = await loop.run_in_executor(None, generate_embedding, q)
+            
+            if not query_embedding:
+                embed_span.set_attribute("embedding.success", False)
+                # Fallback to empty or error? 
+                # Be graceful: return empty results if embedding fails
+                return []
+            embed_span.set_attribute("embedding.success", True)
+
+        # Search in DB
+        with create_span("db_vector_search") as search_span:
+            results = await db.search_similar_items(query_embedding, user_email, limit=limit)
+            search_span.set_attribute("results.count", len(results))
+
+        # Build response (similar to get_items but maybe simplified)
+        # Re-use get_items logic for URL transformation if needed
+        base_url = str(request.base_url).rstrip('/')
+        if APP_ENV != "development":
+             base_url = base_url.replace("http://", "https://")
+             
+        for item in results:
+            if item.get('content') and not item.get('content').startswith('http'):
+                 # Transform content path
+                 if APP_ENV == "development":
+                     item['content'] = f"{base_url}/static/{item['content']}"
+                 else:
+                     item['content'] = f"{base_url}/api/content/{item['content']}"
+        
+        return results
+
+    except Exception as e:
+        record_exception(e)
+        print(f"Search failed: {e}")
+        raise HTTPException(status_code=500, detail="Search failed")
+
