@@ -18,6 +18,7 @@ class ItemDetailScreen extends StatefulWidget {
   final int initialIndex;
   final String? authToken;
   final Function(HistoryItem updatedItem)? onItemUpdated;
+  final Function(HistoryItem deletedItem)? onItemDeleted;
 
   const ItemDetailScreen({
     super.key,
@@ -25,6 +26,7 @@ class ItemDetailScreen extends StatefulWidget {
     required this.initialIndex,
     this.authToken,
     this.onItemUpdated,
+    this.onItemDeleted,
   });
 
   @override
@@ -36,6 +38,8 @@ class _ItemDetailScreenState extends State<ItemDetailScreen> {
   late int _currentIndex;
   late List<HistoryItem> _items;
   bool _isEditMode = false;
+  bool _isDeleting = false;
+  final ApiService _apiService = ApiService();
 
   @override
   void initState() {
@@ -66,6 +70,56 @@ class _ItemDetailScreenState extends State<ItemDetailScreen> {
     widget.onItemUpdated?.call(updatedItem);
   }
 
+  Future<void> _confirmAndDeleteItem() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Delete Item'),
+        content: const Text('Are you sure you want to delete this item? This action cannot be undone.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            style: TextButton.styleFrom(foregroundColor: AppColors.error),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true || widget.authToken == null) return;
+
+    setState(() {
+      _isDeleting = true;
+    });
+
+    try {
+      await _apiService.deleteItem(widget.authToken!, _currentItem.id);
+
+      final deletedItem = _currentItem;
+      widget.onItemDeleted?.call(deletedItem);
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Item deleted')),
+        );
+        Navigator.of(context).pop();
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _isDeleting = false;
+        });
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to delete: $e')),
+        );
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -75,9 +129,28 @@ class _ItemDetailScreenState extends State<ItemDetailScreen> {
           // Edit button
           IconButton(
             icon: Icon(_isEditMode ? Icons.close : Icons.edit),
-            onPressed: _toggleEditMode,
+            onPressed: _isDeleting ? null : _toggleEditMode,
             tooltip: _isEditMode ? 'Cancel editing' : 'Edit item',
           ),
+          // Delete button
+          _isDeleting
+              ? const Padding(
+                  padding: EdgeInsets.all(12),
+                  child: SizedBox(
+                    width: 20,
+                    height: 20,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      color: AppColors.error,
+                    ),
+                  ),
+                )
+              : IconButton(
+                  icon: const Icon(Icons.delete_outline),
+                  onPressed: _confirmAndDeleteItem,
+                  tooltip: 'Delete item',
+                  color: AppColors.error,
+                ),
           // Page indicator
           Center(
             child: Padding(

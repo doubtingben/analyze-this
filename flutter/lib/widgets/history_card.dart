@@ -9,23 +9,23 @@ import 'type_badge.dart';
 class HistoryCard extends StatelessWidget {
   final HistoryItem item;
   final VoidCallback? onTap;
-  final VoidCallback? onDelete;
   final VoidCallback? onToggleHidden;
   final String? authToken;
   final bool isHidden;
   final bool showImage;
   final bool showDate;
+  final bool isHiding;
 
   const HistoryCard({
     super.key,
     required this.item,
     this.onTap,
-    this.onDelete,
     this.onToggleHidden,
     this.authToken,
     this.isHidden = false,
     this.showImage = true,
     this.showDate = true,
+    this.isHiding = false,
   });
 
   bool get _hasAnalysis => item.analysis != null && item.analysis!.isNotEmpty;
@@ -79,27 +79,26 @@ class HistoryCard extends StatelessWidget {
                       ],
                       const Spacer(),
                       if (onToggleHidden != null)
-                        IconButton(
-                          icon: Icon(
-                            isHidden ? Icons.visibility_off : Icons.visibility,
-                          ),
-                          iconSize: 20,
-                          color: AppColors.textSecondary,
-                          padding: EdgeInsets.zero,
-                          constraints: const BoxConstraints(),
-                          onPressed: onToggleHidden,
-                          tooltip: isHidden ? 'Unhide' : 'Hide',
-                        ),
-                      if (onDelete != null)
-                        IconButton(
-                          icon: const Icon(Icons.delete_outline),
-                          iconSize: 20,
-                          color: AppColors.error,
-                          padding: EdgeInsets.zero,
-                          constraints: const BoxConstraints(),
-                          onPressed: onDelete,
-                          tooltip: 'Delete',
-                        ),
+                        isHiding
+                            ? const SizedBox(
+                                width: 20,
+                                height: 20,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  color: AppColors.textSecondary,
+                                ),
+                              )
+                            : IconButton(
+                                icon: Icon(
+                                  isHidden ? Icons.visibility_off : Icons.visibility,
+                                ),
+                                iconSize: 20,
+                                color: AppColors.textSecondary,
+                                padding: EdgeInsets.zero,
+                                constraints: const BoxConstraints(),
+                                onPressed: onToggleHidden,
+                                tooltip: isHidden ? 'Unhide' : 'Hide',
+                              ),
                     ],
                   ),
                   const SizedBox(height: AppSpacing.md),

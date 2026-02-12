@@ -69,6 +69,7 @@ class _MyHomePageState extends State<MyHomePage> {
   String _searchQuery = '';            // Empty = no search
   bool _showHidden = false;
   bool _searchExpanded = false;
+  final Set<String> _hidingItemIds = {};     // Track items currently being hidden/unhidden
 
   // Active filter count for badge
   int get _activeFilterCount => _selectedTypes.length + _selectedTags.length;
@@ -1036,9 +1037,9 @@ class _MyHomePageState extends State<MyHomePage> {
             item: item,
             authToken: _authToken,
             isHidden: item.isHidden,
+            isHiding: _hidingItemIds.contains(item.id),
             onToggleHidden: () => _setItemHidden(item, !item.isHidden),
             onTap: () => _openDetailFiltered(items, index),
-            onDelete: () => _deleteItem(item),
           ),
         );
       },
@@ -1134,9 +1135,9 @@ class _MyHomePageState extends State<MyHomePage> {
                   item: item,
                   authToken: _authToken,
                   isHidden: item.isHidden,
+                  isHiding: _hidingItemIds.contains(item.id),
                   onToggleHidden: () => _setItemHidden(item, !item.isHidden),
                   onTap: () => _openDetailFiltered(items, itemIndexMap[item.id] ?? 0),
-                  onDelete: () => _deleteItem(item),
                 ),
               ],
             ),
@@ -1306,11 +1307,11 @@ class _MyHomePageState extends State<MyHomePage> {
           item: item,
           authToken: _authToken,
           isHidden: item.isHidden,
+          isHiding: _hidingItemIds.contains(item.id),
           showImage: false,
           showDate: false,
           onToggleHidden: () => _setItemHidden(item, !item.isHidden),
           onTap: () => _openDetailFiltered(items, itemIndex),
-          onDelete: () => _deleteItem(item),
         );
 
         final styledCard = isPastEvent
@@ -1416,6 +1417,7 @@ class _MyHomePageState extends State<MyHomePage> {
           initialIndex: index,
           authToken: _authToken,
           onItemUpdated: _handleItemUpdated,
+          onItemDeleted: _handleItemDeleted,
         ),
       ),
     );
@@ -1433,37 +1435,57 @@ class _MyHomePageState extends State<MyHomePage> {
     });
   }
 
-  Future<void> _deleteItem(HistoryItem item) async {
-    try {
-      final authHeaders = await _currentUser!.authentication;
-      final token = authHeaders.accessToken;
-      if (token != null) {
-        await _apiService.deleteItem(token, item.id);
-        _loadHistory();
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Failed to delete: $e')),
-        );
-      }
-    }
-  }
-
   Future<void> _setItemHidden(HistoryItem item, bool hidden) async {
+    // Show spinner on the item
+    setState(() {
+      _hidingItemIds.add(item.id);
+    });
+
     try {
       final authHeaders = await _currentUser!.authentication;
       final token = authHeaders.accessToken;
       if (token != null) {
         await _apiService.setItemHidden(token, item.id, hidden);
-        _loadHistory();
+
+        // Optimistically update the local state
+        setState(() {
+          _hidingItemIds.remove(item.id);
+          _history = _history.map((h) {
+            if (h.id == item.id) {
+              return h.copyWith(hidden: hidden);
+            }
+            return h;
+          }).toList();
+        });
+
+        // Show brief feedback
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(hidden ? 'Item archived' : 'Item restored'),
+              duration: const Duration(seconds: 1),
+              behavior: SnackBarBehavior.floating,
+            ),
+          );
+        }
       }
     } catch (e) {
+      // Revert on error
+      setState(() {
+        _hidingItemIds.remove(item.id);
+      });
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Failed to update visibility: $e')),
         );
       }
     }
+  }
+
+  void _handleItemDeleted(HistoryItem deletedItem) {
+    // Remove the item from the local history list
+    setState(() {
+      _history = _history.where((item) => item.id != deletedItem.id).toList();
+    });
   }
 }
