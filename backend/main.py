@@ -24,7 +24,7 @@ from dotenv import load_dotenv
 import firebase_admin
 from firebase_admin import credentials, storage
 
-from models import User, SharedItem, ShareType, ItemNote
+from models import User, SharedItem, ShareType, ItemNote, ItemStatus
 from notifications import format_item_message, send_irccat_message
 from database import DatabaseInterface, FirestoreDatabase, SQLiteDatabase
 from analysis import generate_embedding
@@ -1115,7 +1115,7 @@ class TimelineUpdate(BaseModel):
 class ItemUpdateRequest(BaseModel):
     title: Optional[str] = Field(None, max_length=MAX_TITLE_LENGTH)
     tags: Optional[List[str]] = None
-    status: Optional[str] = None
+    status: Optional[ItemStatus] = None
     next_step: Optional[str] = Field(None, max_length=MAX_TITLE_LENGTH)
     follow_up: Optional[str] = Field(None, max_length=MAX_TEXT_LENGTH)
     timeline: Optional[TimelineUpdate] = None

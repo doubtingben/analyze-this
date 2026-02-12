@@ -876,13 +876,27 @@ function displayMetrics(data) {
             const item = document.createElement('div');
             item.className = 'metrics-status-item';
             item.dataset.status = status;
-            item.innerHTML = `
-                <div class="metrics-status-item-left">
-                    <div class="metrics-status-icon">●</div>
-                    <span class="metrics-status-label">${status}</span>
-                </div>
-                <span class="metrics-status-count">${count}</span>
-            `;
+
+            const left = document.createElement('div');
+            left.className = 'metrics-status-item-left';
+
+            const icon = document.createElement('div');
+            icon.className = 'metrics-status-icon';
+            icon.textContent = '●';
+            left.appendChild(icon);
+
+            const label = document.createElement('span');
+            label.className = 'metrics-status-label';
+            label.textContent = status;
+            left.appendChild(label);
+
+            item.appendChild(left);
+
+            const countEl = document.createElement('span');
+            countEl.className = 'metrics-status-count';
+            countEl.textContent = count;
+            item.appendChild(countEl);
+
             metricsStatusList.appendChild(item);
         }
     });
@@ -940,13 +954,27 @@ function displayWorkerQueueMetrics(workerQueue) {
             const item = document.createElement('div');
             item.className = 'metrics-status-item';
             item.dataset.status = status;
-            item.innerHTML = `
-                <div class="metrics-status-item-left">
-                    <div class="metrics-status-icon">●</div>
-                    <span class="metrics-status-label">${status}</span>
-                </div>
-                <span class="metrics-status-count">${count}</span>
-            `;
+
+            const left = document.createElement('div');
+            left.className = 'metrics-status-item-left';
+
+            const icon = document.createElement('div');
+            icon.className = 'metrics-status-icon';
+            icon.textContent = '●';
+            left.appendChild(icon);
+
+            const label = document.createElement('span');
+            label.className = 'metrics-status-label';
+            label.textContent = status;
+            left.appendChild(label);
+
+            item.appendChild(left);
+
+            const countEl = document.createElement('span');
+            countEl.className = 'metrics-status-count';
+            countEl.textContent = count;
+            item.appendChild(countEl);
+
             metricsWorkerList.appendChild(item);
         }
     });
