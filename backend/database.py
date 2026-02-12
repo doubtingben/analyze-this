@@ -369,21 +369,21 @@ class FirestoreDatabase(DatabaseInterface):
         if not item_ids:
             return {}
 
-        # Initialize counts to 0 for all requested IDs
-        counts = {item_id: 0 for item_id in item_ids}
-
-        def get_counts():
+        def get_single_count(item_id):
             # Firestore doesn't support COUNT aggregation well, so we fetch and count
             # For better performance with large datasets, consider using a counter field
             notes_ref = self.db.collection('item_notes')
-            for item_id in item_ids:
-                query = notes_ref.where(filter=FieldFilter('item_id', '==', item_id))
-                count = sum(1 for _ in query.stream())
-                counts[item_id] = count
-            return counts
+            query = notes_ref.where(filter=FieldFilter('item_id', '==', item_id))
+            return sum(1 for _ in query.stream())
 
         loop = asyncio.get_running_loop()
-        return await loop.run_in_executor(None, get_counts)
+        tasks = [
+            loop.run_in_executor(None, get_single_count, item_id)
+            for item_id in item_ids
+        ]
+
+        results = await asyncio.gather(*tasks)
+        return dict(zip(item_ids, results))
 
     async def get_user_tags(self, user_email: str) -> List[str]:
         items_ref = self.db.collection('shared_items')
