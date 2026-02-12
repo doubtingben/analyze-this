@@ -14,7 +14,7 @@ from notifications import format_item_message, send_irccat_message
 async def start_health_check_server():
     """Starts a simple HTTP server for Cloud Run health checks."""
     port = int(os.getenv("PORT", 8080))
-    
+
     async def handle_client(reader, writer):
         data = await reader.read(100)
         # We don't really care about the request data, just respond OK

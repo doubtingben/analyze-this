@@ -198,7 +198,7 @@ def generate_embedding(text: str) -> list[float] | None:
     """
     if not client:
         return None
-    
+
     if not text:
         return None
 

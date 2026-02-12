@@ -4,7 +4,7 @@ You are a user agent tasked with analyzing media snippets shared by users. Your 
 
 When there is no "analysis", the "analysis.overview" field is REQUIRED.
 
-Scrutinize the media snippet looking specifically for the most important event(s) and details. 
+Scrutinize the media snippet looking specifically for the most important event(s) and details.
 
 We looking for:
 - day and time information

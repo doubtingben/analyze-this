@@ -52,6 +52,7 @@ if APP_ENV == "production" and (not SECRET_KEY or SECRET_KEY == "super-secret-ke
 
 MAX_TITLE_LENGTH = 255
 MAX_TEXT_LENGTH = 10000
+MAX_FILE_SIZE = 50 * 1024 * 1024  # 50 MB
 CSRF_KEY = "csrf_token"
 
 ALLOWED_MIME_TYPES = {
@@ -146,6 +147,30 @@ async def add_security_headers(request: Request, call_next):
     response = await call_next(request)
     response.headers["X-Content-Type-Options"] = "nosniff"
     response.headers["X-Frame-Options"] = "DENY"
+
+    # CSP: Restrict sources to self and Google Auth/APIs.
+    # 'unsafe-inline' is currently required for the dashboard.
+    csp = (
+        "default-src 'self'; "
+        "script-src 'self' 'unsafe-inline' https://accounts.google.com https://apis.google.com; "
+        "style-src 'self' 'unsafe-inline'; "
+        "img-src 'self' data: https:; "
+        "media-src 'self' https:; "
+        "font-src 'self' https: data:; "
+        "connect-src 'self'; "
+        "object-src 'none'; "
+        "base-uri 'self'; "
+        "frame-ancestors 'none'; "
+        "upgrade-insecure-requests;"
+    )
+    response.headers["Content-Security-Policy"] = csp
+
+    # Permissions Policy: Disable sensitive features
+    response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=(), payment=()"
+
+    # Referrer Policy: strict-origin-when-cross-origin (modern default, but explicit is good)
+    response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+
     return response
 
 app.add_middleware(SessionMiddleware, secret_key=SECRET_KEY)
@@ -528,6 +553,14 @@ async def share_item(
         raise HTTPException(status_code=401, detail="Unauthorized")
 
     # Input Validation
+    content_length = request.headers.get('content-length')
+    if content_length:
+        try:
+            if int(content_length) > MAX_FILE_SIZE:
+                raise HTTPException(status_code=413, detail="File too large")
+        except ValueError:
+            pass
+
     if title and len(title) > MAX_TITLE_LENGTH:
         raise HTTPException(status_code=400, detail="Title too long")
     if content and len(content) > MAX_TEXT_LENGTH:
@@ -567,6 +600,14 @@ async def share_item(
         
         # Handle File Upload
         if file:
+            # Check actual file size
+            await run_in_threadpool(file.file.seek, 0, 2)
+            size = await run_in_threadpool(file.file.tell)
+            await run_in_threadpool(file.file.seek, 0)
+
+            if size > MAX_FILE_SIZE:
+                raise HTTPException(status_code=413, detail="File too large")
+
             if file.content_type not in ALLOWED_MIME_TYPES:
                 raise HTTPException(status_code=400, detail=f"Unsupported file type: {file.content_type}")
 
@@ -846,7 +887,7 @@ async def get_current_user(request: Request):
     auth_header = request.headers.get('Authorization')
     user_email = None
     user_info = None
-    
+
     if auth_header and auth_header.startswith('Bearer '):
         token = auth_header.split(' ')[1]
         user_info = await verify_google_token(token)
@@ -855,24 +896,24 @@ async def get_current_user(request: Request):
     elif 'user' in request.session:
         user_info = request.session['user']
         user_email = user_info.get('email')
-        
+
     if not user_email:
         raise HTTPException(status_code=401, detail="Not authenticated")
-    
+
     # Fetch full user profile from DB to get timezone
     db_user = await db.get_user(user_email)
     if db_user:
         return {
-            "email": db_user.email, 
-            "name": db_user.name, 
+            "email": db_user.email,
+            "name": db_user.name,
             "picture": db_user.picture,
             "timezone": db_user.timezone
         }
-    
+
     # Fallback to token/session data if DB fetch fails
     return {
-        "email": user_email, 
-        "name": user_info.get('name'), 
+        "email": user_email,
+        "name": user_info.get('name'),
         "picture": user_info.get('picture'),
         "timezone": "America/New_York" # Default
     }
@@ -1090,6 +1131,15 @@ async def create_item_note(
     note_type: str = Form("context")
 ):
     """Create a note for an item (multipart: text + optional file)"""
+    # Check Content-Length header
+    content_length = request.headers.get('content-length')
+    if content_length:
+        try:
+            if int(content_length) > MAX_FILE_SIZE:
+                raise HTTPException(status_code=413, detail="File too large")
+        except ValueError:
+            pass
+
     # Add tracing attributes for this request
     add_span_attributes({
         "note.item_id": item_id,
@@ -1131,6 +1181,21 @@ async def create_item_note(
 
     # Handle file upload if provided
     if file:
+        # Check actual file size
+        await run_in_threadpool(file.file.seek, 0, 2)
+        size = await run_in_threadpool(file.file.tell)
+        await run_in_threadpool(file.file.seek, 0)
+
+        if size > MAX_FILE_SIZE:
+            raise HTTPException(status_code=413, detail="File too large")
+
+        if file.content_type not in ALLOWED_MIME_TYPES:
+            raise HTTPException(status_code=400, detail=f"Unsupported file type: {file.content_type}")
+
+        ext = os.path.splitext(file.filename)[1].lower()
+        if ext not in ALLOWED_EXTENSIONS:
+            raise HTTPException(status_code=400, detail=f"Unsupported file extension: {ext}")
+
         with create_span("upload_file") as upload_span:
             try:
                 extension = file.filename.split('.')[-1] if '.' in file.filename else 'bin'
@@ -1143,13 +1208,13 @@ async def create_item_note(
                     local_path = Path("static") / blob_name_relative
                     local_path.parent.mkdir(parents=True, exist_ok=True)
 
-                loop = asyncio.get_running_loop()
-                await loop.run_in_executor(
-                    None,
-                    save_upload_file_blocking,
-                    file.file,
-                    local_path
-                )
+                    loop = asyncio.get_running_loop()
+                    await loop.run_in_executor(
+                        None,
+                        save_upload_file_blocking,
+                        file.file,
+                        local_path
+                    )
 
                     image_path = blob_name_relative
                 else:
@@ -1461,10 +1526,10 @@ async def search_items_endpoint(request: Request, q: str, limit: int = 10):
             # Run in executor to avoid blocking event loop
             loop = asyncio.get_running_loop()
             query_embedding = await loop.run_in_executor(None, generate_embedding, q)
-            
+
             if not query_embedding:
                 embed_span.set_attribute("embedding.success", False)
-                # Fallback to empty or error? 
+                # Fallback to empty or error?
                 # Be graceful: return empty results if embedding fails
                 return []
             embed_span.set_attribute("embedding.success", True)
@@ -1479,7 +1544,7 @@ async def search_items_endpoint(request: Request, q: str, limit: int = 10):
         base_url = str(request.base_url).rstrip('/')
         if APP_ENV != "development":
              base_url = base_url.replace("http://", "https://")
-             
+
         for item in results:
             if item.get('content') and not item.get('content').startswith('http'):
                  # Transform content path
@@ -1487,11 +1552,10 @@ async def search_items_endpoint(request: Request, q: str, limit: int = 10):
                      item['content'] = f"{base_url}/static/{item['content']}"
                  else:
                      item['content'] = f"{base_url}/api/content/{item['content']}"
-        
+
         return results
 
     except Exception as e:
         record_exception(e)
         print(f"Search failed: {e}")
         raise HTTPException(status_code=500, detail="Search failed")
-

@@ -183,7 +183,7 @@ def main():
     
     if args.queue:
         from functools import partial
-        
+
         async def run_queue_mode():
             # Automatically retry items that failed due to "missing_analysis"
             # This ensures that if we have fixed the logic or the data, they get processed.
@@ -196,7 +196,7 @@ def main():
                 logger.warning(f"Failed to reset failed jobs: {e}")
 
             process_fn = partial(_process_normalize_item, allow_missing_analysis=args.allow_no_analysis)
-            
+
             await process_queue_jobs(
                 job_type="normalize",
                 limit=args.limit,
@@ -212,9 +212,9 @@ def main():
         return
 
     asyncio.run(process_normalization_async(
-        limit=args.limit, 
-        item_id=args.id, 
-        force=args.force, 
+        limit=args.limit,
+        item_id=args.id,
+        force=args.force,
         allow_missing_analysis=args.allow_no_analysis
     ))
 

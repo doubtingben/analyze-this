@@ -148,7 +148,7 @@ class _MyHomePageState extends State<MyHomePage> {
             _authToken = token;
           });
         }
-        
+
         // Fetch user profile for timezone
         try {
           final profile = await _apiService.getUserProfile(token);

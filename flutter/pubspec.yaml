@@ -114,5 +114,3 @@ flutter:
 dependency_overrides:
   objective_c:
     path: third_party/objective_c
-
-

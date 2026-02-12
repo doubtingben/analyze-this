@@ -25,15 +25,15 @@ def query_firestore():
     collection_ref = db.collection('shared_items')
 
     print("\n--- Items where is_normalized == False ---")
-    
+
     # Query for items where is_normalized is explicitly False
     query = collection_ref.where(filter=FieldFilter('is_normalized', '==', False))
     results = list(query.stream())
-    
+
     print(f"Found {len(results)} unnormalized items.")
-    
+
     unnormalized_ids = []
-    
+
     for i, doc in enumerate(results):
         unnormalized_ids.append(doc.id)
         data = doc.to_dict()
@@ -54,7 +54,7 @@ def query_firestore():
             # Query for jobs related to this item_id
             queue_query = worker_queue_ref.where(filter=FieldFilter('item_id', '==', item_id))
             queue_docs = list(queue_query.stream())
-            
+
             if not queue_docs:
                 print("  No worker jobs found.")
             else:

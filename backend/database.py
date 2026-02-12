@@ -525,10 +525,10 @@ class FirestoreDatabase(DatabaseInterface):
             .where(filter=FieldFilter('status', '==', WorkerJobStatus.failed.value))
             .where(filter=FieldFilter('error', '==', error_msg))
         )
-        
+
         count = 0
         batch = self.db.batch()
-        
+
         for doc in query.stream():
             batch.update(doc.reference, {
                 'status': WorkerJobStatus.queued.value,
@@ -540,12 +540,12 @@ class FirestoreDatabase(DatabaseInterface):
             if count % 400 == 0:
                 batch.commit()
                 batch = self.db.batch()
-        
+
         if count % 400 != 0 or count == 0:
             # Commit remaining or if we had a batch that wasn't committed yet (though count==0 means empty batch)
             # Safe to commit empty batch? Yes.
             batch.commit()
-            
+
         return count
 
     async def get_failed_worker_jobs(self, job_type: Optional[str] = None, max_attempts: Optional[int] = None) -> List[dict]:
@@ -587,12 +587,12 @@ class FirestoreDatabase(DatabaseInterface):
         # Firestore Vector Search using `find_nearest`
         try:
             from google.cloud.firestore_v1.vector import Vector
-            
+
             # Create a vector from the list of floats
             query_vector = Vector(embedding)
-            
+
             items_ref = self.db.collection('shared_items')
-            
+
             # Initial query with user filter
             base_query = items_ref.where(filter=FieldFilter('user_email', '==', user_email))
 
@@ -604,13 +604,13 @@ class FirestoreDatabase(DatabaseInterface):
                 distance_measure="COSINE",
                 limit=limit
             )
-            
+
             results = []
             for doc in query.stream():
                 data = doc.to_dict()
                 data['firestore_id'] = doc.id
                 results.append(data)
-                
+
             return results
         except ImportError:
             # Fallback if vector search is not available in the library version
@@ -1023,9 +1023,9 @@ class SQLiteDatabase(DatabaseInterface):
                 .where(DBWorkerJob.status == 'failed')
                 .where(DBWorkerJob.error == error_msg)
                 .values(
-                    status='queued', 
-                    error=None, 
-                    attempts=0, 
+                    status='queued',
+                    error=None,
+                    attempts=0,
                     updated_at=datetime.datetime.utcnow()
                 )
             )

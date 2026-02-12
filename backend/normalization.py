@@ -56,7 +56,7 @@ def get_image_data_url(content: str) -> str | None:
     try:
         # Check if firebase app is initialized
         if not firebase_admin._apps:
-             # Basic initialization if not tied to a specific bucket config yet, 
+             # Basic initialization if not tied to a specific bucket config yet,
              # though typically the worker initializes this.
              # We assume worker_normalize has initialized the app with storageBucket.
              pass
@@ -123,7 +123,7 @@ def normalize_item_title(content: str, item_type: str = 'text', current_title: s
         messages = [
             {"role": "system", "content": prompt_text},
             {
-                "role": "user", 
+                "role": "user",
                 "content": [
                     {"type": "text", "text": context_text},
                     {"type": "image_url", "image_url": {"url": image_url}}

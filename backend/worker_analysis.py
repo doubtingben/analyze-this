@@ -142,10 +142,10 @@ async def process_items_async(limit: int = 10, item_id: str = None, force: bool 
                 error_msg = "Unknown error"
                 if analysis_result:
                     error_msg = analysis_result.get('error', error_msg)
-                
+
                 logger.warning(f"Analysis failed for item {doc_id}: {error_msg}")
                 await db.update_shared_item(doc_id, {
-                    'status': 'error', 
+                    'status': 'error',
                     'next_step': 'error',
                     'analysis': analysis_result  # Save the error details if available
                 })

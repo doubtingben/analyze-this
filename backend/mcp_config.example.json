@@ -1,0 +1,24 @@
+{
+    "mcpServers": {
+        "analyze-this-monitor": {
+            "command": "python3",
+            "args": [
+                "/absolute/path/to/analyze-this/backend/mcp_server.py"
+            ],
+            "env": {
+                "APP_ENV": "production",
+                "GOOGLE_APPLICATION_CREDENTIALS": "/path/to/service-account-key.json",
+                "FIREBASE_STORAGE_BUCKET": "your-project.appspot.com"
+            }
+        },
+        "analyze-this-monitor-dev": {
+            "command": "python3",
+            "args": [
+                "/absolute/path/to/analyze-this/backend/mcp_server.py"
+            ],
+            "env": {
+                "APP_ENV": "development"
+            }
+        }
+    }
+}

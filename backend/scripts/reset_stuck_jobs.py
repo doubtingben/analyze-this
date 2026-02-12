@@ -26,29 +26,29 @@ async def reset_stuck_normalization_jobs():
     worker_queue_ref = db.collection('worker_queue')
 
     print("\n--- Searching for unnormalized items with completed worker jobs ---")
-    
+
     # 1. Get unnormalized items
     query = collection_ref.where(filter=FieldFilter('is_normalized', '==', False))
     results = list(query.stream())
-    
+
     print(f"Found {len(results)} unnormalized items.")
-    
+
     reset_count = 0
-    
+
     for doc in results:
         item_id = doc.id
-        
+
         # 2. Find associated normalize jobs
         queue_query = worker_queue_ref.where(filter=FieldFilter('item_id', '==', item_id)).where(filter=FieldFilter('job_type', '==', 'normalize'))
         queue_docs = list(queue_query.stream())
-        
+
         for q_doc in queue_docs:
             q_data = q_doc.to_dict()
             status = q_data.get('status')
-            
+
             if status == 'completed':
                 print(f"Resetting STUCK job {q_doc.id} for item {item_id} (Status: {status})")
-                
+
                 # 3. Reset to queued
                 q_doc.reference.update({
                     'status': 'queued',

@@ -57,7 +57,7 @@ gcloud run deploy $SERVICE_NAME \
   --project $PROJECT_ID \
   --allow-unauthenticated \
   --set-env-vars "^@^ALLOWED_ORIGINS=https://interestedparticipant.org,chrome-extension://ilbniloahihehnhalvffoelaliheab" \
-  --set-env-vars "IRCCAT_URL=https://chat.interestedparticipant.org/send" \
+  --set-env-vars "IRCCAT_URL=https://irccat.interestedparticipant.org/send" \
   --set-env-vars "IRCCAT_ENABLED=true" \
   --set-env-vars "OTEL_ENABLED=true" \
   --set-env-vars "OTEL_EXPORTER_OTLP_ENDPOINT=https://api.honeycomb.io" \

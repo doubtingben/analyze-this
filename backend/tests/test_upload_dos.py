@@ -5,6 +5,7 @@ import sys
 
 # Setup environment to PRODUCTION to test GCS path
 os.environ["APP_ENV"] = "production"
+os.environ["SECRET_KEY"] = "secure-test-key-12345"
 os.environ["GOOGLE_CLIENT_ID"] = "mock"
 os.environ["GOOGLE_CLIENT_SECRET"] = "mock"
 
