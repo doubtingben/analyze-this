@@ -657,7 +657,10 @@ async def share_item(
                 
             except Exception as e:
                 print(f"Upload failed: {e}")
-                raise HTTPException(status_code=500, detail=f"File upload failed: {str(e)}")
+                detail = "File upload failed"
+                if APP_ENV == "development":
+                    detail = f"File upload failed: {str(e)}"
+                raise HTTPException(status_code=500, detail=detail)
     else:
         raise HTTPException(status_code=400, detail="Unsupported Content-Type")
 
@@ -1228,7 +1231,10 @@ async def create_item_note(
                 upload_span.set_attribute("file.upload_success", False)
                 record_exception(e)
                 print(f"Note file upload failed: {e}")
-                raise HTTPException(status_code=500, detail=f"File upload failed: {str(e)}")
+                detail = "File upload failed"
+                if APP_ENV == "development":
+                    detail = f"File upload failed: {str(e)}"
+                raise HTTPException(status_code=500, detail=detail)
 
     # Create the note in database
     with create_span("create_note_db") as db_span:
