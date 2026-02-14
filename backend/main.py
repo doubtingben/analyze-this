@@ -119,25 +119,6 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(lifespan=lifespan)
 
-@app.middleware("http")
-async def add_security_headers(request: Request, call_next):
-    response = await call_next(request)
-    response.headers["X-Content-Type-Options"] = "nosniff"
-    response.headers["X-Frame-Options"] = "DENY"
-    response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
-
-    # CSP: Allow self, unsafe-inline for scripts/styles (required for current app structure),
-    # and Google/Data URI for images.
-    # Connect-src needs to allow Google Auth.
-    csp = (
-        "default-src 'self'; "
-        "script-src 'self' 'unsafe-inline'; "
-        "style-src 'self' 'unsafe-inline'; "
-        "img-src 'self' data: https:; "
-        "connect-src 'self' https://accounts.google.com https://oauth2.googleapis.com;"
-    )
-    response.headers["Content-Security-Policy"] = csp
-    return response
 # Instrument FastAPI for OpenTelemetry tracing
 FastAPIInstrumentor.instrument_app(app)
 
@@ -176,7 +157,7 @@ async def add_security_headers(request: Request, call_next):
         "img-src 'self' data: https:; "
         "media-src 'self' https:; "
         "font-src 'self' https: data:; "
-        "connect-src 'self'; "
+        "connect-src 'self' https://accounts.google.com https://oauth2.googleapis.com; "
         "object-src 'none'; "
         "base-uri 'self'; "
         "frame-ancestors 'none'; "
@@ -189,6 +170,11 @@ async def add_security_headers(request: Request, call_next):
 
     # Referrer Policy: strict-origin-when-cross-origin (modern default, but explicit is good)
     response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+
+    # Strict-Transport-Security (HSTS)
+    # Enforce HTTPS in production. Max-age is set to 1 year.
+    if APP_ENV == "production":
+        response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
 
     return response
 
