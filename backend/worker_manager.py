@@ -1,7 +1,9 @@
 import os
 import argparse
 import asyncio
+import datetime
 import logging
+import zoneinfo
 from dotenv import load_dotenv
 
 from database import DatabaseInterface, FirestoreDatabase, SQLiteDatabase
@@ -85,6 +87,74 @@ async def rule_reset_missing_analysis_failures(db: DatabaseInterface, logger: lo
     return count
 
 
+async def rule_create_timeline_follow_ups(db: DatabaseInterface, logger: logging.Logger) -> int:
+    """Create follow-up prompts for timeline events whose dates have passed."""
+    items = await db.get_items_by_status('timeline', limit=100)
+    if not items:
+        return 0
+
+    count = 0
+    for item in items:
+        doc_id = item.get('firestore_id') or item.get('id')
+        analysis = item.get('analysis') or {}
+        timeline = analysis.get('timeline') or {}
+        date_str = timeline.get('date')
+
+        if not date_str:
+            continue
+
+        # Parse event date
+        try:
+            event_date = datetime.date.fromisoformat(date_str)
+        except (ValueError, TypeError):
+            logger.warning(f"Item {doc_id}: invalid timeline date '{date_str}'. Skipping.")
+            continue
+
+        # Determine "today" in the user's timezone
+        user_email = item.get('user_email')
+        user_tz_name = "America/New_York"  # default
+        if user_email:
+            try:
+                user = await db.get_user(user_email)
+                if user and user.timezone:
+                    user_tz_name = user.timezone
+            except Exception:
+                pass
+
+        try:
+            user_tz = zoneinfo.ZoneInfo(user_tz_name)
+        except Exception:
+            user_tz = zoneinfo.ZoneInfo("America/New_York")
+
+        today = datetime.datetime.now(user_tz).date()
+
+        if event_date >= today:
+            continue  # Event hasn't happened yet
+
+        # Build follow-up question
+        title = item.get('title') or analysis.get('overview') or 'this event'
+        location = timeline.get('location')
+        question_parts = [f'How was "{title}"?']
+        if location:
+            question_parts.append(f"Did you make it to {location}?")
+        question_parts.append("Anything to note or report?")
+        follow_up_question = " ".join(question_parts)
+
+        # Update item: status -> follow_up, add follow_up question to analysis
+        updated_analysis = dict(analysis)
+        updated_analysis['follow_up'] = follow_up_question
+
+        await db.update_shared_item(doc_id, {
+            'status': 'follow_up',
+            'analysis': updated_analysis,
+        })
+
+        logger.info(f"Created follow-up for past timeline event {doc_id} (date={date_str})")
+        count += 1
+
+    return count
+
+
 async def rule_launch_worker_jobs(db: DatabaseInterface, logger: logging.Logger) -> int:
     """Check for queued work and launch Cloud Run Jobs on demand."""
     if not ENABLE_JOB_LAUNCHING:
@@ -160,6 +230,7 @@ def _run_job(job_name: str) -> None:
 MANAGER_RULES = [
     ("retry_single_attempt_failures", rule_retry_single_attempt_failures),
     ("reset_missing_analysis_failures", rule_reset_missing_analysis_failures),
+    ("create_timeline_follow_ups", rule_create_timeline_follow_ups),
     ("launch_worker_jobs", rule_launch_worker_jobs),
 ]
 
