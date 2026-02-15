@@ -28,6 +28,7 @@ from models import User, SharedItem, ShareType, ItemNote, ItemStatus
 from notifications import format_item_message, send_irccat_message
 from database import DatabaseInterface, FirestoreDatabase, SQLiteDatabase
 from analysis import generate_embedding
+from rate_limiter import RateLimit
 from tracing import (
     init_tracing, shutdown_tracing, get_tracer, create_span,
     add_span_attributes, record_exception, add_span_event,
@@ -307,7 +308,7 @@ async def read_root(request: Request):
          response.set_cookie(key="csrf_token", value=csrf_token, httponly=False, samesite="lax")
     return response
 
-@app.get("/login")
+@app.get("/login", dependencies=[Depends(RateLimit(limit=10, window=60, scope="login"))])
 async def login(request: Request):
     # Ensure fully qualified URL for redirect_uri to avoid mismatches
     # Cloud Run behind load balancer might need X-Forwarded-Proto considerations, but starlette handles some.
@@ -513,7 +514,7 @@ def normalize_share_type(raw_type: Optional[str], content: Optional[str], file: 
 
     return ShareType.text
 
-@app.post("/api/share", dependencies=[Depends(check_csrf)])
+@app.post("/api/share", dependencies=[Depends(check_csrf), Depends(RateLimit(limit=10, window=60, scope="share"))])
 async def share_item(
     request: Request,
     title: str = Form(None),
@@ -1119,7 +1120,7 @@ class ItemUpdateRequest(BaseModel):
         return v
 
 
-@app.post("/api/items/{item_id}/notes", dependencies=[Depends(check_csrf)])
+@app.post("/api/items/{item_id}/notes", dependencies=[Depends(check_csrf), Depends(RateLimit(limit=20, window=60, scope="create_note"))])
 async def create_item_note(
     item_id: str,
     request: Request,
