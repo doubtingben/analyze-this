@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # Script to run the Analyze This MCP Monitoring Server
 
 # Get the directory where this script is located
