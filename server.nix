@@ -203,7 +203,7 @@
     description = "Deploy Analyze This Code";
     wantedBy = [ "multi-user.target" ];
     after = [ "network.target" ];
-    path = [ pkgs.rsync pkgs.uv ];
+    path = [ pkgs.rsync pkgs.uv pkgs.util-linux ];
     serviceConfig = {
       Type = "oneshot";
       # Run as root to ensure we can overwrite any existing files/permissions
@@ -237,7 +237,8 @@
           chown -R analyze-backend:analyze-this $UV_CACHE_DIR
           
           # Run python command as analyze-backend
-          sudo -u analyze-backend -E ${pkgs.uv}/bin/uv sync --frozen
+          # usage of runuser to drop privileges without needing sudo
+          runuser -u analyze-backend -- ${pkgs.uv}/bin/uv sync --frozen
         '';
       in "${script}";
     };
