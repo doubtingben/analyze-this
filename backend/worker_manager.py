@@ -18,7 +18,19 @@ logger = logging.getLogger(__name__)
 load_dotenv()
 APP_ENV = os.getenv("APP_ENV", "production")
 
-MANAGER_INTERVAL_SECONDS = int(os.getenv("MANAGER_INTERVAL_SECONDS", "300"))  # 5 minutes
+MANAGER_INTERVAL_SECONDS = int(os.getenv("MANAGER_INTERVAL_SECONDS", "60"))
+
+# Cloud Run Job launching configuration
+ENABLE_JOB_LAUNCHING = os.getenv("ENABLE_JOB_LAUNCHING", "false").lower() == "true"
+GCP_PROJECT = os.getenv("GCP_PROJECT", "analyze-this-2026")
+GCP_REGION = os.getenv("GCP_REGION", "us-central1")
+
+# Map job types to Cloud Run Job names
+JOB_TYPE_TO_JOB_NAME = {
+    "analysis": "worker-analysis",
+    "normalize": "worker-normalize",
+    "follow_up": "worker-follow-up",
+}
 
 
 async def get_db() -> DatabaseInterface:
@@ -67,9 +79,88 @@ async def rule_retry_single_attempt_failures(db: DatabaseInterface, logger: logg
     return reset_count
 
 
+async def rule_reset_missing_analysis_failures(db: DatabaseInterface, logger: logging.Logger) -> int:
+    """Reset normalize jobs that failed due to missing_analysis back to queued."""
+    count = await db.reset_failed_jobs('normalize', 'missing_analysis')
+    return count
+
+
+async def rule_launch_worker_jobs(db: DatabaseInterface, logger: logging.Logger) -> int:
+    """Check for queued work and launch Cloud Run Jobs on demand."""
+    if not ENABLE_JOB_LAUNCHING:
+        logger.debug("Job launching disabled (ENABLE_JOB_LAUNCHING != true). Skipping.")
+        return 0
+
+    counts = await db.get_queued_job_counts_by_type()
+    if not counts:
+        return 0
+
+    logger.info(f"Queued job counts: {counts}")
+
+    launched = 0
+    loop = asyncio.get_running_loop()
+
+    for job_type, queued_count in counts.items():
+        if queued_count <= 0:
+            continue
+
+        job_name = JOB_TYPE_TO_JOB_NAME.get(job_type)
+        if not job_name:
+            logger.warning(f"Unknown job type '{job_type}' with {queued_count} queued jobs. Skipping.")
+            continue
+
+        try:
+            already_running = await loop.run_in_executor(None, _is_job_running, job_name)
+            if already_running:
+                logger.info(f"Job '{job_name}' already has an active execution. Skipping launch.")
+                continue
+
+            logger.info(f"Launching Cloud Run Job '{job_name}' for {queued_count} queued {job_type} jobs...")
+            await loop.run_in_executor(None, _run_job, job_name)
+            launched += 1
+            logger.info(f"Successfully launched '{job_name}'.")
+        except Exception as e:
+            logger.error(f"Failed to launch job '{job_name}': {e}")
+
+    return launched
+
+
+def _is_job_running(job_name: str) -> bool:
+    """Check if a Cloud Run Job has an active (running) execution."""
+    from google.cloud.run_v2 import ExecutionsClient
+    from google.cloud.run_v2.types import ListExecutionsRequest
+
+    client = ExecutionsClient()
+    parent = f"projects/{GCP_PROJECT}/locations/{GCP_REGION}/jobs/{job_name}"
+
+    request = ListExecutionsRequest(parent=parent)
+    executions = client.list_executions(request=request)
+
+    for execution in executions:
+        # Check if execution is still running (not completed/failed)
+        if not execution.completion_time:
+            return True
+
+    return False
+
+
+def _run_job(job_name: str) -> None:
+    """Launch a Cloud Run Job execution."""
+    from google.cloud.run_v2 import JobsClient
+    from google.cloud.run_v2.types import RunJobRequest
+
+    client = JobsClient()
+    name = f"projects/{GCP_PROJECT}/locations/{GCP_REGION}/jobs/{job_name}"
+
+    request = RunJobRequest(name=name)
+    client.run_job(request=request)
+
+
 # Registry of all manager rules. Add new rules here.
 MANAGER_RULES = [
     ("retry_single_attempt_failures", rule_retry_single_attempt_failures),
+    ("reset_missing_analysis_failures", rule_reset_missing_analysis_failures),
+    ("launch_worker_jobs", rule_launch_worker_jobs),
 ]
 
 
@@ -96,7 +187,8 @@ async def run_manager(continuous: bool = False):
 
     logger.info(
         f"Worker Manager started. Interval: {MANAGER_INTERVAL_SECONDS}s. "
-        f"Continuous: {continuous}. Rules: {len(MANAGER_RULES)}"
+        f"Continuous: {continuous}. Rules: {len(MANAGER_RULES)}. "
+        f"Job launching: {ENABLE_JOB_LAUNCHING}"
     )
 
     if continuous:

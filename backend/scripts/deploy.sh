@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 set -e
 
 # Script directory
@@ -11,52 +11,38 @@ show_help() {
     echo ""
     echo "Options:"
     echo "  --backend       Deploy the main backend API"
-    echo "  --analysis      Deploy the analysis worker"
-    echo "  --normalize     Deploy the normalization worker"
-    echo "  --manager       Deploy the manager worker"
-    echo "  --followup      Deploy the follow-up worker"
+    echo "  --workers       Deploy worker Cloud Run Jobs (analysis, normalize, follow_up)"
+    echo "  --manager       Deploy the manager service"
     echo "  --all           Deploy all services (default)"
     echo "  --help          Show this help message"
 }
 
 # State variables
 DEPLOY_BACKEND=false
-DEPLOY_ANALYSIS=false
-DEPLOY_NORMALIZE=false
+DEPLOY_WORKERS=false
 DEPLOY_MANAGER=false
-DEPLOY_FOLLOWUP=false
 
 # Check args
 if [ $# -eq 0 ]; then
     DEPLOY_BACKEND=true
-    DEPLOY_ANALYSIS=true
-    DEPLOY_NORMALIZE=true
+    DEPLOY_WORKERS=true
     DEPLOY_MANAGER=true
-    DEPLOY_FOLLOWUP=true
 else
     for arg in "$@"; do
         case $arg in
             --backend)
                 DEPLOY_BACKEND=true
                 ;;
-            --analysis)
-                DEPLOY_ANALYSIS=true
-                ;;
-            --normalize|--normalization)
-                DEPLOY_NORMALIZE=true
+            --workers)
+                DEPLOY_WORKERS=true
                 ;;
             --manager)
                 DEPLOY_MANAGER=true
                 ;;
-            --followup)
-                DEPLOY_FOLLOWUP=true
-                ;;
             --all)
                 DEPLOY_BACKEND=true
-                DEPLOY_ANALYSIS=true
-                DEPLOY_NORMALIZE=true
+                DEPLOY_WORKERS=true
                 DEPLOY_MANAGER=true
-                DEPLOY_FOLLOWUP=true
                 ;;
             --help)
                 show_help
@@ -80,35 +66,19 @@ if [ "$DEPLOY_BACKEND" = true ]; then
     echo ""
 fi
 
-if [ "$DEPLOY_ANALYSIS" = true ]; then
+if [ "$DEPLOY_WORKERS" = true ]; then
     echo "========================================"
-    echo "Deploying Analysis Worker..."
+    echo "Deploying Worker Cloud Run Jobs..."
     echo "========================================"
-    "$SCRIPT_DIR/deploy-worker.sh" analysis
-    echo ""
-fi
-
-if [ "$DEPLOY_NORMALIZE" = true ]; then
-    echo "========================================"
-    echo "Deploying Normalization Worker..."
-    echo "========================================"
-    "$SCRIPT_DIR/deploy-worker.sh" normalize
+    "$SCRIPT_DIR/deploy-worker-job.sh" all
     echo ""
 fi
 
 if [ "$DEPLOY_MANAGER" = true ]; then
     echo "========================================"
-    echo "Deploying Manager Worker..."
+    echo "Deploying Manager Service..."
     echo "========================================"
     "$SCRIPT_DIR/deploy-worker.sh" manager
-    echo ""
-fi
-
-if [ "$DEPLOY_FOLLOWUP" = true ]; then
-    echo "========================================"
-    echo "Deploying Follow-up Worker..."
-    echo "========================================"
-    "$SCRIPT_DIR/deploy-worker.sh" follow_up
     echo ""
 fi
 

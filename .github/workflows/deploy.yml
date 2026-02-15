@@ -73,6 +73,12 @@ jobs:
           FIREBASE_STORAGE_BUCKET: ${{ secrets.FIREBASE_STORAGE_BUCKET }}
         run: make backend-deploy
 
+      - name: Deploy Worker Jobs
+        run: make worker-job-deploy
+
+      - name: Deploy Manager
+        run: make manager-deploy
+
   build-mobile:
     needs: changes
     if: ${{ needs.changes.outputs.mobile == 'true' || inputs.deploy_mobile == true }}

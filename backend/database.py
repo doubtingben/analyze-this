@@ -135,6 +135,11 @@ class DatabaseInterface(ABC):
         pass
 
     @abstractmethod
+    async def get_queued_job_counts_by_type(self) -> Dict[str, int]:
+        """Returns {job_type: count} for all queued jobs."""
+        pass
+
+    @abstractmethod
     async def search_similar_items(self, embedding: List[float], user_email: str, limit: int = 10) -> List[dict]:
         pass
 
@@ -582,6 +587,22 @@ class FirestoreDatabase(DatabaseInterface):
             'lease_expires_at': firestore.DELETE_FIELD,
         })
         return True
+
+    async def get_queued_job_counts_by_type(self) -> Dict[str, int]:
+        def get_counts():
+            query = (
+                self.db.collection('worker_queue')
+                .where(filter=FieldFilter('status', '==', WorkerJobStatus.queued.value))
+            )
+            counts = {}
+            for doc in query.stream():
+                data = doc.to_dict()
+                job_type = data.get('job_type', 'unknown')
+                counts[job_type] = counts.get(job_type, 0) + 1
+            return counts
+
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(None, get_counts)
 
     async def search_similar_items(self, embedding: List[float], user_email: str, limit: int = 10) -> List[dict]:
         # Firestore Vector Search using `find_nearest`
@@ -1071,6 +1092,16 @@ class SQLiteDatabase(DatabaseInterface):
             job.updated_at = datetime.datetime.now(datetime.timezone.utc)
             await session.commit()
             return True
+
+    async def get_queued_job_counts_by_type(self) -> Dict[str, int]:
+        async with self.SessionLocal() as session:
+            result = await session.execute(
+                select(DBWorkerJob.job_type, func.count(DBWorkerJob.id))
+                .where(DBWorkerJob.status == WorkerJobStatus.queued.value)
+                .group_by(DBWorkerJob.job_type)
+            )
+            rows = result.all()
+            return {job_type: count for job_type, count in rows}
 
     async def get_item_notes(self, item_id: str) -> List[dict]:
         async with self.SessionLocal() as session:

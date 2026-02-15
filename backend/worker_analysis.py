@@ -255,6 +255,14 @@ async def _process_analysis_item(db, data, context):
                     data.get('title')
                 )
                 await send_irccat_message(follow_message)
+
+            # Enqueue normalize job now that analysis is complete
+            try:
+                await db.enqueue_worker_job(doc_id, user_email or "", "normalize")
+                logger.info(f"Enqueued normalize job for item {doc_id}.")
+            except Exception as e:
+                logger.error(f"Failed to enqueue normalize job for {doc_id}: {e}")
+
             return True, None
 
         error_msg = "Unknown error"

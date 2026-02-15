@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 set -e
 
 # Get the directory where the script is located
@@ -41,6 +41,18 @@ echo "Granting Storage Object Viewer role..."
 gcloud projects add-iam-policy-binding "$PROJECT_ID" \
     --member "serviceAccount:$SERVICE_ACCOUNT_EMAIL" \
     --role "roles/storage.objectViewer" \
+    --condition None > /dev/null
+
+echo "Granting Cloud Run Developer role (to execute Cloud Run Jobs)..."
+gcloud projects add-iam-policy-binding "$PROJECT_ID" \
+    --member "serviceAccount:$SERVICE_ACCOUNT_EMAIL" \
+    --role "roles/run.developer" \
+    --condition None > /dev/null
+
+echo "Granting Service Account User role (to run jobs as the service account)..."
+gcloud projects add-iam-policy-binding "$PROJECT_ID" \
+    --member "serviceAccount:$SERVICE_ACCOUNT_EMAIL" \
+    --role "roles/iam.serviceAccountUser" \
     --condition None > /dev/null
 
 echo "Service Account setup complete."

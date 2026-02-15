@@ -41,8 +41,17 @@ backend-deploy: ## Deploy backend to Google Cloud Run
 	./backend/scripts/deploy.sh
 
 .PHONY: worker-deploy
-worker-deploy: ## Deploy worker to Google Cloud Run (Service)
-	./backend/scripts/deploy-worker.sh
+worker-deploy: ## Deploy all workers (jobs + manager)
+	./backend/scripts/deploy-worker-job.sh all
+	./backend/scripts/deploy-worker.sh manager
+
+.PHONY: worker-job-deploy
+worker-job-deploy: ## Deploy worker Cloud Run Jobs
+	./backend/scripts/deploy-worker-job.sh all
+
+.PHONY: manager-deploy
+manager-deploy: ## Deploy manager Cloud Run Service
+	./backend/scripts/deploy-worker.sh manager
 
 # ================================
 # Mobile - Flutter

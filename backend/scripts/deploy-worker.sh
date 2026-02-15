@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 set -e
 
 # Get the directory where the script is located
@@ -21,13 +21,18 @@ echo "Note: Ensure this service account is created and has 'Secret Manager Secre
 echo "Run './backend/scripts/setup-worker-sa.sh' to configure it if needed."
 
 if [ -z "$1" ]; then
-  echo "Usage: ./backend/scripts/deploy-worker.sh <analysis|normalize|manager|follow_up> [region]"
+  echo "Usage: ./backend/scripts/deploy-worker.sh <manager> [region]"
+  echo ""
+  echo "Note: analysis, normalize, and follow_up workers are now deployed as Cloud Run Jobs."
+  echo "Use ./backend/scripts/deploy-worker-job.sh to deploy them."
   exit 1
 fi
 
 JOB_TYPE="$1"
-if [ "$JOB_TYPE" != "analysis" ] && [ "$JOB_TYPE" != "normalize" ] && [ "$JOB_TYPE" != "manager" ] && [ "$JOB_TYPE" != "follow_up" ]; then
-  echo "Error: job type must be 'analysis', 'normalize', 'manager', or 'follow_up'."
+if [ "$JOB_TYPE" != "manager" ]; then
+  echo "Error: This script now only deploys the manager service."
+  echo "For worker jobs (analysis, normalize, follow_up), use:"
+  echo "  ./backend/scripts/deploy-worker-job.sh <analysis|normalize|follow_up|all>"
   exit 1
 fi
 
@@ -35,8 +40,8 @@ if [ -n "$2" ]; then
   REGION="$2"
 fi
 
-JOB_NAME="worker-${JOB_TYPE//_/-}"
-SCRIPT_NAME="worker_${JOB_TYPE}.py"
+JOB_NAME="worker-manager"
+SCRIPT_NAME="worker_manager.py"
 
 echo "Deploying $JOB_NAME to Google Cloud Run (Service)..."
 
@@ -55,27 +60,13 @@ check_secret() {
 
 echo "Verifying required secrets in Secret Manager..."
 check_secret "FIREBASE_STORAGE_BUCKET"
-check_secret "OPENROUTER_API_KEY"
-check_secret "OPENROUTER_MODEL"
-check_secret "irc-server-password"
 check_secret "honey-comb-api-key"
 
-# Build deploy command args based on job type
-if [ "$JOB_TYPE" = "manager" ]; then
-  # Manager only needs Firestore access, not OpenRouter
-  LAUNCH_ARGS="$SCRIPT_NAME","--loop"
-  SECRETS_FLAGS="--set-secrets=FIREBASE_STORAGE_BUCKET=FIREBASE_STORAGE_BUCKET:latest"
-else
-  # Analysis and normalize workers need OpenRouter
-  check_secret "OPENROUTER_API_KEY"
-  check_secret "OPENROUTER_MODEL"
-  LAUNCH_ARGS="$SCRIPT_NAME","--queue","--loop"
-  SECRETS_FLAGS="--set-secrets=FIREBASE_STORAGE_BUCKET=FIREBASE_STORAGE_BUCKET:latest --set-secrets=OPENROUTER_API_KEY=OPENROUTER_API_KEY:latest --set-secrets=OPENROUTER_MODEL=OPENROUTER_MODEL:latest"
-fi
+LAUNCH_ARGS="$SCRIPT_NAME","--loop"
 
 # Deploy as Cloud Run Service
 # We use --no-cpu-throttling so the background loop runs even when not processing requests
-# We use --min-instances 1 to keep at least one worker alive
+# We use --min-instances 1 to keep the manager alive
 gcloud run deploy $JOB_NAME \
   --source . \
   --region $REGION \
@@ -84,6 +75,10 @@ gcloud run deploy $JOB_NAME \
   --args "$LAUNCH_ARGS" \
   --service-account "$SERVICE_ACCOUNT_EMAIL" \
   --set-env-vars "APP_ENV=production" \
+  --set-env-vars "GCP_PROJECT=${PROJECT_ID}" \
+  --set-env-vars "GCP_REGION=${REGION}" \
+  --set-env-vars "MANAGER_INTERVAL_SECONDS=60" \
+  --set-env-vars "ENABLE_JOB_LAUNCHING=true" \
   --set-env-vars "IRCCAT_URL=https://irccat.interestedparticipant.org/send" \
   --set-env-vars "IRCCAT_ENABLED=true" \
   --set-env-vars "OTEL_ENABLED=true" \
@@ -92,8 +87,6 @@ gcloud run deploy $JOB_NAME \
   --set-secrets "IRCCAT_BEARER_TOKEN=irc-server-password:latest" \
   --set-secrets "HONEYCOMB_API_KEY=honey-comb-api-key:latest" \
   --set-secrets "FIREBASE_STORAGE_BUCKET=FIREBASE_STORAGE_BUCKET:latest" \
-  --set-secrets "OPENROUTER_API_KEY=OPENROUTER_API_KEY:latest" \
-  --set-secrets "OPENROUTER_MODEL=OPENROUTER_MODEL:latest" \
   --no-cpu-throttling \
   --min-instances 1 \
   --max-instances 1 \

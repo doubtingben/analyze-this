@@ -21,3 +21,4 @@ opentelemetry-exporter-otlp
 opentelemetry-instrumentation-fastapi
 opentelemetry-instrumentation-httpx
 mcp
+google-cloud-run

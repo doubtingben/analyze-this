@@ -738,17 +738,15 @@ async def share_item(
     # Save to DB
     await db.create_shared_item(new_item)
 
-    # Enqueue worker jobs for analysis + normalization
+    # Enqueue analysis job (normalize is enqueued after analysis completes)
     with create_span("enqueue_worker_jobs", {"item.id": new_item.id}) as enqueue_span:
         try:
             # Inject trace context for distributed tracing
             analysis_payload = inject_trace_context({"source": "share"})
-            normalize_payload = inject_trace_context({"source": "share"})
 
             await db.enqueue_worker_job(new_item.id, user_email, "analysis", analysis_payload)
-            await db.enqueue_worker_job(new_item.id, user_email, "normalize", normalize_payload)
             enqueue_span.set_attribute("jobs.enqueued", True)
-            add_span_event("worker_jobs_enqueued", {"item_id": new_item.id, "jobs": ["analysis", "normalize"]})
+            add_span_event("worker_jobs_enqueued", {"item_id": new_item.id, "jobs": ["analysis"]})
         except Exception as e:
             enqueue_span.set_attribute("jobs.enqueued", False)
             record_exception(e)

@@ -185,16 +185,6 @@ def main():
         from functools import partial
         
         async def run_queue_mode():
-            # Automatically retry items that failed due to "missing_analysis"
-            # This ensures that if we have fixed the logic or the data, they get processed.
-            try:
-                db_instance = await get_db()
-                count = await db_instance.reset_failed_jobs('normalize', 'missing_analysis')
-                if count > 0:
-                    logger.info(f"Reset {count} failed jobs with 'missing_analysis' error to 'queued' state.")
-            except Exception as e:
-                logger.warning(f"Failed to reset failed jobs: {e}")
-
             process_fn = partial(_process_normalize_item, allow_missing_analysis=args.allow_no_analysis)
             
             await process_queue_jobs(
