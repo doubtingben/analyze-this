@@ -1,0 +1,13 @@
+{
+  "servers": {
+    "firebase": {
+      "type": "sse",
+      "url": "http://localhost:3000/sse"
+    },
+    "filesystem": {
+      "type": "stdio",
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-filesystem", "/tmp"]
+    }
+  }
+}

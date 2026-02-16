@@ -1,0 +1,9 @@
+{
+  "servers": {
+    "firestore": {
+      "type": "stdio",
+      "command": "/Users/bwilson/repos/analyze-this/backend/.venv/bin/python",
+      "args": ["/Users/bwilson/repos/analyze-this/backend/mcp_server.py"]
+    }
+  }
+}

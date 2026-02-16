@@ -28,6 +28,38 @@ let
     ]
   );
   pythonEnv = pythonSet.mkVirtualEnv "analyze-this-env" workspace.deps.default;
+  agentSrc = appSrc + "/agent";
+  agentNpmDeps = pkgs.importNpmLock {
+    npmRoot = agentSrc;
+  };
+  agentPackage = pkgs.buildNpmPackage {
+    pname = "analyze-agent";
+    version = "1.0.0";
+    src = agentSrc;
+    npmDeps = agentNpmDeps;
+    npmConfigHook = pkgs.importNpmLock.npmConfigHook;
+    npmBuildScript = "build";
+    nativeBuildInputs = [ pkgs.makeWrapper ];
+    installPhase = ''
+      runHook preInstall
+      mkdir -p $out/lib/agent
+      cp -r dist package.json node_modules $out/lib/agent/
+      makeWrapper ${pkgs.nodejs}/bin/node $out/bin/analyze-agent \
+        --add-flags "$out/lib/agent/dist/index.js"
+      runHook postInstall
+    '';
+  };
+  agentMcpConfig = pkgs.writeText "agent-mcp-config.json" ''
+    {
+      "servers": {
+        "firebase": {
+          "type": "stdio",
+          "command": "${pythonEnv}/bin/python",
+          "args": ["${appSrc}/backend/mcp_server.py"]
+        }
+      }
+    }
+  '';
 in
 {
   imports =
@@ -187,6 +219,12 @@ in
     group = "analyze-this";
     description = "Analyze This Worker Service";
   };
+
+  users.users.analyze-agent = {
+    isSystemUser = true;
+    group = "analyze-this";
+    description = "Analyze This IRC Agent Service";
+  };
   
   # Sops-nix configuration
   # Ensure sops-nix is imported in your flake.nix modules
@@ -220,7 +258,15 @@ in
       "worker-normalization.service"
       "worker-follow-up.service"
       "worker-manager.service"
+      "analyze-agent.service"
     ];
+  };
+
+  sops.secrets.agent_env = {
+    owner = "analyze-agent";
+    group = "analyze-this";
+    mode = "0440";
+    restartUnits = [ "analyze-agent.service" ];
   };
 
   sops.secrets.cloudflared_tunnel_token = {
@@ -375,6 +421,28 @@ in
       Restart = "always";
       RestartSec = "10s";
       StateDirectory = "analyze-this";
+    };
+  };
+
+  systemd.services.analyze-agent = {
+    description = "Analyze This IRC Agent";
+    wantedBy = [ "multi-user.target" ];
+    after = [ "network-online.target" ];
+    wants = [ "network-online.target" ];
+    serviceConfig = {
+      User = "analyze-agent";
+      Group = "analyze-this";
+      ExecStart = "${agentPackage}/bin/analyze-agent";
+      EnvironmentFile = [
+        "/run/secrets/app_env"
+        "/run/secrets/agent_env"
+      ];
+      Environment = [
+        "GOOGLE_APPLICATION_CREDENTIALS=/run/secrets/backend_sa_json"
+        "MCP_CONFIG_FILE=${agentMcpConfig}"
+      ];
+      Restart = "always";
+      RestartSec = "10s";
     };
   };
 
