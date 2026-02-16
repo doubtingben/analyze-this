@@ -47,3 +47,6 @@ mobile/dist/
 *.db
 *.sqlite
 backend/*.db
+
+# sops age private key (never commit)
+extra-files/var/lib/sops-nix/key.txt
