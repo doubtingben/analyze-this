@@ -18,6 +18,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.sessions import SessionMiddleware
 from starlette.concurrency import run_in_threadpool
 import requests
+import requests.adapters
 import httpx
 from authlib.integrations.starlette_client import OAuth, OAuthError
 from dotenv import load_dotenv
@@ -37,6 +38,35 @@ from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
 
 # Load environment variables
 load_dotenv()
+
+# Increase global connection pool size to handle high concurrency with Google Cloud Storage and other APIs
+# This addresses "WARNING:urllib3.connectionpool:Connection pool is full"
+DEFAULT_POOL_SIZE = 100
+DEFAULT_RETRIES = 3
+
+def patch_http_adapter_defaults():
+    original_init = requests.adapters.HTTPAdapter.__init__
+
+    def new_init(self, pool_connections=requests.adapters.DEFAULT_POOLSIZE,
+                 pool_maxsize=requests.adapters.DEFAULT_POOLSIZE,
+                 max_retries=requests.adapters.DEFAULT_RETRIES,
+                 pool_block=requests.adapters.DEFAULT_POOLBLOCK):
+
+        # Override default pool size if not explicitly set by caller
+        if pool_connections == requests.adapters.DEFAULT_POOLSIZE:
+            pool_connections = DEFAULT_POOL_SIZE
+        if pool_maxsize == requests.adapters.DEFAULT_POOLSIZE:
+            pool_maxsize = DEFAULT_POOL_SIZE
+
+        if max_retries == requests.adapters.DEFAULT_RETRIES:
+            max_retries = DEFAULT_RETRIES
+
+        original_init(self, pool_connections=pool_connections, pool_maxsize=pool_maxsize,
+                      max_retries=max_retries, pool_block=pool_block)
+
+    requests.adapters.HTTPAdapter.__init__ = new_init
+
+patch_http_adapter_defaults()
 
 SECRET_KEY = os.getenv("SECRET_KEY", "super-secret-key-please-change").strip()
 GOOGLE_CLIENT_ID = (os.getenv("GOOGLE_CLIENT_ID") or "").strip() or None
