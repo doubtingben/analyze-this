@@ -28,6 +28,7 @@ from firebase_admin import credentials, storage
 from models import User, SharedItem, ShareType, ItemNote, ItemStatus
 from notifications import format_item_message, send_irccat_message
 from database import DatabaseInterface, FirestoreDatabase, SQLiteDatabase
+from rate_limiter import RateLimit
 from analysis import generate_embedding
 from tracing import (
     init_tracing, shutdown_tracing, get_tracer, create_span,
@@ -337,7 +338,7 @@ async def read_root(request: Request):
          response.set_cookie(key="csrf_token", value=csrf_token, httponly=False, samesite="lax")
     return response
 
-@app.get("/login")
+@app.get("/login", dependencies=[Depends(RateLimit(requests=10, window=60))])
 async def login(request: Request):
     # Ensure fully qualified URL for redirect_uri to avoid mismatches
     # Cloud Run behind load balancer might need X-Forwarded-Proto considerations, but starlette handles some.
@@ -543,7 +544,7 @@ def normalize_share_type(raw_type: Optional[str], content: Optional[str], file: 
 
     return ShareType.text
 
-@app.post("/api/share", dependencies=[Depends(check_csrf)])
+@app.post("/api/share", dependencies=[Depends(check_csrf), Depends(RateLimit(requests=20, window=60))])
 async def share_item(
     request: Request,
     title: str = Form(None),
@@ -1149,7 +1150,7 @@ class ItemUpdateRequest(BaseModel):
         return v
 
 
-@app.post("/api/items/{item_id}/notes", dependencies=[Depends(check_csrf)])
+@app.post("/api/items/{item_id}/notes", dependencies=[Depends(check_csrf), Depends(RateLimit(requests=20, window=60))])
 async def create_item_note(
     item_id: str,
     request: Request,
@@ -1530,7 +1531,7 @@ async def get_user_metrics(request: Request):
     }
 
 
-@app.get("/api/search")
+@app.get("/api/search", dependencies=[Depends(RateLimit(requests=20, window=60))])
 async def search_items_endpoint(request: Request, q: str, limit: int = 10):
     """
     Semantic search for items using vector embeddings.
