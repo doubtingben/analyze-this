@@ -12,38 +12,22 @@ let
     "OTEL_ENABLED=true"
     "OTEL_EXPORTER_OTLP_ENDPOINT=https://api.honeycomb.io"
   ];
-  pythonEnv = pkgs.python312.withPackages (ps: [
-    ps.aiosqlite
-    ps.authlib
-    ps.fastapi
-    (ps."firebase-admin".overridePythonAttrs (_: {
-      # Upstream firebase-admin tests are flaky in nixpkgs right now.
-      # Disable package checks for deployment runtime env builds.
-      doCheck = false;
-    }))
-    ps."google-auth"
-    ps."google-auth-oauthlib"
-    ps.greenlet
-    ps.gunicorn
-    ps.httpx
-    ps.itsdangerous
-    ps.jinja2
-    ps.openai
-    ps."opentelemetry-api"
-    ps."opentelemetry-exporter-otlp"
-    ps."opentelemetry-instrumentation-fastapi"
-    ps."opentelemetry-instrumentation-httpx"
-    ps."opentelemetry-sdk"
-    ps."python-dotenv"
-    ps."python-multipart"
-    ps.requests
-    ps.sqlalchemy
-    ps.uvicorn
-    ps.uvloop
-    ps.httptools
-    ps.websockets
-    ps.watchfiles
-  ]);
+  workspace = inputs.uv2nix.lib.workspace.loadWorkspace {
+    workspaceRoot = appSrc;
+  };
+  pyprojectOverlay = workspace.mkPyprojectOverlay {
+    sourcePreference = "wheel";
+  };
+  pythonBase = pkgs.callPackage inputs.pyproject-nix.build.packages {
+    python = pkgs.python312;
+  };
+  pythonSet = pythonBase.overrideScope (
+    pkgs.lib.composeManyExtensions [
+      inputs.pyproject-build-systems.overlays.default
+      pyprojectOverlay
+    ]
+  );
+  pythonEnv = pythonSet.mkVirtualEnv "analyze-this-env" workspace.deps.default;
 in
 {
   imports =
@@ -54,6 +38,8 @@ in
   # Bootloader.
   boot.loader.systemd-boot.enable = true;
   # boot.loader.efi.canTouchEfiVariables = true;
+
+  nix.settings.experimental-features = [ "nix-command" "flakes" ];
 
   networking.hostName = "nixos-analyze-this"; # Define your hostname.
   # networking.wireless.enable = true;  # Enables wireless support via wpa_supplicant.

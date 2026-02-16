@@ -1,3 +1,7 @@
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
 [project]
 name = "analyze-this"
 version = "0.1.0"
@@ -34,3 +38,6 @@ dependencies = [
 mcp-server = [
     "mcp>=1.26.0",
 ]
+
+[tool.setuptools]
+py-modules = []
