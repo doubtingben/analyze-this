@@ -2,7 +2,7 @@
 # your system.  Help is available in the configuration.nix(5) man page
 # and in the NixOS manual (accessible by running ‘nixos-help’).
 
-{ config, pkgs, inputs, ... }:
+{ config, pkgs, inputs, appVenv, ... }:
 
 {
   imports =
@@ -188,77 +188,16 @@
     restartUnits = [ "analyze-backend.service" "analyze-worker.service" ];
   };
 
-  # Deployment Logic:
-  # We use the flake input `self` (your local code) as the source.
-  # We copy it to a writable directory so `uv` can manage the venv/lockfiles.
-  
-  systemd.tmpfiles.rules = [
-    # 2770 mode (setgid) ensures all new files inherit the 'analyze-this' group
-    "d /var/lib/analyze-this 2770 analyze-backend analyze-this -"
-  ];
-
-  # Deployment Service (One-Shot)
-  # Handles code sync to avoid race conditions between backend/worker
-  systemd.services.deploy-analyze-this = {
-    description = "Deploy Analyze This Code";
-    wantedBy = [ "multi-user.target" ];
-    after = [ "network.target" ];
-    path = [ pkgs.rsync pkgs.uv pkgs.util-linux ];
-    serviceConfig = {
-      Type = "oneshot";
-      # Run as root to ensure we can overwrite any existing files/permissions
-      User = "root";
-      Group = "root";
-      WorkingDirectory = "/var/lib/analyze-this";
-      # 1. Sync Code
-      # 2. Run uv sync as analyze-backend (to keep ownership correct-ish, or just fix it after)
-      # Simpler: Run uv sync as root, then chown everything.
-      ExecStart = let
-        source = inputs.self; 
-        script = pkgs.writeShellScript "deploy-analyze-this" ''
-          set -e
-          # 1. Sync code
-          ${pkgs.rsync}/bin/rsync -a --delete --chown=analyze-backend:analyze-this --chmod=D2770,F0770 --exclude .venv --exclude .git ${source}/ /var/lib/analyze-this/
-          
-          # 2. Setup Venv (as analyze-backend to ensure permissions are friendly)
-          # We prefer to run this as the user so cache/venv files are owned by them.
-          # We use sudo (or setpriv) to drop privileges for this step.
-          # Note: We need to ensure writable cache dir or --no-cache.
-          
-          cd /var/lib/analyze-this
-          
-          # Force ownership update first just in case
-          chown -R analyze-backend:analyze-this .
-          
-          # Run uv sync as analyze-backend
-          # We need to export HOME or UV_CACHE_DIR to somewhere writable.
-          export UV_CACHE_DIR=/var/lib/analyze-this/.uv-cache
-          mkdir -p $UV_CACHE_DIR
-          chown -R analyze-backend:analyze-this $UV_CACHE_DIR
-          
-          # Run python command as analyze-backend
-          # usage of runuser to drop privileges without needing sudo
-          runuser -u analyze-backend -- ${pkgs.uv}/bin/uv sync --frozen
-        '';
-      in "${script}";
-    };
-  };
-
   # Backend Service
   systemd.services.analyze-backend = {
     description = "Analyze This Backend API";
     wantedBy = [ "multi-user.target" ];
-    after = [ "network.target" "deploy-analyze-this.service" ];
-    requires = [ "deploy-analyze-this.service" ];
-    path = [ pkgs.rsync ];
+    after = [ "network.target" ];
     serviceConfig = {
       User = "analyze-backend";
       Group = "analyze-this";
-      WorkingDirectory = "/var/lib/analyze-this";
-      # Sync code handled by deploy-analyze-this
-      
-      # Run using the pre-built venv
-      ExecStart = "/var/lib/analyze-this/.venv/bin/fastapi run backend/main.py";
+      WorkingDirectory = "${inputs.self}/backend";
+      ExecStart = "${appVenv}/bin/fastapi run main.py";
       EnvironmentFile = "/run/secrets/app_env";
       Environment = "GOOGLE_APPLICATION_CREDENTIALS=/run/secrets/backend_sa_json";
       Restart = "always";
@@ -270,16 +209,12 @@
   systemd.services.analyze-worker = {
     description = "Analyze This Worker (Analysis)";
     wantedBy = [ "multi-user.target" ];
-    after = [ "network.target" "deploy-analyze-this.service" ];
-    requires = [ "deploy-analyze-this.service" ];
-    path = [ pkgs.rsync ];
+    after = [ "network.target" ];
     serviceConfig = {
       User = "analyze-worker";
       Group = "analyze-this";
-      WorkingDirectory = "/var/lib/analyze-this";
-      # Sync code handled by deploy-analyze-this
-      
-      ExecStart = "/var/lib/analyze-this/.venv/bin/python backend/worker.py --job-type analysis";
+      WorkingDirectory = "${inputs.self}/backend";
+      ExecStart = "${appVenv}/bin/python worker.py --job-type analysis";
       EnvironmentFile = "/run/secrets/app_env";
       Environment = "GOOGLE_APPLICATION_CREDENTIALS=/run/secrets/worker_sa_json";
       Restart = "always";
