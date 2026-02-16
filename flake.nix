@@ -14,7 +14,16 @@
     system = "x86_64-linux";
     pkgs = import nixpkgs { inherit system; };
   in {
-    # ... (devShells) ...
+    devShells.${system}.default = pkgs.mkShell {
+      packages = with pkgs; [
+        python312
+        uv
+        git
+        gnumake
+        sops
+        age
+      ];
+    };
 
     nixosConfigurations.nixos-analyze-this = nixpkgs.lib.nixosSystem {
       inherit system;

@@ -3,7 +3,48 @@
 # and in the NixOS manual (accessible by running ‘nixos-help’).
 
 { config, pkgs, inputs, ... }:
-
+let
+  appSrc = inputs.self;
+  commonRuntimeEnv = [
+    "APP_ENV=production"
+    "IRCCAT_URL=https://irccat.interestedparticipant.org/send"
+    "IRCCAT_ENABLED=true"
+    "OTEL_ENABLED=true"
+    "OTEL_EXPORTER_OTLP_ENDPOINT=https://api.honeycomb.io"
+  ];
+  pythonEnv = pkgs.python312.withPackages (ps: [
+    ps.aiosqlite
+    ps.authlib
+    ps.fastapi
+    (ps."firebase-admin".overridePythonAttrs (_: {
+      # Upstream firebase-admin tests are flaky in nixpkgs right now.
+      # Disable package checks for deployment runtime env builds.
+      doCheck = false;
+    }))
+    ps."google-auth"
+    ps."google-auth-oauthlib"
+    ps.greenlet
+    ps.gunicorn
+    ps.httpx
+    ps.itsdangerous
+    ps.jinja2
+    ps.openai
+    ps."opentelemetry-api"
+    ps."opentelemetry-exporter-otlp"
+    ps."opentelemetry-instrumentation-fastapi"
+    ps."opentelemetry-instrumentation-httpx"
+    ps."opentelemetry-sdk"
+    ps."python-dotenv"
+    ps."python-multipart"
+    ps.requests
+    ps.sqlalchemy
+    ps.uvicorn
+    ps.uvloop
+    ps.httptools
+    ps.websockets
+    ps.watchfiles
+  ]);
+in
 {
   imports =
     [ # Include the results of the hardware scan.
@@ -123,10 +164,11 @@
 
   # Enable the OpenSSH daemon.
   services.openssh.enable = true;
+  services.openssh.openFirewall = true;
   services.qemuGuest.enable = true;
 
   # Open ports in the firewall.
-  # networking.firewall.allowedTCPPorts = [ ... ];
+  networking.firewall.allowedTCPPorts = [ ];
   # networking.firewall.allowedUDPPorts = [ ... ];
   # Or disable the firewall altogether.
   # networking.firewall.enable = false;
@@ -184,106 +226,182 @@
     owner = "analyze-backend";
     group = "analyze-this";
     mode = "0440";
+    # Keep only sensitive env vars in this file.
     # Restart services when secrets change
-    restartUnits = [ "analyze-backend.service" "analyze-worker.service" ];
+    restartUnits = [
+      "analyze-backend.service"
+      "worker-analysis.service"
+      "worker-normalization.service"
+      "worker-follow-up.service"
+      "worker-manager.service"
+    ];
   };
 
-  # Deployment Logic:
-  # We use the flake input `self` (your local code) as the source.
-  # We copy it to a writable directory so `uv` can manage the venv/lockfiles.
-  
-  systemd.tmpfiles.rules = [
-    # 2770 mode (setgid) ensures all new files inherit the 'analyze-this' group
-    "d /var/lib/analyze-this 2770 analyze-backend analyze-this -"
-  ];
-
-  # Deployment Service (One-Shot)
-  # Handles code sync to avoid race conditions between backend/worker
-  systemd.services.deploy-analyze-this = {
-    description = "Deploy Analyze This Code";
-    wantedBy = [ "multi-user.target" ];
-    after = [ "network.target" ];
-    path = [ pkgs.rsync pkgs.uv pkgs.util-linux ];
-    serviceConfig = {
-      Type = "oneshot";
-      # Run as root to ensure we can overwrite any existing files/permissions
-      User = "root";
-      Group = "root";
-      WorkingDirectory = "/var/lib/analyze-this";
-      # 1. Sync Code
-      # 2. Run uv sync as analyze-backend (to keep ownership correct-ish, or just fix it after)
-      # Simpler: Run uv sync as root, then chown everything.
-      ExecStart = let
-        source = inputs.self; 
-        script = pkgs.writeShellScript "deploy-analyze-this" ''
-          set -e
-          # 1. Sync code
-          ${pkgs.rsync}/bin/rsync -a --delete --chown=analyze-backend:analyze-this --chmod=D2770,F0770 --exclude .venv --exclude .git ${source}/ /var/lib/analyze-this/
-          
-          # 2. Setup Venv (as analyze-backend to ensure permissions are friendly)
-          # We prefer to run this as the user so cache/venv files are owned by them.
-          # We use sudo (or setpriv) to drop privileges for this step.
-          # Note: We need to ensure writable cache dir or --no-cache.
-          
-          cd /var/lib/analyze-this
-          
-          # Force ownership update first just in case
-          chown -R analyze-backend:analyze-this .
-          
-          # Run uv sync as analyze-backend
-          # We need to export HOME or UV_CACHE_DIR to somewhere writable.
-          export UV_CACHE_DIR=/var/lib/analyze-this/.uv-cache
-          mkdir -p $UV_CACHE_DIR
-          chown -R analyze-backend:analyze-this $UV_CACHE_DIR
-          
-          # Run python command as analyze-backend
-          # usage of runuser to drop privileges without needing sudo
-          runuser -u analyze-backend -- ${pkgs.uv}/bin/uv sync --frozen
-        '';
-      in "${script}";
-    };
+  sops.secrets.cloudflared_tunnel_token = {
+    owner = "root";
+    group = "root";
+    mode = "0400";
+    restartUnits = [ "cloudflared.service" ];
   };
 
   # Backend Service
   systemd.services.analyze-backend = {
     description = "Analyze This Backend API";
     wantedBy = [ "multi-user.target" ];
-    after = [ "network.target" "deploy-analyze-this.service" ];
-    requires = [ "deploy-analyze-this.service" ];
-    path = [ pkgs.rsync ];
+    after = [ "network.target" ];
     serviceConfig = {
       User = "analyze-backend";
       Group = "analyze-this";
-      WorkingDirectory = "/var/lib/analyze-this";
-      # Sync code handled by deploy-analyze-this
-      
-      # Run using the pre-built venv
-      ExecStart = "/var/lib/analyze-this/.venv/bin/fastapi run backend/main.py";
+      WorkingDirectory = "${appSrc}/backend";
+      ExecStart = "${pythonEnv}/bin/uvicorn main:app --host 127.0.0.1 --port 8000";
       EnvironmentFile = "/run/secrets/app_env";
-      Environment = "GOOGLE_APPLICATION_CREDENTIALS=/run/secrets/backend_sa_json";
+      Environment =
+        commonRuntimeEnv ++ [
+          "OTEL_SERVICE_NAME=analyzethis-api"
+          "GOOGLE_APPLICATION_CREDENTIALS=/run/secrets/backend_sa_json"
+        ];
       Restart = "always";
       RestartSec = "10s";
+      StateDirectory = "analyze-this";
     };
   };
 
   # Worker Service
-  systemd.services.analyze-worker = {
+  systemd.services.worker-analysis = {
     description = "Analyze This Worker (Analysis)";
+    after = [ "network-online.target" ];
+    wants = [ "network-online.target" ];
+    serviceConfig = {
+      Type = "oneshot";
+      User = "analyze-worker";
+      Group = "analyze-this";
+      WorkingDirectory = "${appSrc}/backend";
+      ExecStart = "${pythonEnv}/bin/python worker.py --job-type analysis";
+      EnvironmentFile = "/run/secrets/app_env";
+      Environment =
+        commonRuntimeEnv ++ [
+          "OTEL_SERVICE_NAME=analyze-worker"
+          "GOOGLE_APPLICATION_CREDENTIALS=/run/secrets/worker_sa_json"
+        ];
+      TimeoutStartSec = "15min";
+      RuntimeMaxSec = "15min";
+      StateDirectory = "analyze-this";
+    };
+  };
+
+  systemd.services.worker-normalization = {
+    description = "Analyze This Worker (Normalize)";
+    after = [ "network-online.target" ];
+    wants = [ "network-online.target" ];
+    serviceConfig = {
+      Type = "oneshot";
+      User = "analyze-worker";
+      Group = "analyze-this";
+      WorkingDirectory = "${appSrc}/backend";
+      ExecStart = "${pythonEnv}/bin/python worker.py --job-type normalize";
+      EnvironmentFile = "/run/secrets/app_env";
+      Environment =
+        commonRuntimeEnv ++ [
+          "OTEL_SERVICE_NAME=analyze-worker-normalize"
+          "GOOGLE_APPLICATION_CREDENTIALS=/run/secrets/worker_sa_json"
+        ];
+      TimeoutStartSec = "15min";
+      RuntimeMaxSec = "15min";
+      StateDirectory = "analyze-this";
+    };
+  };
+
+  systemd.services.worker-follow-up = {
+    description = "Analyze This Worker (Follow Up)";
+    after = [ "network-online.target" ];
+    wants = [ "network-online.target" ];
+    serviceConfig = {
+      Type = "oneshot";
+      User = "analyze-worker";
+      Group = "analyze-this";
+      WorkingDirectory = "${appSrc}/backend";
+      ExecStart = "${pythonEnv}/bin/python worker.py --job-type follow_up";
+      EnvironmentFile = "/run/secrets/app_env";
+      Environment =
+        commonRuntimeEnv ++ [
+          "OTEL_SERVICE_NAME=analyze-worker-follow-up"
+          "GOOGLE_APPLICATION_CREDENTIALS=/run/secrets/worker_sa_json"
+        ];
+      TimeoutStartSec = "15min";
+      RuntimeMaxSec = "15min";
+      StateDirectory = "analyze-this";
+    };
+  };
+
+  systemd.timers.worker-analysis = {
+    description = "Run Analyze This Worker (Analysis) every 60s idle";
+    wantedBy = [ "timers.target" ];
+    timerConfig = {
+      Unit = "worker-analysis.service";
+      OnBootSec = "30s";
+      OnUnitInactiveSec = "60s";
+      RandomizedDelaySec = "10s";
+      Persistent = true;
+    };
+  };
+
+  systemd.timers.worker-normalization = {
+    description = "Run Analyze This Worker (Normalize) every 60s idle";
+    wantedBy = [ "timers.target" ];
+    timerConfig = {
+      Unit = "worker-normalization.service";
+      OnBootSec = "40s";
+      OnUnitInactiveSec = "60s";
+      RandomizedDelaySec = "10s";
+      Persistent = true;
+    };
+  };
+
+  systemd.timers.worker-follow-up = {
+    description = "Run Analyze This Worker (Follow Up) every 60s idle";
+    wantedBy = [ "timers.target" ];
+    timerConfig = {
+      Unit = "worker-follow-up.service";
+      OnBootSec = "50s";
+      OnUnitInactiveSec = "60s";
+      RandomizedDelaySec = "10s";
+      Persistent = true;
+    };
+  };
+
+  systemd.services.worker-manager = {
+    description = "Analyze This Worker Manager";
     wantedBy = [ "multi-user.target" ];
-    after = [ "network.target" "deploy-analyze-this.service" ];
-    requires = [ "deploy-analyze-this.service" ];
-    path = [ pkgs.rsync ];
+    after = [ "network.target" ];
     serviceConfig = {
       User = "analyze-worker";
       Group = "analyze-this";
-      WorkingDirectory = "/var/lib/analyze-this";
-      # Sync code handled by deploy-analyze-this
-      
-      ExecStart = "/var/lib/analyze-this/.venv/bin/python backend/worker.py --job-type analysis";
+      WorkingDirectory = "${appSrc}/backend";
+      ExecStart = "${pythonEnv}/bin/python worker_manager.py --loop";
       EnvironmentFile = "/run/secrets/app_env";
-      Environment = "GOOGLE_APPLICATION_CREDENTIALS=/run/secrets/worker_sa_json";
+      Environment =
+        commonRuntimeEnv ++ [
+          "OTEL_SERVICE_NAME=analyze-worker-manager"
+          "GOOGLE_APPLICATION_CREDENTIALS=/run/secrets/worker_sa_json"
+          "MANAGER_INTERVAL_SECONDS=60"
+          "ENABLE_JOB_LAUNCHING=false"
+        ];
       Restart = "always";
       RestartSec = "10s";
+      StateDirectory = "analyze-this";
+    };
+  };
+
+  systemd.services.cloudflared = {
+    description = "Cloudflare Tunnel";
+    wantedBy = [ "multi-user.target" ];
+    wants = [ "network-online.target" "analyze-backend.service" ];
+    after = [ "network-online.target" "analyze-backend.service" ];
+    serviceConfig = {
+      Type = "simple";
+      Restart = "always";
+      RestartSec = "5s";
+      ExecStart = "${pkgs.bash}/bin/bash -ceu '${pkgs.cloudflared}/bin/cloudflared tunnel --no-autoupdate run --token \"$(cat ${config.sops.secrets.cloudflared_tunnel_token.path})\"'";
     };
   };
 
