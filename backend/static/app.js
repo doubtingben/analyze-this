@@ -86,6 +86,7 @@ const detailTimelineLocationView = document.getElementById('detail-timeline-loca
 const detailTimelineLocationInput = document.getElementById('detail-timeline-location');
 const detailTimelinePurposeView = document.getElementById('detail-timeline-purpose-view');
 const detailTimelinePurposeInput = document.getElementById('detail-timeline-purpose');
+const followUpCountBadgeEl = document.getElementById('follow-up-count-badge');
 
 // State
 let allItems = [];
@@ -1131,33 +1132,7 @@ function getEventDateTime(item) {
 
 // Filter and sort items based on current view and type filter
 function getFilteredItems() {
-    let items = [...allItems];
-
-    if (!showHidden) {
-        items = items.filter(item => !item.hidden);
-    }
-
-    // Search filter
-    if (searchQuery) {
-        const query = searchQuery.toLowerCase();
-        items = items.filter(item =>
-            (item.title?.toLowerCase().includes(query)) ||
-            (item.content?.toLowerCase().includes(query))
-        );
-    }
-
-    // Type filter (multi-select)
-    if (selectedTypes.size > 0) {
-        items = items.filter(item => selectedTypes.has(normalizeType(item)));
-    }
-
-    // Tag filter
-    if (selectedTags.size > 0) {
-        items = items.filter(item => {
-            const itemTags = item.analysis?.tags || [];
-            return [...selectedTags].some(tag => itemTags.includes(tag));
-        });
-    }
+    let items = getBaseFilteredItems();
 
     // Apply view-specific filtering and sorting
     if (currentView === 'timeline') {
@@ -1198,8 +1173,49 @@ function getFilteredItems() {
     return items;
 }
 
+function getBaseFilteredItems() {
+    let items = [...allItems];
+
+    if (!showHidden) {
+        items = items.filter(item => !item.hidden);
+    }
+
+    if (searchQuery) {
+        const query = searchQuery.toLowerCase();
+        items = items.filter(item =>
+            (item.title?.toLowerCase().includes(query)) ||
+            (item.content?.toLowerCase().includes(query))
+        );
+    }
+
+    if (selectedTypes.size > 0) {
+        items = items.filter(item => selectedTypes.has(normalizeType(item)));
+    }
+
+    if (selectedTags.size > 0) {
+        items = items.filter(item => {
+            const itemTags = item.analysis?.tags || [];
+            return [...selectedTags].some(tag => itemTags.includes(tag));
+        });
+    }
+
+    return items;
+}
+
+function updateFollowUpBadge() {
+    if (!followUpCountBadgeEl) return;
+    const count = getBaseFilteredItems().filter(item => item.status === 'follow_up').length;
+    if (count > 0) {
+        followUpCountBadgeEl.textContent = String(count);
+        followUpCountBadgeEl.style.display = 'inline-flex';
+    } else {
+        followUpCountBadgeEl.style.display = 'none';
+    }
+}
+
 // Render items with current filters applied
 function renderFilteredItems() {
+    updateFollowUpBadge();
     const items = getFilteredItems();
     renderItems(items);
 }

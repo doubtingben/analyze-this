@@ -73,6 +73,35 @@ class _MyHomePageState extends State<MyHomePage> {
 
   // Active filter count for badge
   int get _activeFilterCount => _selectedTypes.length + _selectedTags.length;
+  int get _followUpCountForBadge {
+    List<HistoryItem> items = List.from(_history);
+
+    if (!_showHidden) {
+      items = items.where((item) => !item.isHidden).toList();
+    }
+
+    if (_searchQuery.isNotEmpty) {
+      final query = _searchQuery.toLowerCase();
+      items = items.where((item) =>
+        (item.title?.toLowerCase().contains(query) ?? false) ||
+        item.value.toLowerCase().contains(query)
+      ).toList();
+    }
+
+    if (_selectedTypes.isNotEmpty) {
+      items = items.where((item) => _selectedTypes.contains(item.type)).toList();
+    }
+
+    if (_selectedTags.isNotEmpty) {
+      items = items.where((item) {
+        final itemTags = item.analysis?['tags'];
+        if (itemTags is! List) return false;
+        return _selectedTags.any((tag) => itemTags.contains(tag));
+      }).toList();
+    }
+
+    return items.where((item) => item.status == 'follow_up').length;
+  }
 
   // Search controller
   final TextEditingController _searchController = TextEditingController();
@@ -754,11 +783,11 @@ class _MyHomePageState extends State<MyHomePage> {
       child: Center(
         child: SegmentedButton<ViewMode>(
           showSelectedIcon: false,
-          segments: const [
-            ButtonSegment(value: ViewMode.all, label: Text('All')),
-            ButtonSegment(value: ViewMode.timeline, label: Text('Timeline')),
-            ButtonSegment(value: ViewMode.followUp, label: Text('Follow-up')),
-            ButtonSegment(value: ViewMode.media, label: Text('Media')),
+          segments: [
+            const ButtonSegment(value: ViewMode.all, label: Text('All')),
+            const ButtonSegment(value: ViewMode.timeline, label: Text('Timeline')),
+            ButtonSegment(value: ViewMode.followUp, label: _buildFollowUpSegmentLabel()),
+            const ButtonSegment(value: ViewMode.media, label: Text('Media')),
           ],
           selected: {_currentView},
           onSelectionChanged: (Set<ViewMode> selection) {
@@ -768,6 +797,36 @@ class _MyHomePageState extends State<MyHomePage> {
           },
         ),
       ),
+    );
+  }
+
+  Widget _buildFollowUpSegmentLabel() {
+    final count = _followUpCountForBadge;
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        const Text('Follow-up'),
+        if (count > 0) ...[
+          const SizedBox(width: 6),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+            decoration: BoxDecoration(
+              color: AppColors.primary,
+              borderRadius: BorderRadius.circular(10),
+            ),
+            constraints: const BoxConstraints(minWidth: 18),
+            child: Text(
+              '$count',
+              textAlign: TextAlign.center,
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 11,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+        ],
+      ],
     );
   }
 
