@@ -2,6 +2,7 @@ import 'dotenv/config';
 import OpenAI from 'openai';
 import { Client } from 'irc-framework';
 import { buildMcpToolRegistry } from './mcp.js';
+import type { McpToolRegistry } from './mcp.js';
 
 const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY;
 if (!OPENROUTER_API_KEY) {
@@ -32,9 +33,9 @@ async function run() {
     console.log('Starting AnalyzeBot...');
 
     // Initialize MCP Tools from configured servers
-    let registry = {
-        tools: [] as any[],
-        callTool: async () => {
+    let registry: McpToolRegistry = {
+        tools: [],
+        callTool: async (_name: string, _args: Record<string, any>) => {
             throw new Error("MCP tool registry unavailable");
         },
     };
