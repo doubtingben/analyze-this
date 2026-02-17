@@ -10,6 +10,31 @@ IRCCAT_ENABLED = os.getenv("IRCCAT_ENABLED", "true").lower() in ("1", "true", "y
 IRCCAT_MAX_LEN = int(os.getenv("IRCCAT_MAX_LEN", "400"))
 IRCCAT_BEARER_TOKEN = (os.getenv("IRCCAT_BEARER_TOKEN") or "").strip()
 
+# IRC formatting
+BOLD = "\x02"
+COLOR = "\x03"
+RESET = "\x0F"
+
+# mIRC color numbers
+_CLR_BLUE = "02"
+_CLR_GREEN = "03"
+_CLR_RED = "04"
+_CLR_PURPLE = "06"
+_CLR_ORANGE = "07"
+_CLR_TEAL = "10"
+_CLR_GREY = "14"
+
+_EVENT_COLORS = {
+    "shared": _CLR_BLUE,
+    "analyzed": _CLR_GREEN,
+    "normalized": _CLR_TEAL,
+    "marked for follow up": _CLR_PURPLE,
+    "deleted via follow-up": _CLR_RED,
+    "archived via follow-up": _CLR_ORANGE,
+    "archived with context": _CLR_ORANGE,
+    "updated via follow-up": _CLR_GREEN,
+}
+
 
 def _compact_text(value: str | None) -> str:
     if not value:
@@ -19,10 +44,24 @@ def _compact_text(value: str | None) -> str:
 
 def format_item_message(event: str, user_email: str, item_id: str, title: str | None, detail: str | None = None) -> str:
     safe_title = _compact_text(title) or "(untitled)"
-    base = f"AnalyzeThis: {user_email} {event} \"{safe_title}\" (id={item_id})"
+    short_id = item_id[:8] if item_id else "?"
+    user = user_email.split("@")[0] if user_email else "unknown"
+
+    color = _EVENT_COLORS.get(event, _CLR_GREY)
+    if "failed" in event:
+        color = _CLR_RED
+
+    parts = [
+        f"{BOLD}{COLOR}{color}{event}{RESET}",
+        f"\"{safe_title}\"",
+    ]
     detail_text = _compact_text(detail)
     if detail_text:
-        base = f"{base} — {detail_text}"
+        parts.append(detail_text)
+    parts.append(user)
+    parts.append(f"{COLOR}{_CLR_GREY}{short_id}{RESET}")
+
+    base = " | ".join(parts)
     if len(base) > IRCCAT_MAX_LEN:
         base = base[: IRCCAT_MAX_LEN - 1] + "…"
     return base
