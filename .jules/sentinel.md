@@ -7,3 +7,8 @@
 **Vulnerability:** The application was catching exceptions during file uploads and returning the raw exception message to the user (`detail=f"File upload failed: {str(e)}"`). This could leak sensitive internal details (e.g., file paths, connection strings, library versions) in production environments.
 **Learning:** Always sanitize error messages in production. Use a generic message for the user and log the detailed error internally. Environment-specific error details (e.g., `APP_ENV == 'development'`) can be useful for debugging but must be strictly controlled.
 **Prevention:** Implement a standard error handling pattern that checks the environment and returns generic messages in production.
+
+## 2025-02-18 - [HIGH] Missing Rate Limiting on Sensitive Endpoints
+**Vulnerability:** Critical endpoints (login, share, search) were vulnerable to brute-force and resource exhaustion (DoS) attacks.
+**Learning:** Adding rate limiting globally or via dependency injection is a standard pattern in FastAPI.
+**Prevention:** Implement a reusable `RateLimiter` class with IP-based tracking and sliding window logic. Ensure a bypass mechanism (`NO_RATE_LIMIT`) exists for testing to prevent CI failures.
