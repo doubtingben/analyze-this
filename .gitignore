@@ -50,3 +50,6 @@ backend/*.db
 
 # sops age private key (never commit)
 extra-files/var/lib/sops-nix/key.txt
+
+# Uploads (Local Development)
+backend/static/uploads/

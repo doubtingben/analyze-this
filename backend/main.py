@@ -34,6 +34,12 @@ from tracing import (
     add_span_attributes, record_exception, add_span_event,
     inject_trace_context
 )
+from rate_limiter import (
+    check_login_rate_limit,
+    check_share_rate_limit,
+    check_search_rate_limit,
+    check_note_rate_limit
+)
 from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
 
 # Load environment variables
@@ -337,7 +343,7 @@ async def read_root(request: Request):
          response.set_cookie(key="csrf_token", value=csrf_token, httponly=False, samesite="lax")
     return response
 
-@app.get("/login")
+@app.get("/login", dependencies=[Depends(check_login_rate_limit)])
 async def login(request: Request):
     # Ensure fully qualified URL for redirect_uri to avoid mismatches
     # Cloud Run behind load balancer might need X-Forwarded-Proto considerations, but starlette handles some.
@@ -543,7 +549,7 @@ def normalize_share_type(raw_type: Optional[str], content: Optional[str], file: 
 
     return ShareType.text
 
-@app.post("/api/share", dependencies=[Depends(check_csrf)])
+@app.post("/api/share", dependencies=[Depends(check_csrf), Depends(check_share_rate_limit)])
 async def share_item(
     request: Request,
     title: str = Form(None),
@@ -1149,7 +1155,7 @@ class ItemUpdateRequest(BaseModel):
         return v
 
 
-@app.post("/api/items/{item_id}/notes", dependencies=[Depends(check_csrf)])
+@app.post("/api/items/{item_id}/notes", dependencies=[Depends(check_csrf), Depends(check_note_rate_limit)])
 async def create_item_note(
     item_id: str,
     request: Request,
@@ -1530,7 +1536,7 @@ async def get_user_metrics(request: Request):
     }
 
 
-@app.get("/api/search")
+@app.get("/api/search", dependencies=[Depends(check_search_rate_limit)])
 async def search_items_endpoint(request: Request, q: str, limit: int = 10):
     """
     Semantic search for items using vector embeddings.
