@@ -7,3 +7,8 @@
 **Vulnerability:** The application was catching exceptions during file uploads and returning the raw exception message to the user (`detail=f"File upload failed: {str(e)}"`). This could leak sensitive internal details (e.g., file paths, connection strings, library versions) in production environments.
 **Learning:** Always sanitize error messages in production. Use a generic message for the user and log the detailed error internally. Environment-specific error details (e.g., `APP_ENV == 'development'`) can be useful for debugging but must be strictly controlled.
 **Prevention:** Implement a standard error handling pattern that checks the environment and returns generic messages in production.
+
+## 2025-02-18 - [HIGH] Missing Rate Limiting
+**Vulnerability:** The application lacked rate limiting on critical endpoints (`/login`, `/api/share`, `/api/items/{item_id}/notes`, `/api/search`), exposing it to brute-force attacks and resource exhaustion.
+**Learning:** Memory indicated rate limiting was present, but the implementation file was missing. Always verify the existence of critical security controls in the codebase, not just in documentation/memory.
+**Prevention:** Implement a simple, dependency-free rate limiter for critical endpoints if a full redis-backed solution is overkill. Use `NO_RATE_LIMIT` for testing.
