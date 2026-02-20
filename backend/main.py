@@ -35,6 +35,7 @@ from tracing import (
     inject_trace_context
 )
 from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
+from rate_limiter import RateLimiter
 
 # Load environment variables
 load_dotenv()
@@ -230,6 +231,38 @@ oauth.register(
 
 # --- Routes ---
 
+# Rate Limiters
+# Login: Strict (5 requests / minute)
+login_limiter = RateLimiter(max_requests=5, window_seconds=60)
+# Sharing: Moderate (20 requests / minute)
+share_limiter = RateLimiter(max_requests=20, window_seconds=60)
+# General API: Moderate (20 requests / minute)
+api_limiter = RateLimiter(max_requests=20, window_seconds=60)
+
+def get_client_ip(request: Request) -> str:
+    """Extract client IP from request headers (for proxies) or direct connection."""
+    forwarded = request.headers.get("X-Forwarded-For")
+    if forwarded:
+        return forwarded.split(",")[0].strip()
+    if request.client:
+        return request.client.host
+    return "unknown"
+
+async def check_login_rate_limit(request: Request):
+    client_ip = get_client_ip(request)
+    if not login_limiter.is_allowed(client_ip):
+        raise HTTPException(status_code=429, detail="Too Many Requests")
+
+async def check_share_rate_limit(request: Request):
+    client_ip = get_client_ip(request)
+    if not share_limiter.is_allowed(client_ip):
+        raise HTTPException(status_code=429, detail="Too Many Requests")
+
+async def check_api_rate_limit(request: Request):
+    client_ip = get_client_ip(request)
+    if not api_limiter.is_allowed(client_ip):
+        raise HTTPException(status_code=429, detail="Too Many Requests")
+
 async def check_csrf(request: Request):
     auth_header = request.headers.get("Authorization")
     if auth_header and auth_header.startswith("Bearer "):
@@ -337,7 +370,7 @@ async def read_root(request: Request):
          response.set_cookie(key="csrf_token", value=csrf_token, httponly=False, samesite="lax")
     return response
 
-@app.get("/login")
+@app.get("/login", dependencies=[Depends(check_login_rate_limit)])
 async def login(request: Request):
     # Ensure fully qualified URL for redirect_uri to avoid mismatches
     # Cloud Run behind load balancer might need X-Forwarded-Proto considerations, but starlette handles some.
@@ -543,7 +576,7 @@ def normalize_share_type(raw_type: Optional[str], content: Optional[str], file: 
 
     return ShareType.text
 
-@app.post("/api/share", dependencies=[Depends(check_csrf)])
+@app.post("/api/share", dependencies=[Depends(check_csrf), Depends(check_share_rate_limit)])
 async def share_item(
     request: Request,
     title: str = Form(None),
@@ -1149,7 +1182,7 @@ class ItemUpdateRequest(BaseModel):
         return v
 
 
-@app.post("/api/items/{item_id}/notes", dependencies=[Depends(check_csrf)])
+@app.post("/api/items/{item_id}/notes", dependencies=[Depends(check_csrf), Depends(check_api_rate_limit)])
 async def create_item_note(
     item_id: str,
     request: Request,
@@ -1530,7 +1563,7 @@ async def get_user_metrics(request: Request):
     }
 
 
-@app.get("/api/search")
+@app.get("/api/search", dependencies=[Depends(check_api_rate_limit)])
 async def search_items_endpoint(request: Request, q: str, limit: int = 10):
     """
     Semantic search for items using vector embeddings.
