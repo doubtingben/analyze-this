@@ -664,6 +664,7 @@ class DBSharedItem(Base):
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
     item_metadata = Column(JSON, nullable=True)
     analysis = Column(JSON, nullable=True)
+    timeline = Column(JSON, nullable=True)
     status = Column(String, default='new')
     next_step = Column(String, nullable=True)
     is_normalized = Column(Boolean, default=False)
@@ -842,6 +843,7 @@ class SQLiteDatabase(DatabaseInterface):
                 created_at=item.created_at or datetime.datetime.now(datetime.timezone.utc),
                 item_metadata=item.item_metadata,
                 analysis=analysis_data,
+                timeline=[t.model_dump() for t in item.timeline] if item.timeline else [],
                 status=item.status,
                 next_step=item.next_step,
                 is_normalized=item.is_normalized,
@@ -872,6 +874,7 @@ class SQLiteDatabase(DatabaseInterface):
                     'created_at': item.created_at,
                     'item_metadata': item.item_metadata,
                     'analysis': item.analysis,
+                    'timeline': item.timeline,
                     'status': item.status,
                     'next_step': item.next_step,
                     'is_normalized': item.is_normalized,
@@ -919,6 +922,7 @@ class SQLiteDatabase(DatabaseInterface):
                     'user_email': item.user_email,
                     'created_at': item.created_at,
                     'analysis': item.analysis,
+                    'timeline': item.timeline,
                     'status': item.status,
                     'next_step': item.next_step,
                     'is_normalized': item.is_normalized,
@@ -959,6 +963,7 @@ class SQLiteDatabase(DatabaseInterface):
                     'created_at': item.created_at,
                     'item_metadata': item.item_metadata,
                     'analysis': item.analysis,
+                    'timeline': item.timeline,
                     'status': item.status,
                     'next_step': item.next_step,
                     'is_normalized': item.is_normalized

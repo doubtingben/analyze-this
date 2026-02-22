@@ -1,326 +1,449 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Analyze This</title>
-    <link rel="icon" href="/static/favicon.png">
-    <link rel="stylesheet" href="/static/styles.css">
-</head>
-<body>
+    <link rel="icon" href="/static/favicon.png" />
+    <link rel="stylesheet" href="/static/styles.css" />
+  </head>
+  <body>
     <div class="container">
-        <header class="header">
-            <h1>Analyze This</h1>
-            <div class="header-actions">
-                <button id="new-item-btn" class="new-item-btn" style="display: none;">+ New Item</button>
-                <div class="user-info" id="user-info">
-                    <button class="user-menu-trigger" id="user-menu-trigger" type="button">
-                        <span id="user-name"></span>
-                        <span class="user-menu-caret">▾</span>
-                    </button>
-                    <div class="user-menu" id="user-menu" aria-hidden="true">
-                        <label class="user-menu-toggle">
-                            <span>Show Archive</span>
-                            <input type="checkbox" id="show-archive" />
-                        </label>
-                        <button class="user-menu-item" id="metrics-btn" type="button">Metrics</button>
-                        <button class="user-menu-item" id="tag-editor-btn" type="button">Tag Editor</button>
-                        <button class="user-menu-item" id="export-btn" type="button">Export</button>
-                        <a href="/logout" class="user-menu-item">Logout</a>
-                    </div>
-                </div>
+      <header class="header">
+        <h1>Analyze This</h1>
+        <div class="header-actions">
+          <button id="new-item-btn" class="new-item-btn" style="display: none">
+            + New Item
+          </button>
+          <div class="user-info" id="user-info">
+            <button
+              class="user-menu-trigger"
+              id="user-menu-trigger"
+              type="button"
+            >
+              <span id="user-name"></span>
+              <span class="user-menu-caret">▾</span>
+            </button>
+            <div class="user-menu" id="user-menu" aria-hidden="true">
+              <label class="user-menu-toggle">
+                <span>Show Archive</span>
+                <input type="checkbox" id="show-archive" />
+              </label>
+              <button class="user-menu-item" id="metrics-btn" type="button">
+                Metrics
+              </button>
+              <button class="user-menu-item" id="tag-editor-btn" type="button">
+                Tag Editor
+              </button>
+              <button class="user-menu-item" id="export-btn" type="button">
+                Export
+              </button>
+              <a href="/logout" class="user-menu-item">Logout</a>
             </div>
-        </header>
+          </div>
+        </div>
+      </header>
 
-        <!-- Create Item Modal -->
-        <div id="create-modal" class="modal" style="display: none;">
-            <div class="modal-backdrop"></div>
-            <div class="modal-content">
-                <div class="modal-header">
-                    <h2>Create New Item</h2>
-                    <button class="modal-close" id="modal-close">&times;</button>
-                </div>
-                <form id="create-form" class="create-form">
-                    <div class="form-group">
-                        <label for="item-type">Type</label>
-                        <select id="item-type" name="type" required>
-                            <option value="">Select type...</option>
-                            <option value="text">Text</option>
-                            <option value="web_url">Web URL</option>
-                            <option value="image">Image</option>
-                            <option value="video">Video</option>
-                            <option value="audio">Audio</option>
-                            <option value="file">File</option>
-                        </select>
-                    </div>
-
-                    <div class="form-group">
-                        <label for="item-title">Title (optional)</label>
-                        <input type="text" id="item-title" name="title" placeholder="Enter a title...">
-                    </div>
-
-                    <!-- Text content field -->
-                    <div class="form-group type-field" data-types="text">
-                        <label for="item-text">Content</label>
-                        <textarea id="item-text" name="text-content" rows="4" placeholder="Enter text content..."></textarea>
-                    </div>
-
-                    <!-- URL field -->
-                    <div class="form-group type-field" data-types="web_url">
-                        <label for="item-url">URL</label>
-                        <input type="url" id="item-url" name="url-content" placeholder="https://example.com">
-                    </div>
-
-                    <!-- File upload field -->
-                    <div class="form-group type-field" data-types="image,video,audio,file">
-                        <label for="item-file">Upload File</label>
-                        <input type="file" id="item-file" name="file">
-                        <p class="form-hint" id="file-hint">Select a file to upload</p>
-                    </div>
-
-                    <div class="form-actions">
-                        <button type="button" class="btn-cancel" id="cancel-create">Cancel</button>
-                        <button type="submit" class="btn-submit" id="submit-create">Create</button>
-                    </div>
-                </form>
+      <!-- Create Item Modal -->
+      <div id="create-modal" class="modal" style="display: none">
+        <div class="modal-backdrop"></div>
+        <div class="modal-content">
+          <div class="modal-header">
+            <h2>Create New Item</h2>
+            <button class="modal-close" id="modal-close">&times;</button>
+          </div>
+          <form id="create-form" class="create-form">
+            <div class="form-group">
+              <label for="item-type">Type</label>
+              <select id="item-type" name="type" required>
+                <option value="">Select type...</option>
+                <option value="text">Text</option>
+                <option value="web_url">Web URL</option>
+                <option value="image">Image</option>
+                <option value="video">Video</option>
+                <option value="audio">Audio</option>
+                <option value="file">File</option>
+              </select>
             </div>
+
+            <div class="form-group">
+              <label for="item-title">Title (optional)</label>
+              <input
+                type="text"
+                id="item-title"
+                name="title"
+                placeholder="Enter a title..."
+              />
+            </div>
+
+            <!-- Text content field -->
+            <div class="form-group type-field" data-types="text">
+              <label for="item-text">Content</label>
+              <textarea
+                id="item-text"
+                name="text-content"
+                rows="4"
+                placeholder="Enter text content..."
+              ></textarea>
+            </div>
+
+            <!-- URL field -->
+            <div class="form-group type-field" data-types="web_url">
+              <label for="item-url">URL</label>
+              <input
+                type="url"
+                id="item-url"
+                name="url-content"
+                placeholder="https://example.com"
+              />
+            </div>
+
+            <!-- File upload field -->
+            <div
+              class="form-group type-field"
+              data-types="image,video,audio,file"
+            >
+              <label for="item-file">Upload File</label>
+              <input type="file" id="item-file" name="file" />
+              <p class="form-hint" id="file-hint">Select a file to upload</p>
+            </div>
+
+            <div class="form-actions">
+              <button type="button" class="btn-cancel" id="cancel-create">
+                Cancel
+              </button>
+              <button type="submit" class="btn-submit" id="submit-create">
+                Create
+              </button>
+            </div>
+          </form>
+        </div>
+      </div>
+
+      <!-- Metrics Modal -->
+      <div id="metrics-modal" class="modal" style="display: none">
+        <div class="modal-backdrop" id="metrics-modal-backdrop"></div>
+        <div class="modal-content">
+          <div class="modal-header">
+            <h2>Metrics</h2>
+            <button class="modal-close" id="metrics-modal-close" type="button">
+              &times;
+            </button>
+          </div>
+          <div class="metrics-body">
+            <div id="metrics-loading" class="loading">Loading metrics...</div>
+            <div
+              id="metrics-error"
+              class="metrics-error"
+              style="display: none"
+            ></div>
+            <div id="metrics-content" style="display: none">
+              <div class="metrics-total">
+                <div class="metrics-total-count" id="metrics-total-count">
+                  0
+                </div>
+                <div class="metrics-total-label">Total Items</div>
+              </div>
+              <div class="metrics-breakdown">
+                <h3>Items by Status</h3>
+                <div id="metrics-status-list" class="metrics-status-list"></div>
+              </div>
+              <div
+                class="metrics-breakdown metrics-worker-queue"
+                id="metrics-worker-section"
+              >
+                <div class="metrics-worker-header">
+                  <h3>Worker Queue</h3>
+                  <span class="metrics-worker-total" id="metrics-worker-total"
+                    >0 jobs</span
+                  >
+                </div>
+                <div id="metrics-worker-list" class="metrics-status-list"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Detail / Follow-up Modal -->
+      <div id="detail-modal" class="modal" style="display: none">
+        <div class="modal-backdrop" id="detail-modal-backdrop"></div>
+        <div class="modal-content modal-content--wide">
+          <div class="modal-header">
+            <h2 id="detail-modal-title">Item Details</h2>
+            <div class="modal-header-actions">
+              <button class="btn-secondary" id="detail-edit-btn" type="button">
+                Edit
+              </button>
+              <button class="modal-close" id="detail-modal-close" type="button">
+                &times;
+              </button>
+            </div>
+          </div>
+          <div class="detail-body">
+            <div class="detail-section">
+              <label class="detail-label" for="detail-title-input">Title</label>
+              <div id="detail-title" class="detail-text"></div>
+              <input
+                id="detail-title-input"
+                class="detail-input"
+                type="text"
+                style="display: none"
+              />
+            </div>
+            <div class="detail-section">
+              <label class="detail-label">Type</label>
+              <div id="detail-type" class="detail-text"></div>
+            </div>
+            <div class="detail-section">
+              <label class="detail-label">Content</label>
+              <div id="detail-content" class="detail-text"></div>
+            </div>
+            <div class="detail-section">
+              <label class="detail-label">Tags</label>
+              <div id="detail-tags" class="detail-tags"></div>
+              <div
+                id="detail-tags-editor"
+                class="detail-tags-editor"
+                style="display: none"
+              >
+                <input
+                  id="detail-tag-input"
+                  class="detail-input"
+                  type="text"
+                  placeholder="Add a tag"
+                />
+                <button id="detail-add-tag" class="btn-secondary" type="button">
+                  Add
+                </button>
+              </div>
+            </div>
+            <div class="detail-section">
+              <label class="detail-label">Item ID</label>
+              <div id="detail-item-id" class="detail-text detail-item-id"></div>
+            </div>
+
+            <!-- Timeline Section (collapsible) -->
+            <div
+              id="detail-timeline"
+              class="detail-timeline"
+              style="display: none"
+            >
+              <button
+                type="button"
+                class="detail-timeline-header"
+                id="detail-timeline-toggle"
+              >
+                <span class="detail-timeline-icon">📅</span>
+                <span class="detail-timeline-title">Timeline</span>
+                <span
+                  id="detail-timeline-count"
+                  class="detail-timeline-count"
+                ></span>
+                <span class="detail-timeline-caret">▾</span>
+              </button>
+              <div
+                id="detail-timeline-content"
+                class="detail-timeline-content"
+                style="display: none"
+              >
+                <div id="detail-timeline-list">
+                  <!-- Dynamic timeline event content will be generated here by app.js -->
+                </div>
+                <div
+                  id="detail-timeline-add-container"
+                  style="display: none; margin-top: 10px; text-align: center"
+                >
+                  <button
+                    type="button"
+                    class="btn-secondary"
+                    id="detail-timeline-add-btn"
+                  >
+                    <span class="detail-timeline-icon">➕</span> Add Timeline
+                    Event
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div
+            class="detail-footer"
+            id="detail-edit-actions"
+            style="display: none"
+          >
+            <button class="btn-secondary" id="detail-cancel-btn" type="button">
+              Cancel
+            </button>
+            <button class="btn-primary" id="detail-save-btn" type="button">
+              Save changes
+            </button>
+          </div>
+
+          <div
+            id="detail-follow-up"
+            class="detail-follow-up"
+            style="display: none"
+          >
+            <div class="detail-follow-up-header">
+              <span class="detail-follow-up-icon">🚩</span>
+              <h3>Follow-up</h3>
+              <button
+                id="detail-follow-up-delete"
+                class="btn-icon btn-danger"
+                title="Delete follow-up"
+              >
+                <svg
+                  width="16"
+                  height="16"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                >
+                  <path
+                    d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"
+                  />
+                </svg>
+              </button>
+            </div>
+            <div
+              id="detail-follow-up-content"
+              class="detail-follow-up-content"
+            ></div>
+          </div>
+
+          <div class="detail-notes">
+            <div class="detail-notes-header">
+              <h3>Notes</h3>
+              <span
+                id="detail-notes-loading"
+                class="detail-muted"
+                style="display: none"
+                >Loading...</span
+              >
+            </div>
+            <div id="detail-notes-list" class="detail-notes-list"></div>
+            <form id="detail-note-form" class="detail-note-form">
+              <textarea
+                id="detail-note-text"
+                rows="3"
+                placeholder="Add a note..."
+              ></textarea>
+              <label class="note-type-toggle">
+                <input type="checkbox" id="detail-note-follow-up" />
+                <span>Follow-up response</span>
+              </label>
+              <button class="btn-primary" type="submit">Add note</button>
+            </form>
+          </div>
+        </div>
+      </div>
+
+      <!-- Filter Modal -->
+      <div id="filter-modal" class="modal" style="display: none">
+        <div class="modal-backdrop" id="filter-modal-backdrop"></div>
+        <div class="modal-content">
+          <div class="modal-header">
+            <h2>Filters</h2>
+            <button class="modal-close" id="filter-modal-close">&times;</button>
+          </div>
+          <div class="filter-modal-body">
+            <div class="filter-section">
+              <h3>Types</h3>
+              <div id="filter-types" class="filter-chips"></div>
+            </div>
+            <div class="filter-section">
+              <h3>Tags</h3>
+              <div id="filter-tags" class="filter-chips"></div>
+            </div>
+          </div>
+          <div class="filter-modal-footer">
+            <button class="btn-secondary" id="filter-clear-btn">Clear</button>
+            <button class="btn-primary" id="filter-apply-btn">Apply</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Tag Editor Modal -->
+      <div id="tag-editor-modal" class="modal" style="display: none">
+        <div class="modal-backdrop" id="tag-editor-modal-backdrop"></div>
+        <div class="modal-content modal-large">
+          <div class="modal-header">
+            <h2>Tag Editor</h2>
+            <button class="modal-close" id="tag-editor-modal-close">
+              &times;
+            </button>
+          </div>
+          <div class="tag-editor-controls">
+            <input
+              type="text"
+              id="tag-search-input"
+              class="tag-search-input"
+              placeholder="Search tags..."
+            />
+            <select id="tag-sort-select" class="tag-sort-select">
+              <option value="name">Sort by Name</option>
+              <option value="newest">Sort by Newest</option>
+              <option value="count">Sort by Most Used</option>
+            </select>
+          </div>
+          <div class="tag-editor-count" id="tag-editor-count"></div>
+          <div class="tag-editor-list" id="tag-editor-list"></div>
+        </div>
+      </div>
+
+      <main>
+        <div id="login-state" class="login-state" style="display: none">
+          <h2>Welcome to Analyze This</h2>
+          <p>Sign in to view your shared items</p>
+          <a href="/login" class="login-btn">Login with Google</a>
         </div>
 
-        <!-- Metrics Modal -->
-        <div id="metrics-modal" class="modal" style="display: none;">
-            <div class="modal-backdrop" id="metrics-modal-backdrop"></div>
-            <div class="modal-content">
-                <div class="modal-header">
-                    <h2>Metrics</h2>
-                    <button class="modal-close" id="metrics-modal-close" type="button">&times;</button>
-                </div>
-                <div class="metrics-body">
-                    <div id="metrics-loading" class="loading">Loading metrics...</div>
-                    <div id="metrics-error" class="metrics-error" style="display: none;"></div>
-                    <div id="metrics-content" style="display: none;">
-                        <div class="metrics-total">
-                            <div class="metrics-total-count" id="metrics-total-count">0</div>
-                            <div class="metrics-total-label">Total Items</div>
-                        </div>
-                        <div class="metrics-breakdown">
-                            <h3>Items by Status</h3>
-                            <div id="metrics-status-list" class="metrics-status-list"></div>
-                        </div>
-                        <div class="metrics-breakdown metrics-worker-queue" id="metrics-worker-section">
-                            <div class="metrics-worker-header">
-                                <h3>Worker Queue</h3>
-                                <span class="metrics-worker-total" id="metrics-worker-total">0 jobs</span>
-                            </div>
-                            <div id="metrics-worker-list" class="metrics-status-list"></div>
-                        </div>
-                    </div>
-                </div>
-            </div>
+        <div id="loading" class="loading">Loading...</div>
+
+        <div id="filters" class="filters" style="display: none">
+          <div class="view-toggle">
+            <button class="view-btn active" data-view="all">All</button>
+            <button class="view-btn" data-view="timeline">Timeline</button>
+            <button class="view-btn view-btn-with-badge" data-view="follow_up">
+              <span>Follow-up</span>
+              <span
+                id="follow-up-count-badge"
+                class="view-count-badge"
+                style="display: none"
+              ></span>
+            </button>
+            <button class="view-btn" data-view="media">Media</button>
+          </div>
+          <div class="filter-controls">
+            <input
+              type="text"
+              id="search-input"
+              class="search-input"
+              placeholder="Search items..."
+            />
+            <button id="filter-btn" class="filter-btn" type="button">
+              <span class="filter-icon">Filters</span>
+              <span
+                id="filter-count"
+                class="filter-count"
+                style="display: none"
+              ></span>
+            </button>
+          </div>
         </div>
 
-        <!-- Detail / Follow-up Modal -->
-        <div id="detail-modal" class="modal" style="display: none;">
-            <div class="modal-backdrop" id="detail-modal-backdrop"></div>
-            <div class="modal-content modal-content--wide">
-                <div class="modal-header">
-                    <h2 id="detail-modal-title">Item Details</h2>
-                    <div class="modal-header-actions">
-                        <button class="btn-secondary" id="detail-edit-btn" type="button">Edit</button>
-                        <button class="modal-close" id="detail-modal-close" type="button">&times;</button>
-                    </div>
-                </div>
-                <div class="detail-body">
-                    <div class="detail-section">
-                        <label class="detail-label" for="detail-title-input">Title</label>
-                        <div id="detail-title" class="detail-text"></div>
-                        <input id="detail-title-input" class="detail-input" type="text" style="display: none;" />
-                    </div>
-                    <div class="detail-section">
-                        <label class="detail-label">Type</label>
-                        <div id="detail-type" class="detail-text"></div>
-                    </div>
-                    <div class="detail-section">
-                        <label class="detail-label">Content</label>
-                        <div id="detail-content" class="detail-text"></div>
-                    </div>
-                    <div class="detail-section">
-                        <label class="detail-label">Tags</label>
-                        <div id="detail-tags" class="detail-tags"></div>
-                        <div id="detail-tags-editor" class="detail-tags-editor" style="display: none;">
-                            <input id="detail-tag-input" class="detail-input" type="text" placeholder="Add a tag" />
-                            <button id="detail-add-tag" class="btn-secondary" type="button">Add</button>
-                        </div>
-                    </div>
-                    <div class="detail-section">
-                        <label class="detail-label">Item ID</label>
-                        <div id="detail-item-id" class="detail-text detail-item-id"></div>
-                    </div>
-
-                    <!-- Timeline Section (collapsible) -->
-                    <div id="detail-timeline" class="detail-timeline" style="display: none;">
-                        <button type="button" class="detail-timeline-header" id="detail-timeline-toggle">
-                            <span class="detail-timeline-icon">📅</span>
-                            <span class="detail-timeline-title">Timeline</span>
-                            <span id="detail-timeline-count" class="detail-timeline-count"></span>
-                            <span class="detail-timeline-caret">▾</span>
-                        </button>
-                        <div id="detail-timeline-content" class="detail-timeline-content" style="display: none;">
-                            <div class="detail-timeline-fields">
-                                <div class="detail-timeline-field">
-                                    <label class="detail-label" for="detail-timeline-date">Date</label>
-                                    <div id="detail-timeline-date-view" class="detail-text"></div>
-                                    <input id="detail-timeline-date" class="detail-input" type="text" placeholder="YYYY-MM-DD" style="display: none;" />
-                                </div>
-                                <div class="detail-timeline-field">
-                                    <label class="detail-label" for="detail-timeline-time">Time</label>
-                                    <div id="detail-timeline-time-view" class="detail-text"></div>
-                                    <input id="detail-timeline-time" class="detail-input" type="text" placeholder="HH:MM:SS" style="display: none;" />
-                                </div>
-                                <div class="detail-timeline-field">
-                                    <label class="detail-label" for="detail-timeline-duration">Duration</label>
-                                    <div id="detail-timeline-duration-view" class="detail-text"></div>
-                                    <input id="detail-timeline-duration" class="detail-input" type="text" placeholder="HH:MM:SS" style="display: none;" />
-                                </div>
-                                <div class="detail-timeline-field">
-                                    <label class="detail-label" for="detail-timeline-principal">Principal</label>
-                                    <div id="detail-timeline-principal-view" class="detail-text"></div>
-                                    <input id="detail-timeline-principal" class="detail-input" type="text" placeholder="Person or organization" style="display: none;" />
-                                </div>
-                                <div class="detail-timeline-field">
-                                    <label class="detail-label" for="detail-timeline-location">Location</label>
-                                    <div id="detail-timeline-location-view" class="detail-text"></div>
-                                    <input id="detail-timeline-location" class="detail-input" type="text" placeholder="Where it takes place" style="display: none;" />
-                                </div>
-                                <div class="detail-timeline-field">
-                                    <label class="detail-label" for="detail-timeline-purpose">Purpose</label>
-                                    <div id="detail-timeline-purpose-view" class="detail-text"></div>
-                                    <input id="detail-timeline-purpose" class="detail-input" type="text" placeholder="What the event is about" style="display: none;" />
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-                <div class="detail-footer" id="detail-edit-actions" style="display: none;">
-                    <button class="btn-secondary" id="detail-cancel-btn" type="button">Cancel</button>
-                    <button class="btn-primary" id="detail-save-btn" type="button">Save changes</button>
-                </div>
-
-                <div id="detail-follow-up" class="detail-follow-up" style="display: none;">
-                    <div class="detail-follow-up-header">
-                        <span class="detail-follow-up-icon">🚩</span>
-                        <h3>Follow-up</h3>
-                        <button id="detail-follow-up-delete" class="btn-icon btn-danger" title="Delete follow-up">
-                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                                <path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
-                            </svg>
-                        </button>
-                    </div>
-                    <div id="detail-follow-up-content" class="detail-follow-up-content"></div>
-                </div>
-
-                <div class="detail-notes">
-                    <div class="detail-notes-header">
-                        <h3>Notes</h3>
-                        <span id="detail-notes-loading" class="detail-muted" style="display: none;">Loading...</span>
-                    </div>
-                    <div id="detail-notes-list" class="detail-notes-list"></div>
-                    <form id="detail-note-form" class="detail-note-form">
-                        <textarea id="detail-note-text" rows="3" placeholder="Add a note..."></textarea>
-                        <label class="note-type-toggle">
-                            <input type="checkbox" id="detail-note-follow-up" />
-                            <span>Follow-up response</span>
-                        </label>
-                        <button class="btn-primary" type="submit">Add note</button>
-                    </form>
-                </div>
-            </div>
+        <div id="empty-state" class="empty-state" style="display: none">
+          <p>
+            No items yet. Share something from the mobile app or browser
+            extension!
+          </p>
         </div>
 
-        <!-- Filter Modal -->
-        <div id="filter-modal" class="modal" style="display: none;">
-            <div class="modal-backdrop" id="filter-modal-backdrop"></div>
-            <div class="modal-content">
-                <div class="modal-header">
-                    <h2>Filters</h2>
-                    <button class="modal-close" id="filter-modal-close">&times;</button>
-                </div>
-                <div class="filter-modal-body">
-                    <div class="filter-section">
-                        <h3>Types</h3>
-                        <div id="filter-types" class="filter-chips"></div>
-                    </div>
-                    <div class="filter-section">
-                        <h3>Tags</h3>
-                        <div id="filter-tags" class="filter-chips"></div>
-                    </div>
-                </div>
-                <div class="filter-modal-footer">
-                    <button class="btn-secondary" id="filter-clear-btn">Clear</button>
-                    <button class="btn-primary" id="filter-apply-btn">Apply</button>
-                </div>
-            </div>
-        </div>
-
-        <!-- Tag Editor Modal -->
-        <div id="tag-editor-modal" class="modal" style="display: none;">
-            <div class="modal-backdrop" id="tag-editor-modal-backdrop"></div>
-            <div class="modal-content modal-large">
-                <div class="modal-header">
-                    <h2>Tag Editor</h2>
-                    <button class="modal-close" id="tag-editor-modal-close">&times;</button>
-                </div>
-                <div class="tag-editor-controls">
-                    <input type="text" id="tag-search-input" class="tag-search-input" placeholder="Search tags...">
-                    <select id="tag-sort-select" class="tag-sort-select">
-                        <option value="name">Sort by Name</option>
-                        <option value="newest">Sort by Newest</option>
-                        <option value="count">Sort by Most Used</option>
-                    </select>
-                </div>
-                <div class="tag-editor-count" id="tag-editor-count"></div>
-                <div class="tag-editor-list" id="tag-editor-list"></div>
-            </div>
-        </div>
-
-        <main>
-            <div id="login-state" class="login-state" style="display: none;">
-                <h2>Welcome to Analyze This</h2>
-                <p>Sign in to view your shared items</p>
-                <a href="/login" class="login-btn">Login with Google</a>
-            </div>
-
-            <div id="loading" class="loading">
-                Loading...
-            </div>
-
-            <div id="filters" class="filters" style="display: none;">
-                <div class="view-toggle">
-                    <button class="view-btn active" data-view="all">All</button>
-                    <button class="view-btn" data-view="timeline">Timeline</button>
-                    <button class="view-btn view-btn-with-badge" data-view="follow_up">
-                        <span>Follow-up</span>
-                        <span id="follow-up-count-badge" class="view-count-badge" style="display: none;"></span>
-                    </button>
-                    <button class="view-btn" data-view="media">Media</button>
-                </div>
-                <div class="filter-controls">
-                    <input type="text" id="search-input" class="search-input" placeholder="Search items...">
-                    <button id="filter-btn" class="filter-btn" type="button">
-                        <span class="filter-icon">Filters</span>
-                        <span id="filter-count" class="filter-count" style="display: none;"></span>
-                    </button>
-                </div>
-            </div>
-
-            <div id="empty-state" class="empty-state" style="display: none;">
-                <p>No items yet. Share something from the mobile app or browser extension!</p>
-            </div>
-
-            <div id="items-container" class="items-container">
-            </div>
-        </main>
+        <div id="items-container" class="items-container"></div>
+      </main>
     </div>
 
     <script src="/static/app.js"></script>
-</body>
+  </body>
 </html>

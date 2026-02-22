@@ -79,16 +79,16 @@ class TestApi(unittest.TestCase):
 
         analysis = AnalysisResult(
             overview="Test Overview",
-            timeline=TimelineEvent(date="2023-01-01", principal="Me"),
+            timeline=[TimelineEvent(date="2023-01-01", principal="Me")],
             tags=["tag1"]
         )
 
         item = SharedItem(
             user_email="dev@example.com",
             type=ShareType.text,
-            content="Test content",
+            content="Testing analysis structure",
             analysis=analysis,
-            status="timeline"
+            timeline=[TimelineEvent(date="2023-01-01", principal="Me")]
         )
 
         asyncio.run(main.db.create_shared_item(item))
@@ -100,7 +100,7 @@ class TestApi(unittest.TestCase):
         # Verify the item with analysis is present
         self.assertEqual(len(items), 1)
         self.assertEqual(items[0]["analysis"]["overview"], "Test Overview")
-        self.assertEqual(items[0]["analysis"]["timeline"]["date"], "2023-01-01")
+        self.assertEqual(items[0]["timeline"][0]["date"], "2023-01-01")
 
     def test_export_includes_items_and_files(self):
         from models import SharedItem, ShareType

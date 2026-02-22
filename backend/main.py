@@ -116,11 +116,13 @@ ALLOWED_EXTENSIONS = {
 }
 
 # Read Version
-try:
-    with open("version.txt", "r") as f:
-        APP_VERSION = f.read().strip()
-except FileNotFoundError:
-    APP_VERSION = "unknown"
+APP_VERSION = os.getenv("APP_VERSION")
+if not APP_VERSION:
+    try:
+        with open("version.txt", "r") as f:
+            APP_VERSION = f.read().strip()
+    except FileNotFoundError:
+        APP_VERSION = "unknown"
 
 # --- Database & Storage Initialization ---
 
@@ -538,11 +540,16 @@ def normalize_share_type(raw_type: Optional[str], content: Optional[str], file: 
                 return ShareType.video
             if lower_content.endswith(AUDIO_EXTENSIONS):
                 return ShareType.audio
-
-        return ShareType.file
-
-    return ShareType.text
-
+    # However, existing clients send JSON. FastAPI handles this by checking Content-Type.
+    # To support BOTH, we usually inspect Request or use a dependency.
+    # A cleaner way is to have the client always send JSON or always send Form, or use separate endpoints.
+    # Given the constraint to keep `/api/share`, and that the Extension uses JSON,
+    # we'll try to read the body first if content-type is json.
+    # BUT FastAPI parsing logic is strict.
+    # STRATEGY: Receive Request and parse manually if needed, OR use optional Body & Form.
+    # FastAPI doesn't support optional Body AND optional Form in the same route well (it expects one or the other based on media type).
+    # workaround: Check Content-Type header.
+    
 @app.post("/api/share", dependencies=[Depends(check_csrf)])
 async def share_item(
     request: Request,
@@ -555,18 +562,7 @@ async def share_item(
     file_size: int = Form(None),
     duration: float = Form(None),
     width: int = Form(None),
-    height: int = Form(None),
-    # For JSON body support (legacy/extension), we can't easily mix Body and Form in the same endpoint 
-    # without a bit of work or separate endpoints.
-    # However, existing clients send JSON. FastAPI handles this by checking Content-Type.
-    # To support BOTH, we usually inspect Request or use a dependency.
-    # A cleaner way is to have the client always send JSON or always send Form, or use separate endpoints.
-    # Given the constraint to keep `/api/share`, and that the Extension uses JSON,
-    # we'll try to read the body first if content-type is json.
-    # BUT FastAPI parsing logic is strict.
-    # STRATEGY: Receive Request and parse manually if needed, OR use optional Body & Form.
-    # FastAPI doesn't support optional Body AND optional Form in the same route well (it expects one or the other based on media type).
-    # workaround: Check Content-Type header.
+    height: int = Form(None)
 ):
     # Auth Check
     auth_header = request.headers.get('Authorization')
@@ -1447,28 +1443,22 @@ async def update_item(item_id: str, request: Request, body: ItemUpdateRequest):
             current_analysis['follow_up'] = body.follow_up
         analysis_updated = True
 
-    # Update timeline within analysis object
+    # Update timeline directly on the item
     if body.timeline is not None:
-        current_timeline = current_analysis.get('timeline') or {}
-        if not isinstance(current_timeline, dict):
-            current_timeline = {}
-
-        # Update only non-None fields
-        if body.timeline.date is not None:
-            current_timeline['date'] = body.timeline.date
-        if body.timeline.time is not None:
-            current_timeline['time'] = body.timeline.time
-        if body.timeline.duration is not None:
-            current_timeline['duration'] = body.timeline.duration
-        if body.timeline.principal is not None:
-            current_timeline['principal'] = body.timeline.principal
-        if body.timeline.location is not None:
-            current_timeline['location'] = body.timeline.location
-        if body.timeline.purpose is not None:
-            current_timeline['purpose'] = body.timeline.purpose
-
-        current_analysis['timeline'] = current_timeline
-        analysis_updated = True
+        try:
+             import json
+             from pydantic import TypeAdapter
+             timeline_adapter = TypeAdapter(List[TimelineEvent])
+             
+             if isinstance(body.timeline, str):
+                  parsed_timeline = json.loads(body.timeline)
+                  validated_timeline = timeline_adapter.validate_python(parsed_timeline)
+             else:
+                  validated_timeline = timeline_adapter.validate_python(body.timeline)
+                  
+             updates['timeline'] = [t.model_dump(exclude_unset=True) for t in validated_timeline]
+        except Exception as e:
+             raise HTTPException(status_code=400, detail=f"Invalid timeline format: {e}")
 
     if analysis_updated:
         updates['analysis'] = current_analysis

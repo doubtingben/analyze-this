@@ -47,6 +47,7 @@ class HistoryItem {
   final String? title;
   final ShareItemMetadata? metadata;
   final Map<String, dynamic>? analysis;
+  final List<Map<String, dynamic>>? timeline;
   final String? status;
   final String? nextStep;
   final bool hidden;
@@ -62,6 +63,7 @@ class HistoryItem {
     this.title,
     this.metadata,
     this.analysis,
+    this.timeline,
     this.status,
     this.nextStep,
     this.hidden = false,
@@ -74,6 +76,11 @@ class HistoryItem {
     // can be added here or in the service. For now, we map direct fields.
     final rawValue = json['content'] ?? json['value'] ?? '';
     
+    List<Map<String, dynamic>>? parsedTimeline;
+    if (json['timeline'] != null && json['timeline'] is List) {
+      parsedTimeline = List<Map<String, dynamic>>.from(json['timeline']);
+    }
+
     return HistoryItem(
       id: json['firestore_id'] ?? json['id'] ?? '',
       timestamp: json['created_at'] != null 
@@ -87,6 +94,7 @@ class HistoryItem {
           ? ShareItemMetadata.fromJson(Map<String, dynamic>.from(json['item_metadata'])) 
           : null,
       analysis: json['analysis'] != null ? Map<String, dynamic>.from(json['analysis']) : null,
+      timeline: parsedTimeline,
       status: json['status'],
       nextStep: json['next_step'] ?? json['next_step_label'], // Handling potential field name variance
       hidden: json['hidden'] == true,
@@ -106,6 +114,7 @@ class HistoryItem {
     String? title,
     ShareItemMetadata? metadata,
     Map<String, dynamic>? analysis,
+    List<Map<String, dynamic>>? timeline,
     String? status,
     String? nextStep,
     bool? hidden,
@@ -121,6 +130,7 @@ class HistoryItem {
       title: title ?? this.title,
       metadata: metadata ?? this.metadata,
       analysis: analysis ?? this.analysis,
+      timeline: timeline ?? this.timeline,
       status: status ?? this.status,
       nextStep: nextStep ?? this.nextStep,
       hidden: hidden ?? this.hidden,

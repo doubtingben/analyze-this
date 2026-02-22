@@ -5,6 +5,7 @@
 { config, pkgs, inputs, ... }:
 let
   appSrc = inputs.self;
+  appVersion = appSrc.rev or appSrc.dirtyRev or "unknown";
   commonRuntimeEnv = [
     "APP_ENV=production"
     "IRCCAT_URL=https://irccat.interestedparticipant.org/send"
@@ -72,6 +73,7 @@ in
   # boot.loader.efi.canTouchEfiVariables = true;
 
   nix.settings.experimental-features = [ "nix-command" "flakes" ];
+  nix.settings.trusted-users = [ "root" "@wheel" ];
 
   networking.hostName = "nixos-analyze-this"; # Define your hostname.
   # networking.wireless.enable = true;  # Enables wireless support via wpa_supplicant.
@@ -291,6 +293,7 @@ in
         commonRuntimeEnv ++ [
           "OTEL_SERVICE_NAME=analyzethis-api"
           "GOOGLE_APPLICATION_CREDENTIALS=/run/secrets/backend_sa_json"
+          "APP_VERSION=${appVersion}"
         ];
       Restart = "always";
       RestartSec = "10s";

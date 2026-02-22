@@ -222,12 +222,10 @@ class _ItemDetailPageState extends State<_ItemDetailPage> {
 
   // Timeline state
   bool _isTimelineExpanded = false;
-  late TextEditingController _timelineDateController;
-  late TextEditingController _timelineTimeController;
-  late TextEditingController _timelineDurationController;
-  late TextEditingController _timelinePrincipalController;
-  late TextEditingController _timelineLocationController;
-  late TextEditingController _timelinePurposeController;
+  
+  // Model for the editable controllers for a single event
+  // We manage a list of these for a list of events.
+  List<Map<String, TextEditingController>> _timelineControllersList = [];
 
   bool get _hasAnalysis =>
       widget.item.analysis != null && widget.item.analysis!.isNotEmpty;
@@ -245,33 +243,53 @@ class _ItemDetailPageState extends State<_ItemDetailPage> {
   }
 
   void _initTimelineControllers() {
-    final timeline = _getTimelineFromAnalysis();
-    _timelineDateController = TextEditingController(text: timeline['date'] ?? '');
-    _timelineTimeController = TextEditingController(text: timeline['time'] ?? '');
-    _timelineDurationController = TextEditingController(text: timeline['duration'] ?? '');
-    _timelinePrincipalController = TextEditingController(text: timeline['principal'] ?? '');
-    _timelineLocationController = TextEditingController(text: timeline['location'] ?? '');
-    _timelinePurposeController = TextEditingController(text: timeline['purpose'] ?? '');
+    final timelines = _getTimelines();
+    _timelineControllersList = timelines.map((t) => _createControllersForEvent(t)).toList();
   }
 
-  Map<String, String?> _getTimelineFromAnalysis() {
-    final analysis = widget.item.analysis;
-    if (analysis == null) return {};
-    final timeline = analysis['timeline'];
-    if (timeline == null || timeline is! Map) return {};
-    return {
-      'date': timeline['date']?.toString(),
-      'time': timeline['time']?.toString(),
-      'duration': timeline['duration']?.toString(),
-      'principal': timeline['principal']?.toString(),
-      'location': timeline['location']?.toString(),
-      'purpose': timeline['purpose']?.toString(),
-    };
+  Map<String, TextEditingController> _createControllersForEvent(Map<String, String?> event) {
+      return {
+          'date': TextEditingController(text: event['date'] ?? ''),
+          'time': TextEditingController(text: event['time'] ?? ''),
+          'duration': TextEditingController(text: event['duration'] ?? ''),
+          'principal': TextEditingController(text: event['principal'] ?? ''),
+          'location': TextEditingController(text: event['location'] ?? ''),
+          'purpose': TextEditingController(text: event['purpose'] ?? ''),
+      };
+  }
+
+  List<Map<String, String?>> _getTimelines() {
+    final timelines = widget.item.timeline;
+    if (timelines == null) {
+        // Fallback to legacy single timeline field format just in case it wasn't migrated
+        final analysis = widget.item.analysis;
+        if (analysis != null && analysis['timeline'] != null && analysis['timeline'] is Map) {
+          final t = analysis['timeline'] as Map;
+          return [{
+            'date': t['date']?.toString(),
+            'time': t['time']?.toString(),
+            'duration': t['duration']?.toString(),
+            'principal': t['principal']?.toString(),
+            'location': t['location']?.toString(),
+            'purpose': t['purpose']?.toString(),
+          }];
+        }
+        return [];
+    }
+    
+    return timelines.map((t) => {
+      'date': t['date']?.toString(),
+      'time': t['time']?.toString(),
+      'duration': t['duration']?.toString(),
+      'principal': t['principal']?.toString(),
+      'location': t['location']?.toString(),
+      'purpose': t['purpose']?.toString(),
+    }).toList();
   }
 
   bool get _hasTimeline {
-    final timeline = _getTimelineFromAnalysis();
-    return timeline.values.any((v) => v != null && v.isNotEmpty);
+    final timelines = _getTimelines();
+    return timelines.isNotEmpty;
   }
 
   @override
@@ -292,24 +310,22 @@ class _ItemDetailPageState extends State<_ItemDetailPage> {
   }
 
   void _resetTimelineControllers() {
-    final timeline = _getTimelineFromAnalysis();
-    _timelineDateController.text = timeline['date'] ?? '';
-    _timelineTimeController.text = timeline['time'] ?? '';
-    _timelineDurationController.text = timeline['duration'] ?? '';
-    _timelinePrincipalController.text = timeline['principal'] ?? '';
-    _timelineLocationController.text = timeline['location'] ?? '';
-    _timelinePurposeController.text = timeline['purpose'] ?? '';
+    for (var controllers in _timelineControllersList) {
+        for (var c in controllers.values) {
+            c.dispose();
+        }
+    }
+    _initTimelineControllers();
   }
 
   @override
   void dispose() {
     _titleController.dispose();
-    _timelineDateController.dispose();
-    _timelineTimeController.dispose();
-    _timelineDurationController.dispose();
-    _timelinePrincipalController.dispose();
-    _timelineLocationController.dispose();
-    _timelinePurposeController.dispose();
+    for (var controllers in _timelineControllersList) {
+        for (var c in controllers.values) {
+            c.dispose();
+        }
+    }
     super.dispose();
   }
 
@@ -353,12 +369,12 @@ class _ItemDetailPageState extends State<_ItemDetailPage> {
     if (widget.authToken == null) return;
 
     final newTitle = _titleController.text.trim();
-    final currentTimeline = _getTimelineFromAnalysis();
-    final newTimeline = _buildTimelinePayload();
+    final currentTimelines = _getTimelines();
+    final newTimelines = _buildTimelinePayloads();
 
     final hasChanges = newTitle != (widget.item.title ?? '') ||
         !_listEquals(_editableTags, _getTagsFromAnalysis()) ||
-        _hasTimelineChanges(currentTimeline, newTimeline);
+        _hasTimelineChanges(currentTimelines, newTimelines);
 
     if (!hasChanges) {
       widget.onEditModeChanged?.call(false);
@@ -375,7 +391,7 @@ class _ItemDetailPageState extends State<_ItemDetailPage> {
         widget.item.id,
         title: newTitle.isNotEmpty ? newTitle : null,
         tags: _editableTags,
-        timeline: newTimeline.isNotEmpty ? newTimeline : null,
+        timeline: newTimelines.isNotEmpty ? newTimelines : null,
       );
 
       // Update the item locally
@@ -383,14 +399,10 @@ class _ItemDetailPageState extends State<_ItemDetailPage> {
           Map<String, dynamic>.from(widget.item.analysis ?? {});
       updatedAnalysis['tags'] = _editableTags;
 
-      // Update timeline in local analysis
-      if (newTimeline.isNotEmpty) {
-        updatedAnalysis['timeline'] = newTimeline;
-      }
-
       final updatedItem = widget.item.copyWith(
         title: newTitle.isNotEmpty ? newTitle : widget.item.title,
         analysis: updatedAnalysis,
+        timeline: newTimelines.isNotEmpty ? newTimelines : null,
       );
 
       widget.onItemUpdated?.call(updatedItem);
@@ -416,31 +428,33 @@ class _ItemDetailPageState extends State<_ItemDetailPage> {
     }
   }
 
-  Map<String, String?> _buildTimelinePayload() {
-    final result = <String, String?>{};
-    final date = _timelineDateController.text.trim();
-    final time = _timelineTimeController.text.trim();
-    final duration = _timelineDurationController.text.trim();
-    final principal = _timelinePrincipalController.text.trim();
-    final location = _timelineLocationController.text.trim();
-    final purpose = _timelinePurposeController.text.trim();
-
-    if (date.isNotEmpty) result['date'] = date;
-    if (time.isNotEmpty) result['time'] = time;
-    if (duration.isNotEmpty) result['duration'] = duration;
-    if (principal.isNotEmpty) result['principal'] = principal;
-    if (location.isNotEmpty) result['location'] = location;
-    if (purpose.isNotEmpty) result['purpose'] = purpose;
-
-    return result;
+  List<Map<String, dynamic>> _buildTimelinePayloads() {
+      List<Map<String, dynamic>> payloads = [];
+      for (var controllers in _timelineControllersList) {
+          final result = <String, String>{};
+          for (var entry in controllers.entries) {
+              final val = entry.value.text.trim();
+              if (val.isNotEmpty) {
+                  result[entry.key] = val;
+              }
+          }
+          if (result.isNotEmpty) {
+              payloads.add(result);
+          }
+      }
+      return payloads;
   }
 
-  bool _hasTimelineChanges(Map<String, String?> current, Map<String, String?> updated) {
+  bool _hasTimelineChanges(List<Map<String, String?>> current, List<Map<String, dynamic>> updated) {
+    if (current.length != updated.length) return true;
     const fields = ['date', 'time', 'duration', 'principal', 'location', 'purpose'];
-    for (final field in fields) {
-      final currentVal = current[field] ?? '';
-      final updatedVal = updated[field] ?? '';
-      if (currentVal != updatedVal) return true;
+    
+    for (int i = 0; i < current.length; i++) {
+        for (final field in fields) {
+            final currentVal = current[i][field] ?? '';
+            final updatedVal = updated[i][field] ?? '';
+            if (currentVal != updatedVal) return true;
+        }
     }
     return false;
   }
@@ -1201,102 +1215,185 @@ class _ItemDetailPageState extends State<_ItemDetailPage> {
   }
 
   int _countTimelineFields() {
-    final timeline = _getTimelineFromAnalysis();
-    return timeline.values.where((v) => v != null && v.isNotEmpty).length;
+    final timelines = _getTimelines();
+    int count = 0;
+    for (var timeline in timelines) {
+        count += timeline.values.where((v) => v != null && v.isNotEmpty).length;
+    }
+    return count;
   }
 
   Widget _buildReadonlyTimelineFields(BuildContext context) {
     final theme = Theme.of(context);
-    final timeline = _getTimelineFromAnalysis();
-
-    final fields = <MapEntry<String, String>>[];
-    if (timeline['date']?.isNotEmpty == true) {
-      fields.add(MapEntry('Date', timeline['date']!));
-    }
-    if (timeline['time']?.isNotEmpty == true) {
-      fields.add(MapEntry('Time', timeline['time']!));
-    }
-    if (timeline['duration']?.isNotEmpty == true) {
-      fields.add(MapEntry('Duration', timeline['duration']!));
-    }
-    if (timeline['principal']?.isNotEmpty == true) {
-      fields.add(MapEntry('Principal', timeline['principal']!));
-    }
-    if (timeline['location']?.isNotEmpty == true) {
-      fields.add(MapEntry('Location', timeline['location']!));
-    }
-    if (timeline['purpose']?.isNotEmpty == true) {
-      fields.add(MapEntry('Purpose', timeline['purpose']!));
-    }
+    final timelines = _getTimelines();
 
     return Column(
-      children: fields
-          .map((e) => Padding(
-                padding: const EdgeInsets.symmetric(vertical: AppSpacing.xs),
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    SizedBox(
-                      width: 80,
-                      child: Text(
-                        e.key,
-                        style: theme.textTheme.bodySmall?.copyWith(
-                          fontWeight: FontWeight.w500,
-                          color: AppColors.textSecondary,
-                        ),
-                      ),
-                    ),
-                    Expanded(
-                      child: Text(
-                        e.value,
-                        style: theme.textTheme.bodyMedium,
-                      ),
-                    ),
-                  ],
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: timelines.asMap().entries.expand((entry) {
+        final index = entry.key;
+        final timeline = entry.value;
+        final isLast = index == timelines.length - 1;
+
+        final fields = <MapEntry<String, String>>[];
+        if (timeline['date']?.isNotEmpty == true) {
+          fields.add(MapEntry('Date', timeline['date']!));
+        }
+        if (timeline['time']?.isNotEmpty == true) {
+          fields.add(MapEntry('Time', timeline['time']!));
+        }
+        if (timeline['duration']?.isNotEmpty == true) {
+          fields.add(MapEntry('Duration', timeline['duration']!));
+        }
+        if (timeline['principal']?.isNotEmpty == true) {
+          fields.add(MapEntry('Principal', timeline['principal']!));
+        }
+        if (timeline['location']?.isNotEmpty == true) {
+          fields.add(MapEntry('Location', timeline['location']!));
+        }
+        if (timeline['purpose']?.isNotEmpty == true) {
+          fields.add(MapEntry('Purpose', timeline['purpose']!));
+        }
+
+        final widgets = fields.map<Widget>((e) => Padding(
+          padding: const EdgeInsets.symmetric(vertical: AppSpacing.xs),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              SizedBox(
+                width: 80,
+                child: Text(
+                  e.key,
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    fontWeight: FontWeight.w500,
+                    color: AppColors.textSecondary,
+                  ),
                 ),
-              ))
-          .toList(),
+              ),
+              Expanded(
+                child: Text(
+                  e.value,
+                  style: theme.textTheme.bodyMedium,
+                ),
+              ),
+            ],
+          ),
+        )).toList();
+
+        if (!isLast && widgets.isNotEmpty) {
+           widgets.add(const Divider(height: AppSpacing.lg));
+        }
+
+        return widgets;
+      }).toList(),
     );
   }
 
+  void _addNewTimelineEvent() {
+    setState(() {
+      _timelineControllersList.add({
+        'date': TextEditingController(),
+        'time': TextEditingController(),
+        'duration': TextEditingController(),
+        'principal': TextEditingController(),
+        'location': TextEditingController(),
+        'purpose': TextEditingController(),
+      });
+      // automatically expand if closed
+      _isTimelineExpanded = true;
+    });
+  }
+
+  void _removeTimelineEvent(int index) {
+     setState(() {
+         final removed = _timelineControllersList.removeAt(index);
+         for (var c in removed.values) {
+             c.dispose();
+         }
+     });
+  }
+
   Widget _buildEditableTimelineFields(BuildContext context) {
+    if (_timelineControllersList.isEmpty) {
+         return Center(
+             child: TextButton.icon(
+                 onPressed: _addNewTimelineEvent,
+                 icon: const Icon(Icons.add),
+                 label: const Text('Add Timeline Event'),
+             )
+         );
+    }
+    
     return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        _buildTimelineTextField(
-          controller: _timelineDateController,
-          label: 'Date',
-          hint: 'YYYY-MM-DD',
-        ),
-        const SizedBox(height: AppSpacing.md),
-        _buildTimelineTextField(
-          controller: _timelineTimeController,
-          label: 'Time',
-          hint: 'HH:MM:SS',
-        ),
-        const SizedBox(height: AppSpacing.md),
-        _buildTimelineTextField(
-          controller: _timelineDurationController,
-          label: 'Duration',
-          hint: 'HH:MM:SS',
-        ),
-        const SizedBox(height: AppSpacing.md),
-        _buildTimelineTextField(
-          controller: _timelinePrincipalController,
-          label: 'Principal',
-          hint: 'Person or organization',
-        ),
-        const SizedBox(height: AppSpacing.md),
-        _buildTimelineTextField(
-          controller: _timelineLocationController,
-          label: 'Location',
-          hint: 'Where it takes place',
-        ),
-        const SizedBox(height: AppSpacing.md),
-        _buildTimelineTextField(
-          controller: _timelinePurposeController,
-          label: 'Purpose',
-          hint: 'What the event is about',
-          maxLines: 2,
+        ..._timelineControllersList.asMap().entries.map((entry) {
+          final index = entry.key;
+          final controllers = entry.value;
+          final isLast = index == _timelineControllersList.length - 1;
+          
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text('Event ${index + 1}', style: Theme.of(context).textTheme.titleSmall),
+                  IconButton(
+                    icon: const Icon(Icons.delete_outline, size: 20, color: AppColors.error),
+                    visualDensity: VisualDensity.compact,
+                    onPressed: () => _removeTimelineEvent(index),
+                    tooltip: 'Remove Event',
+                  ),
+                ],
+              ),
+              const SizedBox(height: AppSpacing.sm),
+              _buildTimelineTextField(
+                controller: controllers['date']!,
+                label: 'Date',
+                hint: 'YYYY-MM-DD',
+              ),
+              const SizedBox(height: AppSpacing.md),
+              _buildTimelineTextField(
+                controller: controllers['time']!,
+                label: 'Time',
+                hint: 'HH:MM:SS',
+              ),
+              const SizedBox(height: AppSpacing.md),
+              _buildTimelineTextField(
+                controller: controllers['duration']!,
+                label: 'Duration',
+                hint: 'HH:MM:SS',
+              ),
+              const SizedBox(height: AppSpacing.md),
+              _buildTimelineTextField(
+                controller: controllers['principal']!,
+                label: 'Principal',
+                hint: 'Person or organization',
+              ),
+              const SizedBox(height: AppSpacing.md),
+              _buildTimelineTextField(
+                controller: controllers['location']!,
+                label: 'Location',
+                hint: 'Where it takes place',
+              ),
+              const SizedBox(height: AppSpacing.md),
+              _buildTimelineTextField(
+                controller: controllers['purpose']!,
+                label: 'Purpose',
+                hint: 'What the event is about',
+                maxLines: 2,
+              ),
+              if (!isLast) const Divider(height: AppSpacing.xl, thickness: 1),
+              if (isLast) const SizedBox(height: AppSpacing.lg),
+            ],
+          );
+        }),
+        Center(
+          child: TextButton.icon(
+            onPressed: _addNewTimelineEvent,
+            icon: const Icon(Icons.add),
+            label: const Text('Add Another Event'),
+          ),
         ),
       ],
     );

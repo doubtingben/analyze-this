@@ -226,10 +226,28 @@ async def _process_analysis_item(db, data, context):
             # Save results
             with create_span("save_analysis_result", {"item.id": doc_id}) as save_span:
                 update_data = {
-                    'analysis': analysis_result,
                     'status': new_status,
                     'next_step': new_status
                 }
+                
+                # Extract timeline events to append to the root item timeline
+                timeline_events = analysis_result.get('timeline', [])
+                if timeline_events:
+                    # Filter out empty elements if any
+                    valid_events = [e for e in timeline_events if any(v for k,v in e.items())]
+                    if valid_events:
+                        # Append valid new events to the existing timeline array on the database using an append-style operation 
+                        # or by reading current then extending. Since we already have data:
+                        current_timeline = data.get('timeline', [])
+                        current_timeline.extend(valid_events)
+                        update_data['timeline'] = current_timeline
+                    
+                    # Remove from analysis_result to avoid duplication if desired, or keep it.
+                    # We'll remove it to match the new structure.
+                    del analysis_result['timeline']
+
+                update_data['analysis'] = analysis_result
+
                 if embedding:
                     update_data['embedding'] = embedding
 

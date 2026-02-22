@@ -1,6 +1,6 @@
 from datetime import datetime, timezone
 from enum import Enum
-from typing import Optional
+from typing import Optional, List
 from uuid import UUID, uuid4
 from pydantic import BaseModel, Field
 
@@ -40,7 +40,7 @@ class TimelineEvent(BaseModel):
 
 class AnalysisResult(BaseModel):
     overview: str  # Required - human-readable summary for UI
-    timeline: Optional[TimelineEvent] = None
+    timeline: Optional[list[TimelineEvent]] = Field(default_factory=list)
     follow_up: Optional[str] = None
     tags: Optional[list[str]] = None  # Optional categorization
 
@@ -61,6 +61,7 @@ class SharedItem(BaseModel):
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     item_metadata: Optional[dict] = Field(default=None)
     analysis: Optional[AnalysisResult] = Field(default=None)
+    timeline: list[TimelineEvent] = Field(default_factory=list)
     status: ItemStatus = Field(default=ItemStatus.new)
     next_step: Optional[str] = Field(default=None)
     image: Optional[str] = Field(default=None)
