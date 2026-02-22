@@ -1305,6 +1305,7 @@ async function fetchNoteCounts(items) {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
+        ...getCsrfHeaders(),
       },
       body: JSON.stringify({ item_ids: itemIds }),
     });
