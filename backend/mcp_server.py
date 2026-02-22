@@ -17,6 +17,7 @@ from mcp.types import Tool, TextContent
 
 from database import DatabaseInterface, FirestoreDatabase, SQLiteDatabase
 from models import WorkerJobStatus, ItemStatus
+from ticktick import TickTickClient
 
 # Configure logging
 logging.basicConfig(
@@ -31,6 +32,9 @@ APP_ENV = os.getenv("APP_ENV", "production")
 
 # Global database instance
 db: Optional[DatabaseInterface] = None
+
+# TickTick client (kanban board)
+ticktick = TickTickClient()
 
 
 async def get_db() -> DatabaseInterface:
@@ -527,6 +531,149 @@ async def list_tools() -> list[Tool]:
                 },
                 "required": ["status"]
             }
+        ),
+        # ---- TickTick Kanban Board Tools ----
+        Tool(
+            name="ticktick_list_columns",
+            description="List all kanban columns/sections in the TickTick project",
+            inputSchema={
+                "type": "object",
+                "properties": {}
+            }
+        ),
+        Tool(
+            name="ticktick_list_tasks",
+            description="List tasks in the TickTick kanban board, optionally filtered by column",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "column_id": {
+                        "type": "string",
+                        "description": "Optional column/section ID to filter tasks by"
+                    }
+                }
+            }
+        ),
+        Tool(
+            name="ticktick_get_task",
+            description="Get details of a specific task from the TickTick kanban board",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "task_id": {
+                        "type": "string",
+                        "description": "The task ID"
+                    }
+                },
+                "required": ["task_id"]
+            }
+        ),
+        Tool(
+            name="ticktick_create_task",
+            description="Create a new task in the TickTick kanban board",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "title": {
+                        "type": "string",
+                        "description": "Task title"
+                    },
+                    "content": {
+                        "type": "string",
+                        "description": "Task description/content"
+                    },
+                    "column_id": {
+                        "type": "string",
+                        "description": "Column/section ID to place the task in"
+                    },
+                    "priority": {
+                        "type": "number",
+                        "description": "Priority level (0=none, 1=low, 3=medium, 5=high)",
+                        "default": 0
+                    },
+                    "due_date": {
+                        "type": "string",
+                        "description": "Due date in ISO 8601 format (e.g., '2025-12-31T00:00:00+0000')"
+                    }
+                },
+                "required": ["title"]
+            }
+        ),
+        Tool(
+            name="ticktick_update_task",
+            description="Update an existing task's fields in the TickTick kanban board",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "task_id": {
+                        "type": "string",
+                        "description": "The task ID to update"
+                    },
+                    "title": {
+                        "type": "string",
+                        "description": "New task title"
+                    },
+                    "content": {
+                        "type": "string",
+                        "description": "New task description/content"
+                    },
+                    "priority": {
+                        "type": "number",
+                        "description": "New priority level (0=none, 1=low, 3=medium, 5=high)"
+                    },
+                    "due_date": {
+                        "type": "string",
+                        "description": "New due date in ISO 8601 format"
+                    }
+                },
+                "required": ["task_id"]
+            }
+        ),
+        Tool(
+            name="ticktick_delete_task",
+            description="Delete a task from the TickTick kanban board",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "task_id": {
+                        "type": "string",
+                        "description": "The task ID to delete"
+                    }
+                },
+                "required": ["task_id"]
+            }
+        ),
+        Tool(
+            name="ticktick_complete_task",
+            description="Mark a task as complete in the TickTick kanban board",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "task_id": {
+                        "type": "string",
+                        "description": "The task ID to complete"
+                    }
+                },
+                "required": ["task_id"]
+            }
+        ),
+        Tool(
+            name="ticktick_move_task",
+            description="Move a task to a different kanban column in TickTick",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "task_id": {
+                        "type": "string",
+                        "description": "The task ID to move"
+                    },
+                    "column_id": {
+                        "type": "string",
+                        "description": "The target column/section ID"
+                    }
+                },
+                "required": ["task_id", "column_id"]
+            }
         )
     ]
 
@@ -568,9 +715,76 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
             result = await get_items_by_status(status=status, limit=limit)
             return [TextContent(type="text", text=result)]
         
+        # ---- TickTick Kanban Board Tools ----
+        elif name == "ticktick_list_columns":
+            result = await ticktick.list_columns()
+            return [TextContent(type="text", text=result)]
+
+        elif name == "ticktick_list_tasks":
+            column_id = arguments.get("column_id")
+            result = await ticktick.list_tasks(column_id=column_id)
+            return [TextContent(type="text", text=result)]
+
+        elif name == "ticktick_get_task":
+            task_id = arguments.get("task_id")
+            if not task_id:
+                return [TextContent(type="text", text="Error: task_id parameter is required")]
+            result = await ticktick.get_task(task_id=task_id)
+            return [TextContent(type="text", text=result)]
+
+        elif name == "ticktick_create_task":
+            title = arguments.get("title")
+            if not title:
+                return [TextContent(type="text", text="Error: title parameter is required")]
+            result = await ticktick.create_task(
+                title=title,
+                content=arguments.get("content"),
+                column_id=arguments.get("column_id"),
+                priority=arguments.get("priority", 0),
+                due_date=arguments.get("due_date"),
+            )
+            return [TextContent(type="text", text=result)]
+
+        elif name == "ticktick_update_task":
+            task_id = arguments.get("task_id")
+            if not task_id:
+                return [TextContent(type="text", text="Error: task_id parameter is required")]
+            result = await ticktick.update_task(
+                task_id=task_id,
+                title=arguments.get("title"),
+                content=arguments.get("content"),
+                priority=arguments.get("priority"),
+                due_date=arguments.get("due_date"),
+            )
+            return [TextContent(type="text", text=result)]
+
+        elif name == "ticktick_delete_task":
+            task_id = arguments.get("task_id")
+            if not task_id:
+                return [TextContent(type="text", text="Error: task_id parameter is required")]
+            result = await ticktick.delete_task(task_id=task_id)
+            return [TextContent(type="text", text=result)]
+
+        elif name == "ticktick_complete_task":
+            task_id = arguments.get("task_id")
+            if not task_id:
+                return [TextContent(type="text", text="Error: task_id parameter is required")]
+            result = await ticktick.complete_task(task_id=task_id)
+            return [TextContent(type="text", text=result)]
+
+        elif name == "ticktick_move_task":
+            task_id = arguments.get("task_id")
+            column_id = arguments.get("column_id")
+            if not task_id:
+                return [TextContent(type="text", text="Error: task_id parameter is required")]
+            if not column_id:
+                return [TextContent(type="text", text="Error: column_id parameter is required")]
+            result = await ticktick.move_task(task_id=task_id, column_id=column_id)
+            return [TextContent(type="text", text=result)]
+
         else:
             return [TextContent(type="text", text=f"Error: Unknown tool '{name}'")]
-    
+
     except Exception as e:
         logger.error(f"Error executing tool {name}: {e}", exc_info=True)
         return [TextContent(type="text", text=f"Error: {str(e)}")]
