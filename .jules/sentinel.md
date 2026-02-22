@@ -7,3 +7,8 @@
 **Vulnerability:** The application was catching exceptions during file uploads and returning the raw exception message to the user (`detail=f"File upload failed: {str(e)}"`). This could leak sensitive internal details (e.g., file paths, connection strings, library versions) in production environments.
 **Learning:** Always sanitize error messages in production. Use a generic message for the user and log the detailed error internally. Environment-specific error details (e.g., `APP_ENV == 'development'`) can be useful for debugging but must be strictly controlled.
 **Prevention:** Implement a standard error handling pattern that checks the environment and returns generic messages in production.
+
+## 2025-02-18 - [HIGH] Missing Rate Limiting
+**Vulnerability:** Key endpoints (/login, /api/share) were vulnerable to brute-force and DoS attacks due to missing rate limiting.
+**Learning:** When using `slowapi` with FastAPI, be careful with `TestClient`. It can sometimes trigger double counting of hits in test environments. Also, `headers_enabled=True` in `Limiter` can crash if the endpoint returns a Pydantic model or dict instead of a Response object.
+**Prevention:** Implement rate limiting early using established libraries. For tests, assert on "eventual blocking" rather than exact counts if the test harness introduces artifacts, or ensure the test environment perfectly mimics production request flow.

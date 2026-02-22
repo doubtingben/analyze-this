@@ -22,3 +22,4 @@ opentelemetry-instrumentation-fastapi
 opentelemetry-instrumentation-httpx
 mcp
 google-cloud-run
+slowapi
