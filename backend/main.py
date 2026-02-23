@@ -35,6 +35,10 @@ from tracing import (
     inject_trace_context
 )
 from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
+from rate_limiter import limiter
+from slowapi import _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
+from slowapi.middleware import SlowAPIMiddleware
 
 # Load environment variables
 load_dotenv()
@@ -150,6 +154,9 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(lifespan=lifespan)
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+app.add_middleware(SlowAPIMiddleware)
 
 # Instrument FastAPI for OpenTelemetry tracing
 FastAPIInstrumentor.instrument_app(app)
@@ -340,6 +347,7 @@ async def read_root(request: Request):
     return response
 
 @app.get("/login")
+@limiter.limit("5/minute")
 async def login(request: Request):
     # Ensure fully qualified URL for redirect_uri to avoid mismatches
     # Cloud Run behind load balancer might need X-Forwarded-Proto considerations, but starlette handles some.
@@ -551,6 +559,7 @@ def normalize_share_type(raw_type: Optional[str], content: Optional[str], file: 
     # workaround: Check Content-Type header.
     
 @app.post("/api/share", dependencies=[Depends(check_csrf)])
+@limiter.limit("20/minute")
 async def share_item(
     request: Request,
     title: str = Form(None),
@@ -1146,6 +1155,7 @@ class ItemUpdateRequest(BaseModel):
 
 
 @app.post("/api/items/{item_id}/notes", dependencies=[Depends(check_csrf)])
+@limiter.limit("20/minute")
 async def create_item_note(
     item_id: str,
     request: Request,
@@ -1521,6 +1531,7 @@ async def get_user_metrics(request: Request):
 
 
 @app.get("/api/search")
+@limiter.limit("20/minute")
 async def search_items_endpoint(request: Request, q: str, limit: int = 10):
     """
     Semantic search for items using vector embeddings.
