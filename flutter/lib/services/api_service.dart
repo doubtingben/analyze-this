@@ -155,7 +155,7 @@ class ApiService {
     String? status,
     String? nextStep,
     String? followUp,
-    Map<String, String?>? timeline,
+    List<Map<String, dynamic>>? timeline,
   }) async {
     final body = <String, dynamic>{};
     if (title != null) body['title'] = title;
