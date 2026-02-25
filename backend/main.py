@@ -1466,20 +1466,7 @@ async def update_item(item_id: str, request: Request, body: ItemUpdateRequest):
 
     # Update timeline directly on the item
     if body.timeline is not None:
-        try:
-             import json
-             from pydantic import TypeAdapter
-             timeline_adapter = TypeAdapter(List[TimelineEvent])
-             
-             if isinstance(body.timeline, str):
-                  parsed_timeline = json.loads(body.timeline)
-                  validated_timeline = timeline_adapter.validate_python(parsed_timeline)
-             else:
-                  validated_timeline = timeline_adapter.validate_python(body.timeline)
-                  
-             updates['timeline'] = [t.model_dump(exclude_unset=True) for t in validated_timeline]
-        except Exception as e:
-             raise HTTPException(status_code=400, detail=f"Invalid timeline format: {e}")
+        updates['timeline'] = [t.model_dump(exclude_none=True) for t in body.timeline]
 
     if analysis_updated:
         updates['analysis'] = current_analysis
