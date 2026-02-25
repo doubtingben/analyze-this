@@ -55,6 +55,10 @@ class DatabaseInterface(ABC):
         pass
 
     @abstractmethod
+    async def get_shared_items_by_ids(self, item_ids: List[str]) -> List[dict]:
+        pass
+
+    @abstractmethod
     async def update_shared_item(self, item_id: str, updates: dict) -> bool:
         pass
 
@@ -202,7 +206,7 @@ class FirestoreDatabase(DatabaseInterface):
             for i in range(0, len(item_ids), 100):
                 chunk = item_ids[i:i + 100]
                 doc_refs = [self.db.collection('shared_items').document(tid) for tid in chunk]
-                snapshots = self.db.get_all(doc_refs)
+                snapshots = self.db.get_all(*doc_refs)
                 for snap in snapshots:
                     if snap.exists:
                         data = snap.to_dict()
@@ -233,6 +237,28 @@ class FirestoreDatabase(DatabaseInterface):
             data['firestore_id'] = doc.id
             return data
         return None
+
+    async def get_shared_items_by_ids(self, item_ids: List[str]) -> List[dict]:
+        if not item_ids:
+            return []
+
+        def get_docs():
+            items = []
+            # Firestore get_all can take many document references.
+            # We chunk them to be safe and efficient.
+            for i in range(0, len(item_ids), 100):
+                chunk = item_ids[i:i + 100]
+                doc_refs = [self.db.collection('shared_items').document(tid) for tid in chunk]
+                snapshots = self.db.get_all(doc_refs)
+                for snap in snapshots:
+                    if snap.exists:
+                        data = snap.to_dict()
+                        data['firestore_id'] = snap.id
+                        items.append(data)
+            return items
+
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(None, get_docs)
 
     async def update_shared_item(self, item_id: str, updates: dict) -> bool:
         item_ref = self.db.collection('shared_items').document(item_id)
@@ -929,6 +955,34 @@ class SQLiteDatabase(DatabaseInterface):
                     'hidden': item.hidden
                 }
             return None
+
+    async def get_shared_items_by_ids(self, item_ids: List[str]) -> List[dict]:
+        if not item_ids:
+            return []
+        async with self.SessionLocal() as session:
+            result = await session.execute(
+                select(DBSharedItem).where(DBSharedItem.id.in_(item_ids))
+            )
+            items = result.scalars().all()
+
+            return [
+                {
+                    'firestore_id': item.id,
+                    'title': item.title,
+                    'content': item.content,
+                    'type': item.type,
+                    'user_email': item.user_email,
+                    'created_at': item.created_at,
+                    'item_metadata': item.item_metadata,
+                    'analysis': item.analysis,
+                    'timeline': item.timeline,
+                    'status': item.status,
+                    'next_step': item.next_step,
+                    'is_normalized': item.is_normalized,
+                    'hidden': item.hidden
+                }
+                for item in items
+            ]
 
     async def update_shared_item(self, item_id: str, updates: dict) -> bool:
         async with self.SessionLocal() as session:
