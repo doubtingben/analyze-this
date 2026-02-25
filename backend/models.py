@@ -37,6 +37,7 @@ class TimelineEvent(BaseModel):
     duration: Optional[str] = None
     location: Optional[str] = None
     principal: Optional[str] = None
+    purpose: Optional[str] = None
 
 class AnalysisResult(BaseModel):
     overview: str  # Required - human-readable summary for UI

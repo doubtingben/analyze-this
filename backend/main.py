@@ -1152,7 +1152,7 @@ class ItemUpdateRequest(BaseModel):
     status: Optional[ItemStatus] = None
     next_step: Optional[str] = Field(None, max_length=MAX_TITLE_LENGTH)
     follow_up: Optional[str] = Field(None, max_length=MAX_TEXT_LENGTH)
-    timeline: Optional[TimelineUpdate] = None
+    timeline: Optional[List[TimelineUpdate]] = None
 
     @field_validator('tags')
     @classmethod
