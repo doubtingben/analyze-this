@@ -1101,11 +1101,9 @@ function groupItemsByMediaTag(items) {
 
 // Get event date from analysis details
 function getEventDateTime(item) {
-  if (!item.analysis) return null;
-
-  // Check for new 'timeline' structure
-  if (item.analysis.timeline) {
-    const timeline = item.analysis.timeline;
+  // Check for timeline events (root-level array or legacy analysis.timeline)
+  const timelines = getTimelinesFromItem(item);
+  for (const timeline of timelines) {
     if (timeline.date) {
       try {
         let dateStr = timeline.date;
@@ -1131,6 +1129,8 @@ function getEventDateTime(item) {
       }
     }
   }
+
+  if (!item.analysis) return null;
 
   if (!item.analysis.details) return null;
 

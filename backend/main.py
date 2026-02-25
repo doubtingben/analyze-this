@@ -334,7 +334,9 @@ async def read_root(request: Request):
             return response
         return HTMLResponse('<a href="/login">Login with Google</a>')
     
-    response = FileResponse("static/index.html")
+    html = Path("static/index.html").read_text()
+    html = html.replace("/static/app.js", f"/static/app.js?v={APP_VERSION}")
+    response = HTMLResponse(html)
     if csrf_token:
          response.set_cookie(key="csrf_token", value=csrf_token, httponly=False, samesite="lax")
     return response
