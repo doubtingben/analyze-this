@@ -108,6 +108,67 @@ let tagSortMode = "name"; // Tag editor sort mode
 let currentUserTimezone = "America/New_York"; // Default timezone
 let isTimelineExpanded = false; // Timeline section expansion state
 
+const VIEW_PATHS = {
+  all: "/",
+  timeline: "/timeline",
+  follow_up: "/followup",
+  media: "/media",
+};
+
+function getPathForView(view) {
+  return VIEW_PATHS[view] || "/";
+}
+
+function normalizeView(view) {
+  return VIEW_PATHS[view] ? view : "all";
+}
+
+function normalizePathname(pathname) {
+  if (!pathname) return "/";
+  if (pathname.length > 1 && pathname.endsWith("/")) {
+    return pathname.slice(0, -1);
+  }
+  return pathname;
+}
+
+function getViewFromPathname(pathname) {
+  const normalized = normalizePathname(pathname).toLowerCase();
+  if (normalized === "/timeline") return "timeline";
+  if (normalized === "/followup" || normalized === "/follow-up") return "follow_up";
+  if (normalized === "/media") return "media";
+  return "all";
+}
+
+function updateViewButtons() {
+  document.querySelectorAll(".view-btn").forEach((btn) => {
+    btn.classList.toggle("active", btn.dataset.view === currentView);
+  });
+}
+
+function updateUrlForView(view, replace = false) {
+  const targetPath = getPathForView(view);
+  if (window.location.pathname === targetPath) return;
+  const suffix = `${window.location.search || ""}${window.location.hash || ""}`;
+  const targetUrl = `${targetPath}${suffix}`;
+  if (replace) {
+    window.history.replaceState({ view }, "", targetUrl);
+  } else {
+    window.history.pushState({ view }, "", targetUrl);
+  }
+}
+
+function setView(view, options = {}) {
+  const { push = true } = options;
+  const nextView = normalizeView(view);
+  if (currentView === nextView) return;
+  currentView = nextView;
+  updateViewButtons();
+  if (push) {
+    updateUrlForView(nextView, false);
+  }
+  renderFilteredItems();
+}
+
 // Helper to get cookies
 function getCookie(name) {
   const value = `; ${document.cookie}`;
@@ -136,11 +197,23 @@ async function init() {
     // Show new item button for logged in users
     newItemBtn.style.display = "block";
 
+    currentView = getViewFromPathname(window.location.pathname);
+
     // Setup filter controls
     setupFilters();
     setupUserMenu();
     setupSearchInput();
     setupFilterModal();
+    updateViewButtons();
+    updateUrlForView(currentView, true);
+
+    window.addEventListener("popstate", () => {
+      const view = getViewFromPathname(window.location.pathname);
+      if (view === currentView) return;
+      currentView = view;
+      updateViewButtons();
+      renderFilteredItems();
+    });
 
     // Setup create modal
     setupCreateModal();
@@ -357,12 +430,7 @@ function setupFilters() {
   // View toggle buttons
   document.querySelectorAll(".view-btn").forEach((btn) => {
     btn.addEventListener("click", () => {
-      document
-        .querySelectorAll(".view-btn")
-        .forEach((b) => b.classList.remove("active"));
-      btn.classList.add("active");
-      currentView = btn.dataset.view;
-      renderFilteredItems();
+      setView(btn.dataset.view, { push: true });
     });
   });
 

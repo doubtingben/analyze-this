@@ -244,8 +244,7 @@ async def check_csrf(request: Request):
         if not session_token or not header_token or session_token != header_token:
             raise HTTPException(status_code=403, detail="CSRF token mismatch or missing")
 
-@app.get("/")
-async def read_root(request: Request):
+async def render_dashboard(request: Request):
     user = request.session.get('user')
     csrf_token = None
 
@@ -340,6 +339,26 @@ async def read_root(request: Request):
     if csrf_token:
          response.set_cookie(key="csrf_token", value=csrf_token, httponly=False, samesite="lax")
     return response
+
+@app.get("/")
+async def read_root(request: Request):
+    return await render_dashboard(request)
+
+@app.get("/timeline")
+async def read_timeline(request: Request):
+    return await render_dashboard(request)
+
+@app.get("/followup")
+async def read_followup(request: Request):
+    return await render_dashboard(request)
+
+@app.get("/follow-up")
+async def read_followup_alt(request: Request):
+    return await render_dashboard(request)
+
+@app.get("/media")
+async def read_media(request: Request):
+    return await render_dashboard(request)
 
 @app.get("/login")
 async def login(request: Request):
@@ -1576,4 +1595,3 @@ async def search_items_endpoint(request: Request, q: str, limit: int = 10):
         record_exception(e)
         print(f"Search failed: {e}")
         raise HTTPException(status_code=500, detail="Search failed")
-
