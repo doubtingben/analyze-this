@@ -1,4 +1,5 @@
 import os
+import base64
 import datetime
 from uuid import uuid4
 import asyncio
@@ -155,6 +156,27 @@ class FirestoreDatabase(DatabaseInterface):
             })
         self.db: FirestoreClient = firestore.client()
 
+    def _encode_tag(self, tag: str) -> str:
+        return base64.urlsafe_b64encode(tag.encode('utf-8')).decode('utf-8').rstrip('=')
+
+    def _decode_tag(self, encoded_tag: str) -> str:
+        padding = 4 - (len(encoded_tag) % 4)
+        if padding != 4:
+            encoded_tag += '=' * padding
+        return base64.urlsafe_b64decode(encoded_tag.encode('utf-8')).decode('utf-8')
+
+    def _get_tag_updates(self, added_tags: List[str], removed_tags: List[str]) -> dict:
+        updates = {}
+        for tag in added_tags:
+            if not tag: continue
+            key = f"tags.{self._encode_tag(tag)}"
+            updates[key] = firestore.Increment(1)
+        for tag in removed_tags:
+            if not tag: continue
+            key = f"tags.{self._encode_tag(tag)}"
+            updates[key] = firestore.Increment(-1)
+        return updates
+
     async def get_user(self, email: str) -> Optional[User]:
         doc = self.db.collection('users').document(email).get()
         if doc.exists:
@@ -170,8 +192,33 @@ class FirestoreDatabase(DatabaseInterface):
 
     async def create_shared_item(self, item: SharedItem) -> SharedItem:
         item_dict = item.dict()
-        # Use item.id as Firestore document ID for easier cross-system referencing
-        self.db.collection('shared_items').document(item.id).set(item_dict)
+        item_ref = self.db.collection('shared_items').document(item.id)
+
+        # Extract tags for denormalization
+        tags = []
+        if item.analysis and item.analysis.tags:
+            tags = item.analysis.tags
+
+        loop = asyncio.get_running_loop()
+
+        def _create_with_tags():
+            transaction = self.db.transaction()
+
+            @firestore.transactional
+            def _txn(transaction):
+                # Check if user_tags exists
+                user_tags_ref = self.db.collection('user_tags').document(item.user_email)
+                user_tags_doc = user_tags_ref.get(transaction=transaction)
+
+                transaction.set(item_ref, item_dict)
+
+                if user_tags_doc.exists and tags:
+                    tag_updates = self._get_tag_updates(tags, [])
+                    transaction.set(user_tags_ref, tag_updates, merge=True)
+
+            _txn(transaction)
+
+        await loop.run_in_executor(None, _create_with_tags)
         return item
 
     async def get_shared_items(self, user_email: str) -> List[dict]:
@@ -215,16 +262,42 @@ class FirestoreDatabase(DatabaseInterface):
 
     async def delete_shared_item(self, item_id: str, user_email: str) -> bool:
         item_ref = self.db.collection('shared_items').document(item_id)
-        doc = item_ref.get()
-        if not doc.exists:
-            return False
 
-        item_data = doc.to_dict()
-        if item_data.get('user_email') != user_email:
-            raise ValueError("Forbidden")
+        loop = asyncio.get_running_loop()
 
-        item_ref.delete()
-        return True
+        def _delete_with_tags():
+            transaction = self.db.transaction()
+
+            @firestore.transactional
+            def _txn(transaction):
+                doc = item_ref.get(transaction=transaction)
+                if not doc.exists:
+                    return False
+
+                item_data = doc.to_dict()
+                if item_data.get('user_email') != user_email:
+                    # Raises error which aborts transaction
+                    raise ValueError("Forbidden")
+
+                # Calculate removed tags
+                analysis = item_data.get('analysis') or {}
+                tags = analysis.get('tags') or []
+
+                transaction.delete(item_ref)
+
+                if tags:
+                    user_tags_ref = self.db.collection('user_tags').document(user_email)
+                    user_tags_doc = user_tags_ref.get(transaction=transaction)
+
+                    if user_tags_doc.exists:
+                        tag_updates = self._get_tag_updates([], tags)
+                        transaction.set(user_tags_ref, tag_updates, merge=True)
+
+                return True
+
+            return _txn(transaction)
+
+        return await loop.run_in_executor(None, _delete_with_tags)
 
     async def get_shared_item(self, item_id: str) -> Optional[dict]:
         doc = self.db.collection('shared_items').document(item_id).get()
@@ -236,12 +309,72 @@ class FirestoreDatabase(DatabaseInterface):
 
     async def update_shared_item(self, item_id: str, updates: dict) -> bool:
         item_ref = self.db.collection('shared_items').document(item_id)
-        # Check existence if needed, or just update
-        try:
-            item_ref.update(updates)
-            return True
-        except Exception:
-            return False
+
+        # Check if analysis tags are being updated
+        check_tags = 'analysis' in updates
+
+        loop = asyncio.get_running_loop()
+
+        def _update_with_tags():
+            if not check_tags:
+                try:
+                    item_ref.update(updates)
+                    return True
+                except Exception:
+                    return False
+
+            transaction = self.db.transaction()
+
+            @firestore.transactional
+            def _txn(transaction):
+                doc = item_ref.get(transaction=transaction)
+                if not doc.exists:
+                    return False
+
+                item_data = doc.to_dict()
+
+                # Apply update in transaction
+                transaction.update(item_ref, updates)
+
+                # Calculate tag diff
+                old_analysis = item_data.get('analysis') or {}
+                old_tags = set(old_analysis.get('tags') or [])
+
+                new_analysis = updates.get('analysis') or {}
+                # If tags key is not present in new analysis, assume it's unchanged?
+                # Or if analysis is replaced entirely?
+                # Usually updates['analysis'] replaces the whole analysis object or fields within it?
+                # The caller usually passes the full analysis object.
+                # Let's assume safely:
+                new_tags = set(new_analysis.get('tags') or [])
+
+                # Wait, if `updates` is a partial update to the document, `analysis` key replaces `analysis` field.
+                # So `new_tags` IS the new state of tags.
+                # HOWEVER, if `updates` merges analysis fields (e.g. dot notation), logic differs.
+                # But Firestore update(dict) replaces top-level keys.
+                # `main.py` sends `{'analysis': ...}`. So it replaces analysis.
+
+                added_tags = list(new_tags - old_tags)
+                removed_tags = list(old_tags - new_tags)
+
+                if added_tags or removed_tags:
+                    user_email = item_data.get('user_email')
+                    if user_email:
+                        user_tags_ref = self.db.collection('user_tags').document(user_email)
+                        user_tags_doc = user_tags_ref.get(transaction=transaction)
+
+                        if user_tags_doc.exists:
+                            tag_updates = self._get_tag_updates(added_tags, removed_tags)
+                            transaction.set(user_tags_ref, tag_updates, merge=True)
+
+                return True
+
+            try:
+                return _txn(transaction)
+            except Exception:
+                return False
+
+        return await loop.run_in_executor(None, _update_with_tags)
 
     async def get_items_by_status(self, status: str, limit: int = 10) -> List[dict]:
         items_ref = self.db.collection('shared_items')
@@ -391,11 +524,27 @@ class FirestoreDatabase(DatabaseInterface):
         return dict(zip(item_ids, results))
 
     async def get_user_tags(self, user_email: str) -> List[str]:
-        items_ref = self.db.collection('shared_items')
-        query = items_ref.where(filter=FieldFilter('user_email', '==', user_email))
-
         def get_tags():
-            tags = set()
+            # Try fetching from denormalized collection
+            user_tags_ref = self.db.collection('user_tags').document(user_email)
+            doc = user_tags_ref.get()
+
+            if doc.exists:
+                data = doc.to_dict() or {}
+                tags_map = data.get('tags') or {}
+                # Return tags with count > 0
+                return sorted([
+                    self._decode_tag(k)
+                    for k, count in tags_map.items()
+                    if count > 0
+                ], key=str.lower)
+
+            # Fallback / Backfill
+            items_ref = self.db.collection('shared_items')
+            query = items_ref.where(filter=FieldFilter('user_email', '==', user_email))
+
+            tags_map = {} # tag -> count
+
             for doc in query.stream():
                 data = doc.to_dict() or {}
                 analysis = data.get('analysis') or {}
@@ -404,8 +553,19 @@ class FirestoreDatabase(DatabaseInterface):
                     for tag in raw_tags:
                         tag_str = str(tag).strip()
                         if tag_str:
-                            tags.add(tag_str)
-            return sorted(tags, key=str.lower)
+                            tags_map[tag_str] = tags_map.get(tag_str, 0) + 1
+
+            # Save to user_tags for next time
+            if tags_map:
+                updates = {}
+                for tag, count in tags_map.items():
+                    key = f"tags.{self._encode_tag(tag)}"
+                    updates[key] = count # Set absolute value for initial backfill
+
+                # We use set(..., merge=True) to avoid overwriting other potential fields
+                user_tags_ref.set(updates, merge=True)
+
+            return sorted(tags_map.keys(), key=str.lower)
 
         loop = asyncio.get_running_loop()
         return await loop.run_in_executor(None, get_tags)
