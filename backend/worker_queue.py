@@ -74,6 +74,18 @@ async def process_queue_jobs(
             if prepare_fn:
                 context = await prepare_fn(db, jobs)
 
+            # Batch fetch items to avoid N+1 queries
+            item_ids = list(set(job.get('item_id') for job in jobs if job.get('item_id')))
+            items_map = {}
+            if item_ids:
+                try:
+                    with create_span("batch_fetch_items", {"count": len(item_ids)}) as batch_span:
+                        fetched_items = await db.get_shared_items_by_ids(item_ids)
+                        items_map = {item.get('firestore_id'): item for item in fetched_items if item.get('firestore_id')}
+                except Exception as e:
+                    logger.error(f"Failed to batch fetch items: {e}")
+                    record_exception(e)
+
             for job in jobs:
                 job_id = job.get('firestore_id') or job.get('id')
                 item_id = job.get('item_id')
@@ -110,7 +122,12 @@ async def process_queue_jobs(
 
                     # Fetch item data
                     with create_span("fetch_item", {"item.id": item_id}) as fetch_span:
-                        data = await db.get_shared_item(item_id)
+                        data = items_map.get(item_id)
+
+                        # Fallback to individual fetch if not found in batch map (e.g. batch fetch failed or race condition)
+                        if not data:
+                            data = await db.get_shared_item(item_id)
+
                         if not data:
                             logger.error(f"Item {item_id} not found for job {job_id}.")
                             fetch_span.set_attribute("item.found", False)
