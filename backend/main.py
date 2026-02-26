@@ -1233,10 +1233,13 @@ async def create_item_note(
                 if APP_ENV == "development":
                     upload_span.set_attribute("file.storage_type", "local")
                     local_path = Path("static") / blob_name_relative
-                    local_path.parent.mkdir(parents=True, exist_ok=True)
 
-                    with open(local_path, "wb") as buffer:
-                        shutil.copyfileobj(file.file, buffer)
+                    def save_locally():
+                        local_path.parent.mkdir(parents=True, exist_ok=True)
+                        with open(local_path, "wb") as buffer:
+                            shutil.copyfileobj(file.file, buffer)
+
+                    await run_in_threadpool(save_locally)
 
                     image_path = blob_name_relative
                 else:
