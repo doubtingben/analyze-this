@@ -993,20 +993,24 @@ def _is_safe_user_blob_path(blob_path: str, user_email: str) -> bool:
     expected_prefix = f"uploads/{user_email}/"
     return blob_path.startswith(expected_prefix)
 
+def _read_local_file(blob_path: str, user_email: str) -> Optional[bytes]:
+    """Helper to read local file synchronously, to be run in threadpool."""
+    base_dir = Path("static").resolve()
+    requested_path = (base_dir / blob_path).resolve()
+    user_upload_dir = (base_dir / "uploads" / user_email).resolve()
+
+    if not str(requested_path).startswith(str(user_upload_dir)):
+        return None
+    if not requested_path.exists():
+        return None
+    return requested_path.read_bytes()
+
 async def _read_user_blob(blob_path: str, user_email: str) -> Optional[bytes]:
     if not _is_safe_user_blob_path(blob_path, user_email):
         return None
 
     if APP_ENV == "development":
-        base_dir = Path("static").resolve()
-        requested_path = (base_dir / blob_path).resolve()
-        user_upload_dir = (base_dir / "uploads" / user_email).resolve()
-
-        if not str(requested_path).startswith(str(user_upload_dir)):
-            return None
-        if not requested_path.exists():
-            return None
-        return requested_path.read_bytes()
+        return await run_in_threadpool(_read_local_file, blob_path, user_email)
 
     try:
         bucket = storage.bucket()
