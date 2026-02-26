@@ -251,8 +251,7 @@ async def check_csrf(request: Request):
         if not session_token or not header_token or session_token != header_token:
             raise HTTPException(status_code=403, detail="CSRF token mismatch or missing")
 
-@app.get("/")
-async def read_root(request: Request):
+async def render_dashboard(request: Request):
     user = request.session.get('user')
     csrf_token = None
 
@@ -341,10 +340,32 @@ async def read_root(request: Request):
             return response
         return HTMLResponse('<a href="/login">Login with Google</a>')
     
-    response = FileResponse("static/index.html")
+    html = Path("static/index.html").read_text()
+    html = html.replace("/static/app.js", f"/static/app.js?v={APP_VERSION}")
+    response = HTMLResponse(html)
     if csrf_token:
          response.set_cookie(key="csrf_token", value=csrf_token, httponly=False, samesite="lax")
     return response
+
+@app.get("/")
+async def read_root(request: Request):
+    return await render_dashboard(request)
+
+@app.get("/timeline")
+async def read_timeline(request: Request):
+    return await render_dashboard(request)
+
+@app.get("/followup")
+async def read_followup(request: Request):
+    return await render_dashboard(request)
+
+@app.get("/follow-up")
+async def read_followup_alt(request: Request):
+    return await render_dashboard(request)
+
+@app.get("/media")
+async def read_media(request: Request):
+    return await render_dashboard(request)
 
 @app.get("/login", dependencies=[Depends(auth_limiter)])
 async def login(request: Request):
@@ -1138,7 +1159,7 @@ class ItemUpdateRequest(BaseModel):
     status: Optional[ItemStatus] = None
     next_step: Optional[str] = Field(None, max_length=MAX_TITLE_LENGTH)
     follow_up: Optional[str] = Field(None, max_length=MAX_TEXT_LENGTH)
-    timeline: Optional[TimelineUpdate] = None
+    timeline: Optional[List[TimelineUpdate]] = None
 
     @field_validator('tags')
     @classmethod
@@ -1452,20 +1473,7 @@ async def update_item(item_id: str, request: Request, body: ItemUpdateRequest):
 
     # Update timeline directly on the item
     if body.timeline is not None:
-        try:
-             import json
-             from pydantic import TypeAdapter
-             timeline_adapter = TypeAdapter(List[TimelineEvent])
-             
-             if isinstance(body.timeline, str):
-                  parsed_timeline = json.loads(body.timeline)
-                  validated_timeline = timeline_adapter.validate_python(parsed_timeline)
-             else:
-                  validated_timeline = timeline_adapter.validate_python(body.timeline)
-                  
-             updates['timeline'] = [t.model_dump(exclude_unset=True) for t in validated_timeline]
-        except Exception as e:
-             raise HTTPException(status_code=400, detail=f"Invalid timeline format: {e}")
+        updates['timeline'] = [t.model_dump(exclude_none=True) for t in body.timeline]
 
     if analysis_updated:
         updates['analysis'] = current_analysis
@@ -1581,4 +1589,3 @@ async def search_items_endpoint(request: Request, q: str, limit: int = 10):
         record_exception(e)
         print(f"Search failed: {e}")
         raise HTTPException(status_code=500, detail="Search failed")
-

@@ -1087,18 +1087,16 @@ body {
     width: 100%;
     background: none;
     border: none;
-    padding: 8px 0;
+    padding: 8px;
+    margin: -8px;
     cursor: pointer;
     text-align: left;
     font-family: inherit;
+    border-radius: 8px;
 }
 
 .detail-timeline-header:hover {
     background: #f9fafb;
-    border-radius: 8px;
-    padding: 8px;
-    margin: -8px;
-    margin-bottom: 0;
 }
 
 .detail-timeline-icon {
