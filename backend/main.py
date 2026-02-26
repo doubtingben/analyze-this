@@ -211,7 +211,12 @@ async def add_security_headers(request: Request, call_next):
 
     return response
 
-app.add_middleware(SessionMiddleware, secret_key=SECRET_KEY)
+app.add_middleware(
+    SessionMiddleware,
+    secret_key=SECRET_KEY,
+    https_only=(APP_ENV == "production"),
+    same_site="lax"
+)
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
 @app.get("/favicon.ico", include_in_schema=False)
@@ -336,7 +341,13 @@ async def render_dashboard(request: Request):
             from jinja2 import Template
             response = HTMLResponse(Template(template, autoescape=True).render(user=user, items=items, csrf_token=csrf_token))
             if csrf_token:
-                 response.set_cookie(key="csrf_token", value=csrf_token, httponly=False, samesite="lax")
+                 response.set_cookie(
+                     key="csrf_token",
+                     value=csrf_token,
+                     httponly=False,
+                     samesite="lax",
+                     secure=(APP_ENV == "production")
+                 )
             return response
         return HTMLResponse('<a href="/login">Login with Google</a>')
     
@@ -344,7 +355,13 @@ async def render_dashboard(request: Request):
     html = html.replace("/static/app.js", f"/static/app.js?v={APP_VERSION}")
     response = HTMLResponse(html)
     if csrf_token:
-         response.set_cookie(key="csrf_token", value=csrf_token, httponly=False, samesite="lax")
+         response.set_cookie(
+             key="csrf_token",
+             value=csrf_token,
+             httponly=False,
+             samesite="lax",
+             secure=(APP_ENV == "production")
+         )
     return response
 
 @app.get("/")
