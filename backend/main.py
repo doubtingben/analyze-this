@@ -35,6 +35,7 @@ from tracing import (
     inject_trace_context
 )
 from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
+from rate_limiter import RateLimiter
 
 # Load environment variables
 load_dotenv()
@@ -230,6 +231,12 @@ oauth.register(
     }
 )
 
+# --- Rate Limiters ---
+# Apply stricter limits to sensitive endpoints
+auth_limiter = RateLimiter(max_calls=10, time_frame=60)      # 10 req/min for auth
+submission_limiter = RateLimiter(max_calls=20, time_frame=60) # 20 req/min for submissions
+search_limiter = RateLimiter(max_calls=30, time_frame=60)     # 30 req/min for search
+
 # --- Routes ---
 
 async def check_csrf(request: Request):
@@ -360,7 +367,7 @@ async def read_followup_alt(request: Request):
 async def read_media(request: Request):
     return await render_dashboard(request)
 
-@app.get("/login")
+@app.get("/login", dependencies=[Depends(auth_limiter)])
 async def login(request: Request):
     # Ensure fully qualified URL for redirect_uri to avoid mismatches
     # Cloud Run behind load balancer might need X-Forwarded-Proto considerations, but starlette handles some.
@@ -372,7 +379,7 @@ async def login(request: Request):
 
     return await oauth.google.authorize_redirect(request, redirect_uri)
 
-@app.get("/auth")
+@app.get("/auth", dependencies=[Depends(auth_limiter)])
 async def auth(request: Request):
     try:
         token = await oauth.google.authorize_access_token(request)
@@ -571,7 +578,7 @@ def normalize_share_type(raw_type: Optional[str], content: Optional[str], file: 
     # FastAPI doesn't support optional Body AND optional Form in the same route well (it expects one or the other based on media type).
     # workaround: Check Content-Type header.
     
-@app.post("/api/share", dependencies=[Depends(check_csrf)])
+@app.post("/api/share", dependencies=[Depends(check_csrf), Depends(submission_limiter)])
 async def share_item(
     request: Request,
     title: str = Form(None),
@@ -1166,7 +1173,7 @@ class ItemUpdateRequest(BaseModel):
         return v
 
 
-@app.post("/api/items/{item_id}/notes", dependencies=[Depends(check_csrf)])
+@app.post("/api/items/{item_id}/notes", dependencies=[Depends(check_csrf), Depends(submission_limiter)])
 async def create_item_note(
     item_id: str,
     request: Request,
@@ -1528,7 +1535,7 @@ async def get_user_metrics(request: Request):
     }
 
 
-@app.get("/api/search")
+@app.get("/api/search", dependencies=[Depends(search_limiter)])
 async def search_items_endpoint(request: Request, q: str, limit: int = 10):
     """
     Semantic search for items using vector embeddings.
