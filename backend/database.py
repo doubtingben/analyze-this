@@ -11,7 +11,6 @@ from models import User, SharedItem, ItemNote, WorkerJobStatus
 # Firestore imports
 import firebase_admin
 from firebase_admin import credentials, firestore
-from firebase_admin import credentials, firestore
 from google.cloud.firestore import Client as FirestoreClient
 from google.cloud.firestore_v1.base_query import FieldFilter
 from google.cloud.firestore_v1.batch import WriteBatch
@@ -19,7 +18,6 @@ from google.cloud.firestore_v1.batch import WriteBatch
 # SQLAlchemy imports
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
 from sqlalchemy.orm import sessionmaker, declarative_base
-from sqlalchemy import Column, String, DateTime, JSON, Boolean, Integer, inspect, text, func
 from sqlalchemy import Column, String, DateTime, JSON, Boolean, Integer, inspect, text, func, update
 from sqlalchemy.future import select
 
@@ -401,11 +399,14 @@ class FirestoreDatabase(DatabaseInterface):
             return {}
 
         def get_single_count(item_id):
-            # Firestore doesn't support COUNT aggregation well, so we fetch and count
-            # For better performance with large datasets, consider using a counter field
+            # Using Firestore's server-side count() aggregation for better performance
+            # and to avoid fetching all documents just to count them.
             notes_ref = self.db.collection('item_notes')
             query = notes_ref.where(filter=FieldFilter('item_id', '==', item_id))
-            return sum(1 for _ in query.stream())
+            aggregation_query = query.count()
+            results = aggregation_query.get()
+            # results[0].value gives the count from the aggregation query
+            return results[0].value
 
         loop = asyncio.get_running_loop()
         tasks = [
