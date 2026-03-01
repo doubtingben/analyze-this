@@ -28,7 +28,7 @@ let
       pyprojectOverlay
     ]
   );
-  pythonEnv = pythonSet.mkVirtualEnv "analyze-this-env" workspace.deps.default;
+  pythonEnv = pythonSet.mkVirtualEnv "analyze-this-env" workspace.deps.all;
   agentSrc = appSrc + "/agent";
   agentNpmDeps = pkgs.importNpmLock {
     npmRoot = agentSrc;
@@ -73,7 +73,7 @@ in
   # boot.loader.efi.canTouchEfiVariables = true;
 
   nix.settings.experimental-features = [ "nix-command" "flakes" ];
-  nix.settings.trusted-users = [ "root" "@wheel" ];
+  nix.settings.trusted-users = [ "root" "@wheel" "bwilson" ];
 
   networking.hostName = "nixos-analyze-this"; # Define your hostname.
   # networking.wireless.enable = true;  # Enables wireless support via wpa_supplicant.
