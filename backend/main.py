@@ -1,5 +1,6 @@
 import os
 import shutil
+import html
 import asyncio
 import functools
 import datetime
@@ -401,7 +402,7 @@ async def auth(request: Request):
     try:
         token = await oauth.google.authorize_access_token(request)
     except OAuthError as error:
-        return HTMLResponse(f'<h1>{error.error}</h1>')
+        return HTMLResponse(f'<h1>{html.escape(str(error.error))}</h1>')
     
     user_info = token.get('userinfo')
     if user_info:
