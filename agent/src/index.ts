@@ -65,19 +65,33 @@ async function run() {
         console.log(`Joined ${IRC_CHANNEL}`);
     });
 
+    const MAX_HISTORY = 50;
+    const channelHistory: { nick: string, message: string }[] = [];
+
     client.on('message', async (event: any) => {
         if (event.target === IRC_CHANNEL) {
             const message = event.message;
             const nick = event.nick;
+
+            channelHistory.push({ nick, message });
+            if (channelHistory.length > MAX_HISTORY) {
+                channelHistory.shift();
+            }
 
             if (message.startsWith(`${IRC_NICK}:`) || message.includes(IRC_NICK)) {
                 const query = message.replace(`${IRC_NICK}:`, '').trim();
                 console.log(`Received query from ${nick}: ${query}`);
 
                 try {
-                    const text = await generateReply(query, registry.tools, registry.callTool);
+                    const text = await generateReply(query, registry.tools, registry.callTool, channelHistory);
+                    const replyText = text || "(no response)";
 
-                    client.say(IRC_CHANNEL, `${nick}: ${text || "(no response)"}`);
+                    client.say(IRC_CHANNEL, `${nick}: ${replyText}`);
+
+                    channelHistory.push({ nick: IRC_NICK, message: `${nick}: ${replyText}` });
+                    if (channelHistory.length > MAX_HISTORY) {
+                        channelHistory.shift();
+                    }
                 } catch (err) {
                     console.error('Error generating response:', err);
                     client.say(IRC_CHANNEL, `${nick}: Sorry, I encountered an error processing your request.`);
@@ -95,11 +109,18 @@ async function generateReply(
     prompt: string,
     tools: any[],
     callTool: (name: string, args: Record<string, any>) => Promise<any>,
+    history: { nick: string, message: string }[] = []
 ): Promise<string> {
+    const historyText = history.map(h => `<${h.nick}> ${h.message}`).join('\n');
+    const systemPrompt = `You are AnalyzeBot. Keep responses concise and useful in IRC. Use tools when needed.\n\n` +
+        `Here is the recent channel history for context:\n` +
+        (historyText ? historyText : "(no history yet)") + `\n\n` +
+        `If the channel history is missing or incomplete for you to understand the context, it's ok to ask the user for additional context.`;
+
     const messages: any[] = [
         {
             role: "system",
-            content: "You are AnalyzeBot. Keep responses concise and useful in IRC. Use tools when needed.",
+            content: systemPrompt,
         },
         {
             role: "user",
