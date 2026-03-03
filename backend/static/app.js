@@ -1923,33 +1923,33 @@ function createTimelineEventEl(timeline, index) {
         <div class="detail-timeline-fields">
             <div class="detail-timeline-field">
                 <label class="detail-label">Date</label>
-                <div class="detail-text timeline-view date-view">${timeline.date || ''}</div>
-                <input class="detail-input timeline-input date-input" type="text" placeholder="YYYY-MM-DD" value="${timeline.date || ''}" style="display: none;" />
+                <div class="detail-text timeline-view date-view">${escapeHtml(timeline.date || '')}</div>
+                <input class="detail-input timeline-input date-input" type="text" placeholder="YYYY-MM-DD" value="${escapeHtml(timeline.date || '')}" style="display: none;" />
             </div>
             <div class="detail-timeline-field">
                 <label class="detail-label">Time</label>
-                <div class="detail-text timeline-view time-view">${timeline.time || ''}</div>
-                <input class="detail-input timeline-input time-input" type="text" placeholder="HH:MM:SS" value="${timeline.time || ''}" style="display: none;" />
+                <div class="detail-text timeline-view time-view">${escapeHtml(timeline.time || '')}</div>
+                <input class="detail-input timeline-input time-input" type="text" placeholder="HH:MM:SS" value="${escapeHtml(timeline.time || '')}" style="display: none;" />
             </div>
             <div class="detail-timeline-field">
                 <label class="detail-label">Duration</label>
-                <div class="detail-text timeline-view duration-view">${timeline.duration || ''}</div>
-                <input class="detail-input timeline-input duration-input" type="text" placeholder="HH:MM:SS" value="${timeline.duration || ''}" style="display: none;" />
+                <div class="detail-text timeline-view duration-view">${escapeHtml(timeline.duration || '')}</div>
+                <input class="detail-input timeline-input duration-input" type="text" placeholder="HH:MM:SS" value="${escapeHtml(timeline.duration || '')}" style="display: none;" />
             </div>
             <div class="detail-timeline-field">
                 <label class="detail-label">Principal</label>
-                <div class="detail-text timeline-view principal-view">${timeline.principal || ''}</div>
-                <input class="detail-input timeline-input principal-input" type="text" placeholder="Person or organization" value="${timeline.principal || ''}" style="display: none;" />
+                <div class="detail-text timeline-view principal-view">${escapeHtml(timeline.principal || '')}</div>
+                <input class="detail-input timeline-input principal-input" type="text" placeholder="Person or organization" value="${escapeHtml(timeline.principal || '')}" style="display: none;" />
             </div>
             <div class="detail-timeline-field">
                 <label class="detail-label">Location</label>
-                <div class="detail-text timeline-view location-view">${timeline.location || ''}</div>
-                <input class="detail-input timeline-input location-input" type="text" placeholder="Where it takes place" value="${timeline.location || ''}" style="display: none;" />
+                <div class="detail-text timeline-view location-view">${escapeHtml(timeline.location || '')}</div>
+                <input class="detail-input timeline-input location-input" type="text" placeholder="Where it takes place" value="${escapeHtml(timeline.location || '')}" style="display: none;" />
             </div>
             <div class="detail-timeline-field">
                 <label class="detail-label">Purpose</label>
-                <div class="detail-text timeline-view purpose-view">${timeline.purpose || ''}</div>
-                <input class="detail-input timeline-input purpose-input" type="text" placeholder="What the event is about" value="${timeline.purpose || ''}" style="display: none;" />
+                <div class="detail-text timeline-view purpose-view">${escapeHtml(timeline.purpose || '')}</div>
+                <input class="detail-input timeline-input purpose-input" type="text" placeholder="What the event is about" value="${escapeHtml(timeline.purpose || '')}" style="display: none;" />
             </div>
         </div>
     `;
