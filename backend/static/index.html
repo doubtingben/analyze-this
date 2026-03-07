@@ -402,41 +402,45 @@
         <div id="loading" class="loading">Loading...</div>
 
         <div id="filters" class="filters" style="display: none">
-          <div class="filters-left" style="display: flex; flex-direction: column; gap: 10px; align-items: flex-start;">
+          <div class="filters-row">
             <div class="view-toggle">
-            <button class="view-btn active" data-view="all">All</button>
-            <button class="view-btn" data-view="timeline">Timeline</button>
-            <button class="view-btn view-btn-with-badge" data-view="follow_up">
-              <span>Follow-up</span>
-              <span
-                id="follow-up-count-badge"
-                class="view-count-badge"
-                style="display: none"
-              ></span>
-            </button>
-            <button class="view-btn" data-view="media">Media</button>
+              <button class="view-btn active" data-view="all">All</button>
+              <button class="view-btn" data-view="timeline">Timeline</button>
+              <button class="view-btn view-btn-with-badge" data-view="follow_up">
+                <span>Follow-up</span>
+                <span
+                  id="follow-up-count-badge"
+                  class="view-count-badge"
+                  style="display: none"
+                ></span>
+              </button>
+              <button class="view-btn" data-view="media">Media</button>
+            </div>
+            
+            <div class="filter-controls">
+              <input
+                type="text"
+                id="search-input"
+                class="search-input"
+                placeholder="Search items..."
+              />
+              <button id="filter-btn" class="filter-btn" type="button">
+                <span class="filter-icon">Filters</span>
+                <span
+                  id="filter-count"
+                  class="filter-count"
+                  style="display: none"
+                ></span>
+              </button>
+            </div>
           </div>
-          <div id="media-filters" class="view-toggle media-filters" style="display: none; margin-top: 10px;">
-            <button class="view-btn active" data-media="to_watch">To Watch</button>
-            <button class="view-btn" data-media="to_listen">To Listen</button>
-            <button class="view-btn" data-media="to_read">To Read</button>
-          </div>
-          </div>
-          <div class="filter-controls">
-            <input
-              type="text"
-              id="search-input"
-              class="search-input"
-              placeholder="Search items..."
-            />
-            <button id="filter-btn" class="filter-btn" type="button">
-              <span class="filter-icon">Filters</span>
-              <span
-                id="filter-count"
-                class="filter-count"
-                style="display: none"
-              ></span>
-            </button>
+          
+          <div id="media-filters" class="filters-row media-filters" style="display: none;">
+            <div class="view-toggle">
+              <button class="view-btn active" data-media="to_watch">To Watch</button>
+              <button class="view-btn" data-media="to_listen">To Listen</button>
+              <button class="view-btn" data-media="to_read">To Read</button>
+            </div>
           </div>
         </div>
 
