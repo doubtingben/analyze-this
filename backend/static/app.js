@@ -1167,43 +1167,36 @@ function groupItemsByMediaTag(items) {
   return groups;
 }
 
-// Get event date from analysis details
-function getEventDateTime(item) {
-  // Check for timeline events (root-level array or legacy analysis.timeline)
-  const timelines = getTimelinesFromItem(item);
-  for (const timeline of timelines) {
-    if (timeline.date) {
-      try {
-        let dateStr = timeline.date;
-        let isAllDay = false;
+function parseTimelineEventDate(timeline) {
+  if (!timeline || !timeline.date) return null;
 
-        // Check if time is present and not the string "null"
-        if (timeline.time && timeline.time !== "null") {
-          dateStr += ` ${timeline.time}`;
-        } else {
-          // No time: use UTC Noon to ensure date stability across timezones
-          // Append T12:00:00Z so it is parsed as UTC Noon
-          dateStr += "T12:00:00Z";
-          isAllDay = true;
-        }
+  try {
+    let dateStr = String(timeline.date).trim();
+    if (!dateStr || dateStr === "null") return null;
+    let isAllDay = false;
 
-        const date = new Date(dateStr);
-        if (!isNaN(date.getTime())) {
-          if (isAllDay) date.isAllDay = true;
-          return date;
-        }
-      } catch (e) {
-        // fall through
-      }
+    const timeStr = timeline.time ? String(timeline.time).trim() : "";
+    if (timeStr && timeStr !== "null") {
+      dateStr += ` ${timeStr}`;
+    } else {
+      // No time: use UTC noon to avoid date drift across timezones.
+      dateStr += "T12:00:00Z";
+      isAllDay = true;
     }
+
+    const date = new Date(dateStr);
+    if (isNaN(date.getTime())) return null;
+    if (isAllDay) date.isAllDay = true;
+    return date;
+  } catch {
+    return null;
   }
+}
 
-  if (!item.analysis) return null;
+function parseLegacyEventDate(item) {
+  const details = item.analysis?.details;
+  if (!details) return null;
 
-  if (!item.analysis.details) return null;
-
-  const details = item.analysis.details;
-  // Look for date_time in various possible field names
   const dateTimeStr =
     details.date_time ||
     details.dateTime ||
@@ -1211,25 +1204,58 @@ function getEventDateTime(item) {
     details.event_date ||
     details.eventDate ||
     details.start_date;
-
   if (!dateTimeStr) return null;
 
   try {
-    // Try to parse the date string
     const date = new Date(dateTimeStr);
-    if (isNaN(date.getTime())) {
-      // Try to extract a date from common formats like "January 29" or "Jan 29"
-      const currentYear = new Date().getFullYear();
-      const withYear = new Date(`${dateTimeStr} ${currentYear}`);
-      if (!isNaN(withYear.getTime())) {
-        return withYear;
-      }
-      return null;
-    }
-    return date;
+    if (!isNaN(date.getTime())) return date;
+    const currentYear = new Date().getFullYear();
+    const withYear = new Date(`${dateTimeStr} ${currentYear}`);
+    if (!isNaN(withYear.getTime())) return withYear;
+    return null;
   } catch {
     return null;
   }
+}
+
+function getTimelineEntriesForItem(item) {
+  const entries = [];
+  const timelines = getTimelinesFromItem(item);
+
+  for (const timeline of timelines) {
+    const eventDate = parseTimelineEventDate(timeline);
+    if (eventDate) {
+      entries.push({ item, timeline, eventDate });
+    }
+  }
+
+  if (entries.length === 0) {
+    const legacyDate = parseLegacyEventDate(item);
+    if (legacyDate) {
+      entries.push({ item, timeline: null, eventDate: legacyDate });
+    }
+  }
+
+  return entries;
+}
+
+// Get the primary event date for sorting or availability checks.
+function getEventDateTime(item) {
+  const entries = getTimelineEntriesForItem(item);
+  if (entries.length === 0) return null;
+
+  const now = new Date();
+  const future = entries
+    .map((entry) => entry.eventDate)
+    .filter((date) => date > now)
+    .sort((a, b) => a - b);
+  if (future.length > 0) {
+    return future[0];
+  }
+
+  return entries
+    .map((entry) => entry.eventDate)
+    .sort((a, b) => a - b)[0];
 }
 
 // Filter and sort items based on current view and type filter
@@ -1238,15 +1264,8 @@ function getFilteredItems() {
 
   // Apply view-specific filtering and sorting
   if (currentView === "timeline") {
-    // Filter to only items with derived date/time
-    items = items.filter((item) => getEventDateTime(item) !== null);
-
-    // Sort by event date/time (descending - newest first)
-    items.sort((a, b) => {
-      const dateA = getEventDateTime(a);
-      const dateB = getEventDateTime(b);
-      return dateB - dateA;
-    });
+    // Filter to only items with at least one timeline event.
+    items = items.filter((item) => getTimelineEntriesForItem(item).length > 0);
   } else if (currentView === "follow_up") {
     // Filter to only items with follow_up status
     items = items.filter((item) => item.status === "follow_up");
@@ -1433,12 +1452,17 @@ function renderItems(items) {
 
 // Render items in timeline view with Now divider
 function renderTimelineItems(items) {
+  const entries = items
+    .flatMap((item) => getTimelineEntriesForItem(item))
+    .sort((a, b) => b.eventDate - a.eventDate);
+
   const now = new Date();
   let nowDividerInserted = false;
   let nowDividerEl = null;
 
-  items.forEach((item) => {
-    const eventDate = getEventDateTime(item);
+  entries.forEach((entry) => {
+    const item = entry.item;
+    const eventDate = entry.eventDate;
 
     // Insert "Now" divider before the first past item
     if (!nowDividerInserted && eventDate < now) {
@@ -1465,7 +1489,7 @@ function renderTimelineItems(items) {
   });
 
   // If all items are in the future, add Now divider at the end
-  if (!nowDividerInserted && items.length > 0) {
+  if (!nowDividerInserted && entries.length > 0) {
     nowDividerEl = document.createElement("div");
     nowDividerEl.className = "now-divider";
     nowDividerEl.id = "now-divider";
@@ -1879,27 +1903,26 @@ function toggleTimeline() {
 }
 
 function getTimelinesFromItem(item) {
-    if (!item.timeline) {
-        // Fallback to legacy single timeline field format just in case it wasn't migrated
-        if (item.analysis?.timeline) {
-            return [item.analysis.timeline];
-        }
-        return [];
+    if (Array.isArray(item.timeline)) {
+        return item.timeline;
     }
-    return item.timeline;
+    if (item.timeline && typeof item.timeline === "object") {
+        return [item.timeline];
+    }
+
+    const analysisTimeline = item.analysis?.timeline;
+    if (Array.isArray(analysisTimeline)) {
+        return analysisTimeline;
+    }
+    if (analysisTimeline && typeof analysisTimeline === "object") {
+        return [analysisTimeline];
+    }
+
+    return [];
 }
 
 function countTimelineFields(timelines) {
-    let count = 0;
-    for (const t of timelines) {
-        if (t.date) count++;
-        if (t.time) count++;
-        if (t.duration) count++;
-        if (t.principal) count++;
-        if (t.location) count++;
-        if (t.purpose) count++;
-    }
-    return count;
+    return timelines.length;
 }
 
 function createTimelineEventEl(timeline, index) {

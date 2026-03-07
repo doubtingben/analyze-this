@@ -75,7 +75,9 @@ class _ItemDetailScreenState extends State<ItemDetailScreen> {
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('Delete Item'),
-        content: const Text('Are you sure you want to delete this item? This action cannot be undone.'),
+        content: const Text(
+          'Are you sure you want to delete this item? This action cannot be undone.',
+        ),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(context).pop(false),
@@ -103,9 +105,9 @@ class _ItemDetailScreenState extends State<ItemDetailScreen> {
       widget.onItemDeleted?.call(deletedItem);
 
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Item deleted')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('Item deleted')));
         Navigator.of(context).pop();
       }
     } catch (e) {
@@ -113,9 +115,9 @@ class _ItemDetailScreenState extends State<ItemDetailScreen> {
         setState(() {
           _isDeleting = false;
         });
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Failed to delete: $e')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Failed to delete: $e')));
       }
     }
   }
@@ -222,7 +224,7 @@ class _ItemDetailPageState extends State<_ItemDetailPage> {
 
   // Timeline state
   bool _isTimelineExpanded = false;
-  
+
   // Model for the editable controllers for a single event
   // We manage a list of these for a list of events.
   List<Map<String, TextEditingController>> _timelineControllersList = [];
@@ -244,47 +246,72 @@ class _ItemDetailPageState extends State<_ItemDetailPage> {
 
   void _initTimelineControllers() {
     final timelines = _getTimelines();
-    _timelineControllersList = timelines.map((t) => _createControllersForEvent(t)).toList();
+    _timelineControllersList = timelines
+        .map((t) => _createControllersForEvent(t))
+        .toList();
   }
 
-  Map<String, TextEditingController> _createControllersForEvent(Map<String, String?> event) {
-      return {
-          'date': TextEditingController(text: event['date'] ?? ''),
-          'time': TextEditingController(text: event['time'] ?? ''),
-          'duration': TextEditingController(text: event['duration'] ?? ''),
-          'principal': TextEditingController(text: event['principal'] ?? ''),
-          'location': TextEditingController(text: event['location'] ?? ''),
-          'purpose': TextEditingController(text: event['purpose'] ?? ''),
-      };
+  Map<String, TextEditingController> _createControllersForEvent(
+    Map<String, String?> event,
+  ) {
+    return {
+      'date': TextEditingController(text: event['date'] ?? ''),
+      'time': TextEditingController(text: event['time'] ?? ''),
+      'duration': TextEditingController(text: event['duration'] ?? ''),
+      'principal': TextEditingController(text: event['principal'] ?? ''),
+      'location': TextEditingController(text: event['location'] ?? ''),
+      'purpose': TextEditingController(text: event['purpose'] ?? ''),
+    };
   }
 
   List<Map<String, String?>> _getTimelines() {
     final timelines = widget.item.timeline;
     if (timelines == null) {
-        // Fallback to legacy single timeline field format just in case it wasn't migrated
-        final analysis = widget.item.analysis;
-        if (analysis != null && analysis['timeline'] != null && analysis['timeline'] is Map) {
-          final t = analysis['timeline'] as Map;
-          return [{
+      // Fallback to analysis.timeline for compatibility with older payloads.
+      final analysis = widget.item.analysis;
+      final analysisTimeline = analysis?['timeline'];
+      if (analysisTimeline is Map) {
+        return [
+          {
+            'date': analysisTimeline['date']?.toString(),
+            'time': analysisTimeline['time']?.toString(),
+            'duration': analysisTimeline['duration']?.toString(),
+            'principal': analysisTimeline['principal']?.toString(),
+            'location': analysisTimeline['location']?.toString(),
+            'purpose': analysisTimeline['purpose']?.toString(),
+          },
+        ];
+      }
+      if (analysisTimeline is List) {
+        return analysisTimeline
+            .whereType<Map>()
+            .map(
+              (t) => {
+                'date': t['date']?.toString(),
+                'time': t['time']?.toString(),
+                'duration': t['duration']?.toString(),
+                'principal': t['principal']?.toString(),
+                'location': t['location']?.toString(),
+                'purpose': t['purpose']?.toString(),
+              },
+            )
+            .toList();
+      }
+      return [];
+    }
+
+    return timelines
+        .map(
+          (t) => {
             'date': t['date']?.toString(),
             'time': t['time']?.toString(),
             'duration': t['duration']?.toString(),
             'principal': t['principal']?.toString(),
             'location': t['location']?.toString(),
             'purpose': t['purpose']?.toString(),
-          }];
-        }
-        return [];
-    }
-    
-    return timelines.map((t) => {
-      'date': t['date']?.toString(),
-      'time': t['time']?.toString(),
-      'duration': t['duration']?.toString(),
-      'principal': t['principal']?.toString(),
-      'location': t['location']?.toString(),
-      'purpose': t['purpose']?.toString(),
-    }).toList();
+          },
+        )
+        .toList();
   }
 
   bool get _hasTimeline {
@@ -311,9 +338,9 @@ class _ItemDetailPageState extends State<_ItemDetailPage> {
 
   void _resetTimelineControllers() {
     for (var controllers in _timelineControllersList) {
-        for (var c in controllers.values) {
-            c.dispose();
-        }
+      for (var c in controllers.values) {
+        c.dispose();
+      }
     }
     _initTimelineControllers();
   }
@@ -322,9 +349,9 @@ class _ItemDetailPageState extends State<_ItemDetailPage> {
   void dispose() {
     _titleController.dispose();
     for (var controllers in _timelineControllersList) {
-        for (var c in controllers.values) {
-            c.dispose();
-        }
+      for (var c in controllers.values) {
+        c.dispose();
+      }
     }
     super.dispose();
   }
@@ -345,8 +372,10 @@ class _ItemDetailPageState extends State<_ItemDetailPage> {
     });
 
     try {
-      final notes =
-          await _apiService.getItemNotes(widget.authToken!, widget.item.id);
+      final notes = await _apiService.getItemNotes(
+        widget.authToken!,
+        widget.item.id,
+      );
       if (mounted) {
         setState(() {
           _notes = notes;
@@ -358,9 +387,9 @@ class _ItemDetailPageState extends State<_ItemDetailPage> {
         setState(() {
           _isLoadingNotes = false;
         });
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Failed to load notes: $e')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Failed to load notes: $e')));
       }
     }
   }
@@ -372,7 +401,8 @@ class _ItemDetailPageState extends State<_ItemDetailPage> {
     final currentTimelines = _getTimelines();
     final newTimelines = _buildTimelinePayloads();
 
-    final hasChanges = newTitle != (widget.item.title ?? '') ||
+    final hasChanges =
+        newTitle != (widget.item.title ?? '') ||
         !_listEquals(_editableTags, _getTagsFromAnalysis()) ||
         _hasTimelineChanges(currentTimelines, newTimelines);
 
@@ -395,8 +425,9 @@ class _ItemDetailPageState extends State<_ItemDetailPage> {
       );
 
       // Update the item locally
-      final updatedAnalysis =
-          Map<String, dynamic>.from(widget.item.analysis ?? {});
+      final updatedAnalysis = Map<String, dynamic>.from(
+        widget.item.analysis ?? {},
+      );
       updatedAnalysis['tags'] = _editableTags;
 
       final updatedItem = widget.item.copyWith(
@@ -409,15 +440,15 @@ class _ItemDetailPageState extends State<_ItemDetailPage> {
       widget.onEditModeChanged?.call(false);
 
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Changes saved')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('Changes saved')));
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Failed to save: $e')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Failed to save: $e')));
       }
     } finally {
       if (mounted) {
@@ -429,32 +460,42 @@ class _ItemDetailPageState extends State<_ItemDetailPage> {
   }
 
   List<Map<String, dynamic>> _buildTimelinePayloads() {
-      List<Map<String, dynamic>> payloads = [];
-      for (var controllers in _timelineControllersList) {
-          final result = <String, String>{};
-          for (var entry in controllers.entries) {
-              final val = entry.value.text.trim();
-              if (val.isNotEmpty) {
-                  result[entry.key] = val;
-              }
-          }
-          if (result.isNotEmpty) {
-              payloads.add(result);
-          }
+    List<Map<String, dynamic>> payloads = [];
+    for (var controllers in _timelineControllersList) {
+      final result = <String, String>{};
+      for (var entry in controllers.entries) {
+        final val = entry.value.text.trim();
+        if (val.isNotEmpty) {
+          result[entry.key] = val;
+        }
       }
-      return payloads;
+      if (result.isNotEmpty) {
+        payloads.add(result);
+      }
+    }
+    return payloads;
   }
 
-  bool _hasTimelineChanges(List<Map<String, String?>> current, List<Map<String, dynamic>> updated) {
+  bool _hasTimelineChanges(
+    List<Map<String, String?>> current,
+    List<Map<String, dynamic>> updated,
+  ) {
     if (current.length != updated.length) return true;
-    const fields = ['date', 'time', 'duration', 'principal', 'location', 'purpose'];
-    
+    const fields = [
+      'date',
+      'time',
+      'duration',
+      'principal',
+      'location',
+      'purpose',
+    ];
+
     for (int i = 0; i < current.length; i++) {
-        for (final field in fields) {
-            final currentVal = current[i][field] ?? '';
-            final updatedVal = updated[i][field] ?? '';
-            if (currentVal != updatedVal) return true;
-        }
+      for (final field in fields) {
+        final currentVal = current[i][field] ?? '';
+        final updatedVal = updated[i][field] ?? '';
+        if (currentVal != updatedVal) return true;
+      }
     }
     return false;
   }
@@ -515,7 +556,11 @@ class _ItemDetailPageState extends State<_ItemDetailPage> {
     controller.dispose();
   }
 
-  Future<void> _createNote({String? text, String? imagePath, String noteType = 'context'}) async {
+  Future<void> _createNote({
+    String? text,
+    String? imagePath,
+    String noteType = 'context',
+  }) async {
     if (widget.authToken == null) return;
     if (text == null && imagePath == null) return;
 
@@ -533,20 +578,21 @@ class _ItemDetailPageState extends State<_ItemDetailPage> {
       });
 
       // Update note count on the item
-      final updatedItem =
-          widget.item.copyWith(noteCount: widget.item.noteCount + 1);
+      final updatedItem = widget.item.copyWith(
+        noteCount: widget.item.noteCount + 1,
+      );
       widget.onItemUpdated?.call(updatedItem);
 
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Note added')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('Note added')));
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Failed to add note: $e')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Failed to add note: $e')));
       }
     }
   }
@@ -583,34 +629,36 @@ class _ItemDetailPageState extends State<_ItemDetailPage> {
       });
 
       // Update note count on the item
-      final updatedItem = widget.item
-          .copyWith(noteCount: (widget.item.noteCount - 1).clamp(0, 999));
+      final updatedItem = widget.item.copyWith(
+        noteCount: (widget.item.noteCount - 1).clamp(0, 999),
+      );
       widget.onItemUpdated?.call(updatedItem);
 
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Note deleted')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('Note deleted')));
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Failed to delete note: $e')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Failed to delete note: $e')));
       }
     }
   }
 
   Future<void> _editNote(ItemNote note) async {
-    final controller = TextEditingController(text: note.text ?? '');
+    var editedText = note.text ?? '';
 
     final result = await showDialog<String>(
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('Edit Note'),
-        content: TextField(
-          controller: controller,
+        content: TextFormField(
+          initialValue: editedText,
           maxLines: 4,
+          onChanged: (value) => editedText = value,
           decoration: const InputDecoration(
             hintText: 'Edit your note...',
             border: OutlineInputBorder(),
@@ -622,14 +670,12 @@ class _ItemDetailPageState extends State<_ItemDetailPage> {
             child: const Text('Cancel'),
           ),
           TextButton(
-            onPressed: () => Navigator.of(context).pop(controller.text),
+            onPressed: () => Navigator.of(context).pop(editedText),
             child: const Text('Save'),
           ),
         ],
       ),
     );
-
-    controller.dispose();
 
     if (result == null || result.trim().isEmpty) return;
 
@@ -651,15 +697,15 @@ class _ItemDetailPageState extends State<_ItemDetailPage> {
       });
 
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Note updated')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('Note updated')));
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Failed to update note: $e')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Failed to update note: $e')));
       }
     }
   }
@@ -668,8 +714,8 @@ class _ItemDetailPageState extends State<_ItemDetailPage> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final dateStr = DateFormat.yMMMd().add_jm().format(
-          DateTime.fromMillisecondsSinceEpoch(widget.item.timestamp),
-        );
+      DateTime.fromMillisecondsSinceEpoch(widget.item.timestamp),
+    );
 
     return Column(
       children: [
@@ -833,8 +879,9 @@ class _ItemDetailPageState extends State<_ItemDetailPage> {
         children: [
           Text(
             'Title',
-            style: theme.textTheme.bodySmall
-                ?.copyWith(fontWeight: FontWeight.w500),
+            style: theme.textTheme.bodySmall?.copyWith(
+              fontWeight: FontWeight.w500,
+            ),
           ),
           const SizedBox(height: AppSpacing.sm),
           TextField(
@@ -860,10 +907,7 @@ class _ItemDetailPageState extends State<_ItemDetailPage> {
       return Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            widget.item.title!,
-            style: theme.textTheme.titleLarge,
-          ),
+          Text(widget.item.title!, style: theme.textTheme.titleLarge),
           const SizedBox(height: AppSpacing.md),
         ],
       );
@@ -972,30 +1016,33 @@ class _ItemDetailPageState extends State<_ItemDetailPage> {
           ),
           child: Column(
             children: entries
-                .map((e) => Padding(
-                      padding:
-                          const EdgeInsets.symmetric(vertical: AppSpacing.xs),
-                      child: Row(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          SizedBox(
-                            width: 100,
-                            child: Text(
-                              e.key,
-                              style: theme.textTheme.bodySmall?.copyWith(
-                                fontWeight: FontWeight.w500,
-                              ),
+                .map(
+                  (e) => Padding(
+                    padding: const EdgeInsets.symmetric(
+                      vertical: AppSpacing.xs,
+                    ),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        SizedBox(
+                          width: 100,
+                          child: Text(
+                            e.key,
+                            style: theme.textTheme.bodySmall?.copyWith(
+                              fontWeight: FontWeight.w500,
                             ),
                           ),
-                          Expanded(
-                            child: Text(
-                              e.value,
-                              style: theme.textTheme.bodyMedium,
-                            ),
+                        ),
+                        Expanded(
+                          child: Text(
+                            e.value,
+                            style: theme.textTheme.bodyMedium,
                           ),
-                        ],
-                      ),
-                    ))
+                        ),
+                      ],
+                    ),
+                  ),
+                )
                 .toList(),
           ),
         ),
@@ -1055,36 +1102,36 @@ class _ItemDetailPageState extends State<_ItemDetailPage> {
       children: [
         Text(
           'Tags',
-          style:
-              theme.textTheme.bodySmall?.copyWith(fontWeight: FontWeight.w500),
+          style: theme.textTheme.bodySmall?.copyWith(
+            fontWeight: FontWeight.w500,
+          ),
         ),
         const SizedBox(height: AppSpacing.sm),
         Wrap(
           spacing: AppSpacing.sm,
           runSpacing: AppSpacing.sm,
           children: [
-            ...tags.map((tag) => widget.isEditMode
-                ? Chip(
-                    label: Text(tag),
-                    deleteIcon: const Icon(Icons.close, size: 16),
-                    onDeleted: () => _removeTag(tag),
-                    backgroundColor: AppColors.badgeBackground,
-                    labelStyle: theme.textTheme.labelMedium,
-                  )
-                : Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: AppSpacing.sm,
-                      vertical: AppSpacing.xs,
+            ...tags.map(
+              (tag) => widget.isEditMode
+                  ? Chip(
+                      label: Text(tag),
+                      deleteIcon: const Icon(Icons.close, size: 16),
+                      onDeleted: () => _removeTag(tag),
+                      backgroundColor: AppColors.badgeBackground,
+                      labelStyle: theme.textTheme.labelMedium,
+                    )
+                  : Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: AppSpacing.sm,
+                        vertical: AppSpacing.xs,
+                      ),
+                      decoration: BoxDecoration(
+                        color: AppColors.badgeBackground,
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                      child: Text(tag, style: theme.textTheme.labelMedium),
                     ),
-                    decoration: BoxDecoration(
-                      color: AppColors.badgeBackground,
-                      borderRadius: BorderRadius.circular(4),
-                    ),
-                    child: Text(
-                      tag,
-                      style: theme.textTheme.labelMedium,
-                    ),
-                  )),
+            ),
             if (widget.isEditMode)
               ActionChip(
                 avatar: const Icon(Icons.add, size: 16),
@@ -1138,10 +1185,7 @@ class _ItemDetailPageState extends State<_ItemDetailPage> {
                 color: AppColors.textSecondary.withValues(alpha: 0.2),
               ),
             ),
-            child: Text(
-              followUp,
-              style: theme.textTheme.bodyMedium,
-            ),
+            child: Text(followUp, style: theme.textTheme.bodyMedium),
           ),
         ],
       ),
@@ -1215,12 +1259,7 @@ class _ItemDetailPageState extends State<_ItemDetailPage> {
   }
 
   int _countTimelineFields() {
-    final timelines = _getTimelines();
-    int count = 0;
-    for (var timeline in timelines) {
-        count += timeline.values.where((v) => v != null && v.isNotEmpty).length;
-    }
-    return count;
+    return _getTimelines().length;
   }
 
   Widget _buildReadonlyTimelineFields(BuildContext context) {
@@ -1254,33 +1293,34 @@ class _ItemDetailPageState extends State<_ItemDetailPage> {
           fields.add(MapEntry('Purpose', timeline['purpose']!));
         }
 
-        final widgets = fields.map<Widget>((e) => Padding(
-          padding: const EdgeInsets.symmetric(vertical: AppSpacing.xs),
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              SizedBox(
-                width: 80,
-                child: Text(
-                  e.key,
-                  style: theme.textTheme.bodySmall?.copyWith(
-                    fontWeight: FontWeight.w500,
-                    color: AppColors.textSecondary,
-                  ),
+        final widgets = fields
+            .map<Widget>(
+              (e) => Padding(
+                padding: const EdgeInsets.symmetric(vertical: AppSpacing.xs),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    SizedBox(
+                      width: 80,
+                      child: Text(
+                        e.key,
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          fontWeight: FontWeight.w500,
+                          color: AppColors.textSecondary,
+                        ),
+                      ),
+                    ),
+                    Expanded(
+                      child: Text(e.value, style: theme.textTheme.bodyMedium),
+                    ),
+                  ],
                 ),
               ),
-              Expanded(
-                child: Text(
-                  e.value,
-                  style: theme.textTheme.bodyMedium,
-                ),
-              ),
-            ],
-          ),
-        )).toList();
+            )
+            .toList();
 
         if (!isLast && widgets.isNotEmpty) {
-           widgets.add(const Divider(height: AppSpacing.lg));
+          widgets.add(const Divider(height: AppSpacing.lg));
         }
 
         return widgets;
@@ -1304,25 +1344,25 @@ class _ItemDetailPageState extends State<_ItemDetailPage> {
   }
 
   void _removeTimelineEvent(int index) {
-     setState(() {
-         final removed = _timelineControllersList.removeAt(index);
-         for (var c in removed.values) {
-             c.dispose();
-         }
-     });
+    setState(() {
+      final removed = _timelineControllersList.removeAt(index);
+      for (var c in removed.values) {
+        c.dispose();
+      }
+    });
   }
 
   Widget _buildEditableTimelineFields(BuildContext context) {
     if (_timelineControllersList.isEmpty) {
-         return Center(
-             child: TextButton.icon(
-                 onPressed: _addNewTimelineEvent,
-                 icon: const Icon(Icons.add),
-                 label: const Text('Add Timeline Event'),
-             )
-         );
+      return Center(
+        child: TextButton.icon(
+          onPressed: _addNewTimelineEvent,
+          icon: const Icon(Icons.add),
+          label: const Text('Add Timeline Event'),
+        ),
+      );
     }
-    
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -1330,16 +1370,23 @@ class _ItemDetailPageState extends State<_ItemDetailPage> {
           final index = entry.key;
           final controllers = entry.value;
           final isLast = index == _timelineControllersList.length - 1;
-          
+
           return Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  Text('Event ${index + 1}', style: Theme.of(context).textTheme.titleSmall),
+                  Text(
+                    'Event ${index + 1}',
+                    style: Theme.of(context).textTheme.titleSmall,
+                  ),
                   IconButton(
-                    icon: const Icon(Icons.delete_outline, size: 20, color: AppColors.error),
+                    icon: const Icon(
+                      Icons.delete_outline,
+                      size: 20,
+                      color: AppColors.error,
+                    ),
                     visualDensity: VisualDensity.compact,
                     onPressed: () => _removeTimelineEvent(index),
                     tooltip: 'Remove Event',
@@ -1458,11 +1505,13 @@ class _ItemDetailPageState extends State<_ItemDetailPage> {
         widget.item.id,
         status: 'processed',
         nextStep: 'none',
-        followUp: '',  // Empty string clears the follow_up
+        followUp: '', // Empty string clears the follow_up
       );
 
       // Update the local item state
-      final updatedAnalysis = Map<String, dynamic>.from(widget.item.analysis ?? {});
+      final updatedAnalysis = Map<String, dynamic>.from(
+        widget.item.analysis ?? {},
+      );
       updatedAnalysis.remove('follow_up');
 
       final updatedItem = widget.item.copyWith(
@@ -1474,9 +1523,9 @@ class _ItemDetailPageState extends State<_ItemDetailPage> {
       widget.onItemUpdated?.call(updatedItem);
 
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Follow-up deleted')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('Follow-up deleted')));
       }
     } catch (e) {
       if (mounted) {
@@ -1532,12 +1581,12 @@ class _ItemDetailPageState extends State<_ItemDetailPage> {
                   context: context,
                   isScrollControlled: true,
                   shape: const RoundedRectangleBorder(
-                    borderRadius:
-                        BorderRadius.vertical(top: Radius.circular(16)),
+                    borderRadius: BorderRadius.vertical(
+                      top: Radius.circular(16),
+                    ),
                   ),
-                  builder: (context) => _AddNoteBottomSheet(
-                    imagePicker: _imagePicker,
-                  ),
+                  builder: (context) =>
+                      _AddNoteBottomSheet(imagePicker: _imagePicker),
                 );
 
                 if (result != null) {
@@ -1668,8 +1717,9 @@ class _ItemDetailPageState extends State<_ItemDetailPage> {
           // Image if present
           if (note.imagePath != null && note.imagePath!.isNotEmpty)
             ClipRRect(
-              borderRadius:
-                  const BorderRadius.vertical(top: Radius.circular(8)),
+              borderRadius: const BorderRadius.vertical(
+                top: Radius.circular(8),
+              ),
               child: CachedNetworkImage(
                 imageUrl: note.imagePath!,
                 httpHeaders: widget.authToken != null
@@ -1688,9 +1738,7 @@ class _ItemDetailPageState extends State<_ItemDetailPage> {
                 errorWidget: (context, url, error) => Container(
                   height: 150,
                   color: AppColors.badgeBackground,
-                  child: const Center(
-                    child: Icon(Icons.broken_image_outlined),
-                  ),
+                  child: const Center(child: Icon(Icons.broken_image_outlined)),
                 ),
               ),
             ),
@@ -1704,7 +1752,10 @@ class _ItemDetailPageState extends State<_ItemDetailPage> {
                 if (note.noteType == 'follow_up')
                   Container(
                     margin: const EdgeInsets.only(bottom: 4),
-                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 6,
+                      vertical: 2,
+                    ),
                     decoration: BoxDecoration(
                       color: Colors.orange.withValues(alpha: 0.15),
                       borderRadius: BorderRadius.circular(4),
@@ -1720,10 +1771,7 @@ class _ItemDetailPageState extends State<_ItemDetailPage> {
                   ),
                 // Note text
                 if (note.text != null && note.text!.isNotEmpty)
-                  Text(
-                    note.text!,
-                    style: theme.textTheme.bodyMedium,
-                  ),
+                  Text(note.text!, style: theme.textTheme.bodyMedium),
 
                 const SizedBox(height: AppSpacing.sm),
 
@@ -1775,9 +1823,9 @@ class _ItemDetailPageState extends State<_ItemDetailPage> {
 
   void _copyToClipboard(BuildContext context, String text) {
     Clipboard.setData(ClipboardData(text: text));
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Copied to clipboard')),
-    );
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(const SnackBar(content: Text('Copied to clipboard')));
   }
 
   String _formatFileSize(int bytes) {
@@ -1833,10 +1881,7 @@ class _AddNoteBottomSheetState extends State<_AddNoteBottomSheet> {
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Text(
-                'Add Note',
-                style: Theme.of(context).textTheme.titleLarge,
-              ),
+              Text('Add Note', style: Theme.of(context).textTheme.titleLarge),
               IconButton(
                 icon: const Icon(Icons.close),
                 onPressed: () => Navigator.of(context).pop(),
@@ -1876,9 +1921,8 @@ class _AddNoteBottomSheetState extends State<_AddNoteBottomSheet> {
                     child: Image.file(
                       File(_selectedImagePath!),
                       fit: BoxFit.cover,
-                      errorBuilder: (context, error, stackTrace) => const Center(
-                        child: Icon(Icons.image, size: 40),
-                      ),
+                      errorBuilder: (context, error, stackTrace) =>
+                          const Center(child: Icon(Icons.image, size: 40)),
                     ),
                   ),
                 ),
@@ -1891,7 +1935,11 @@ class _AddNoteBottomSheetState extends State<_AddNoteBottomSheet> {
                       borderRadius: BorderRadius.circular(20),
                     ),
                     child: IconButton(
-                      icon: const Icon(Icons.close, color: Colors.white, size: 18),
+                      icon: const Icon(
+                        Icons.close,
+                        color: Colors.white,
+                        size: 18,
+                      ),
                       onPressed: () {
                         setState(() {
                           _selectedImagePath = null;
@@ -1940,7 +1988,9 @@ class _AddNoteBottomSheetState extends State<_AddNoteBottomSheet> {
                   final text = _textController.text.trim();
                   if (text.isEmpty && _selectedImagePath == null) {
                     ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('Please add text or an image')),
+                      const SnackBar(
+                        content: Text('Please add text or an image'),
+                      ),
                     );
                     return;
                   }

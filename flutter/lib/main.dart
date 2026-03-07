@@ -24,6 +24,18 @@ import 'services/sharing_service.dart' as custom_sharing;
 
 enum ViewMode { all, timeline, followUp, media }
 
+class _TimelineEntry {
+  final HistoryItem item;
+  final int itemIndex;
+  final DateTime eventDate;
+
+  const _TimelineEntry({
+    required this.item,
+    required this.itemIndex,
+    required this.eventDate,
+  });
+}
+
 const Set<String> _mediaTags = {'to_read', 'to_listen', 'to_watch'};
 
 void main() {
@@ -64,12 +76,13 @@ class _MyHomePageState extends State<MyHomePage> {
   String? _authToken;
   tz.Location? _userTimezoneLocation;
   ViewMode _currentView = ViewMode.all;
-  Set<String> _selectedTypes = {};     // Empty = all types
-  Set<String> _selectedTags = {};      // Empty = no tag filter
-  String _searchQuery = '';            // Empty = no search
+  Set<String> _selectedTypes = {}; // Empty = all types
+  Set<String> _selectedTags = {}; // Empty = no tag filter
+  String _searchQuery = ''; // Empty = no search
   bool _showHidden = false;
   bool _searchExpanded = false;
-  final Set<String> _hidingItemIds = {};     // Track items currently being hidden/unhidden
+  final Set<String> _hidingItemIds =
+      {}; // Track items currently being hidden/unhidden
 
   // Active filter count for badge
   int get _activeFilterCount => _selectedTypes.length + _selectedTags.length;
@@ -82,14 +95,19 @@ class _MyHomePageState extends State<MyHomePage> {
 
     if (_searchQuery.isNotEmpty) {
       final query = _searchQuery.toLowerCase();
-      items = items.where((item) =>
-        (item.title?.toLowerCase().contains(query) ?? false) ||
-        item.value.toLowerCase().contains(query)
-      ).toList();
+      items = items
+          .where(
+            (item) =>
+                (item.title?.toLowerCase().contains(query) ?? false) ||
+                item.value.toLowerCase().contains(query),
+          )
+          .toList();
     }
 
     if (_selectedTypes.isNotEmpty) {
-      items = items.where((item) => _selectedTypes.contains(item.type)).toList();
+      items = items
+          .where((item) => _selectedTypes.contains(item.type))
+          .toList();
     }
 
     if (_selectedTags.isNotEmpty) {
@@ -113,11 +131,13 @@ class _MyHomePageState extends State<MyHomePage> {
   int _nowListIndex = 0; // Index of Now divider in the list
   bool _hasScrolledToNow = false;
   bool _nowButtonVisible = false;
-  bool _nowIsAbove = false; // true = Now is above viewport, false = Now is below
+  bool _nowIsAbove =
+      false; // true = Now is above viewport, false = Now is below
 
   @override
   void initState() {
     super.initState();
+    _timelineScrollController.addListener(_handleTimelineScroll);
     _initAuth();
   }
 
@@ -178,37 +198,36 @@ class _MyHomePageState extends State<MyHomePage> {
             _authToken = token;
           });
         }
-        
+
         // Fetch user profile for timezone
         try {
           final profile = await _apiService.getUserProfile(token);
           if (profile.containsKey('timezone')) {
-             final tzName = profile['timezone'] as String;
-             try {
-               setState(() {
-                 _userTimezoneLocation = tz.getLocation(tzName);
-               });
-             } catch (e) {
-               print('Invalid timezone from profile: $tzName');
-               // Fallback to EST if invalid, or keep default
-               try {
-                 setState(() {
-                    _userTimezoneLocation = tz.getLocation('America/New_York');
-                 });
-               } catch (_) {}
-             }
+            final tzName = profile['timezone'] as String;
+            try {
+              setState(() {
+                _userTimezoneLocation = tz.getLocation(tzName);
+              });
+            } catch (e) {
+              print('Invalid timezone from profile: $tzName');
+              // Fallback to EST if invalid, or keep default
+              try {
+                setState(() {
+                  _userTimezoneLocation = tz.getLocation('America/New_York');
+                });
+              } catch (_) {}
+            }
           }
         } catch (e) {
           print('Failed to fetch user profile: $e');
         }
-
       }
     } catch (e) {
       print('Error loading history: $e');
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Failed to load history: $e')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Failed to load history: $e')));
       }
     } finally {
       setState(() {
@@ -216,80 +235,87 @@ class _MyHomePageState extends State<MyHomePage> {
       });
     }
   }
-  
-  Future<void> _handleShare(List<SharedMediaFile> files, {String? text, String? fileName, int? fileSize, int? width, int? height, double? duration}) async {
+
+  Future<void> _handleShare(
+    List<SharedMediaFile> files, {
+    String? text,
+    String? fileName,
+    int? fileSize,
+    int? width,
+    int? height,
+    double? duration,
+  }) async {
     if (_currentUser == null) {
-        // Require authentication - no offline support
-        if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('Please sign in to share items')),
-            );
-        }
-        return;
+      // Require authentication - no offline support
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Please sign in to share items')),
+        );
+      }
+      return;
     }
 
     try {
-        final authHeaders = await _currentUser!.authentication;
-        final token = authHeaders.accessToken;
-        if (token == null) {
-            return;
+      final authHeaders = await _currentUser!.authentication;
+      final token = authHeaders.accessToken;
+      if (token == null) {
+        return;
+      }
+
+      setState(() {
+        _isLoading = true;
+      });
+
+      if (files.isNotEmpty) {
+        // Handle file share (image/video/audio/file)
+        final file = files.first;
+
+        ShareItemType type = ShareItemType.file;
+        if (file.type == SharedMediaType.image) type = ShareItemType.image;
+        if (file.type == SharedMediaType.video) type = ShareItemType.video;
+
+        await _apiService.uploadShare(
+          token,
+          type,
+          file.path,
+          _currentUser!.email,
+          files: files,
+          fileName: fileName,
+          fileSize: fileSize,
+          width: width,
+          height: height,
+          duration: duration,
+        );
+      } else if (text != null) {
+        // Handle text/link share
+        ShareItemType type = ShareItemType.text;
+        if (text.startsWith('http://') || text.startsWith('https://')) {
+          type = ShareItemType.webUrl;
         }
 
-        setState(() {
-            _isLoading = true;
-        });
+        await _apiService.uploadShare(token, type, text, _currentUser!.email);
+      }
 
-        if (files.isNotEmpty) {
-            // Handle file share (image/video/audio/file)
-            final file = files.first;
+      // Refresh history
+      await _loadHistory();
 
-            ShareItemType type = ShareItemType.file;
-            if (file.type == SharedMediaType.image) type = ShareItemType.image;
-            if (file.type == SharedMediaType.video) type = ShareItemType.video;
-
-            await _apiService.uploadShare(
-                token,
-                type,
-                file.path,
-                _currentUser!.email,
-                files: files,
-                fileName: fileName,
-                fileSize: fileSize,
-                width: width,
-                height: height,
-                duration: duration,
-            );
-        } else if (text != null) {
-            // Handle text/link share
-            ShareItemType type = ShareItemType.text;
-            if (text.startsWith('http://') || text.startsWith('https://')) {
-                type = ShareItemType.webUrl;
-            }
-
-            await _apiService.uploadShare(token, type, text, _currentUser!.email);
-        }
-
-        // Refresh history
-        await _loadHistory();
-
-        if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('Item shared successfully!')),
-            );
-        }
-
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Item shared successfully!')),
+        );
+      }
     } catch (e) {
-        print('Error sharing item: $e');
-        if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(content: Text('Failed to share: $e')),
-            );
-        }
+      print('Error sharing item: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Failed to share: $e')));
+      }
     } finally {
-        setState(() {
-            _isLoading = false;
-            _sharedFiles.clear();
-        });
+      setState(() {
+        _isLoading = false;
+        _sharedFiles.clear();
+      });
     }
   }
 
@@ -299,89 +325,119 @@ class _MyHomePageState extends State<MyHomePage> {
     custom_sharing.SharingService().sharedContentStream.listen((items) {
       if (!mounted) return;
       print("Custom Shared content received: ${items.length}");
-      
+
       // Filter for media items
-      final mediaItems = items.where((i) => 
-          i.type == custom_sharing.SharedMediaType.image || 
-          i.type == custom_sharing.SharedMediaType.video || 
-          i.type == custom_sharing.SharedMediaType.file
-      ).toList();
+      final mediaItems = items
+          .where(
+            (i) =>
+                i.type == custom_sharing.SharedMediaType.image ||
+                i.type == custom_sharing.SharedMediaType.video ||
+                i.type == custom_sharing.SharedMediaType.file,
+          )
+          .toList();
 
       if (mediaItems.isNotEmpty) {
-          // Prioritize Media: Use the first item for metadata, but pass all files?
-          // Existing logic handles list of files but singular metadata.
-          // Let's pass all files.
-          
-          List<SharedMediaFile> files = [];
-          for (var item in mediaItems) {
-              SharedMediaType type = SharedMediaType.file;
-              if (item.type == custom_sharing.SharedMediaType.image) type = SharedMediaType.image;
-              if (item.type == custom_sharing.SharedMediaType.video) type = SharedMediaType.video;
-              
-              files.add(SharedMediaFile(
-                  path: item.value,
-                  type: type,
-                  thumbnail: item.thumbnail,
-                  duration: item.duration?.toInt(),
-              ));
+        // Prioritize Media: Use the first item for metadata, but pass all files?
+        // Existing logic handles list of files but singular metadata.
+        // Let's pass all files.
+
+        List<SharedMediaFile> files = [];
+        for (var item in mediaItems) {
+          SharedMediaType type = SharedMediaType.file;
+          if (item.type == custom_sharing.SharedMediaType.image) {
+            type = SharedMediaType.image;
           }
-          
-          // Use metadata from the first item
-          final mainItem = mediaItems.first;
-          
-          _handleShare(
-              files, 
-              fileName: mainItem.fileName,
-              fileSize: mainItem.fileSize,
-              width: mainItem.width,
-              height: mainItem.height,
-              duration: mainItem.duration,
+          if (item.type == custom_sharing.SharedMediaType.video) {
+            type = SharedMediaType.video;
+          }
+
+          files.add(
+            SharedMediaFile(
+              path: item.value,
+              type: type,
+              thumbnail: item.thumbnail,
+              duration: item.duration?.toInt(),
+            ),
           );
+        }
+
+        // Use metadata from the first item
+        final mainItem = mediaItems.first;
+
+        _handleShare(
+          files,
+          fileName: mainItem.fileName,
+          fileSize: mainItem.fileSize,
+          width: mainItem.width,
+          height: mainItem.height,
+          duration: mainItem.duration,
+        );
       } else {
-          // Fallback to Text/URL
-          final textItem = items.where((i) => 
-              i.type == custom_sharing.SharedMediaType.text || 
-              i.type == custom_sharing.SharedMediaType.weburl
-          ).firstOrNull;
-          
-          if (textItem != null) {
-              _handleShare([], text: textItem.value);
-          }
+        // Fallback to Text/URL
+        final textItem = items
+            .where(
+              (i) =>
+                  i.type == custom_sharing.SharedMediaType.text ||
+                  i.type == custom_sharing.SharedMediaType.weburl,
+            )
+            .firstOrNull;
+
+        if (textItem != null) {
+          _handleShare([], text: textItem.value);
+        }
       }
     });
 
     // For sharing images, text, and files coming from outside the app while the app is in the memory
-    _intentDataStreamSubscription = ReceiveSharingIntent.instance.getMediaStream().listen((List<SharedMediaFile> value) {
-      if (!mounted) return;
-      print("Shared content received (stream): ${value.length}");
-      
-      // Check if any shared item is text/url
-      final textItem = value.where((f) => f.type == SharedMediaType.text || f.type == SharedMediaType.url).firstOrNull;
-      
-      if (textItem != null) {
-          _handleShare([], text: textItem.path);
-      } else if (value.isNotEmpty) {
-          _handleShare(value);
-      }
-    }, onError: (err) {
-      print("getMediaStream error: $err");
-    });
+    _intentDataStreamSubscription = ReceiveSharingIntent.instance
+        .getMediaStream()
+        .listen(
+          (List<SharedMediaFile> value) {
+            if (!mounted) return;
+            print("Shared content received (stream): ${value.length}");
+
+            // Check if any shared item is text/url
+            final textItem = value
+                .where(
+                  (f) =>
+                      f.type == SharedMediaType.text ||
+                      f.type == SharedMediaType.url,
+                )
+                .firstOrNull;
+
+            if (textItem != null) {
+              _handleShare([], text: textItem.path);
+            } else if (value.isNotEmpty) {
+              _handleShare(value);
+            }
+          },
+          onError: (err) {
+            print("getMediaStream error: $err");
+          },
+        );
 
     // For sharing images, text, and files coming from outside the app while the app is closed
-    ReceiveSharingIntent.instance.getInitialMedia().then((List<SharedMediaFile> value) {
+    ReceiveSharingIntent.instance.getInitialMedia().then((
+      List<SharedMediaFile> value,
+    ) {
       if (!mounted) return;
       print("Shared content received (initial): ${value.length}");
-      
-      final textItem = value.where((f) => f.type == SharedMediaType.text || f.type == SharedMediaType.url).firstOrNull;
+
+      final textItem = value
+          .where(
+            (f) =>
+                f.type == SharedMediaType.text || f.type == SharedMediaType.url,
+          )
+          .firstOrNull;
 
       if (textItem != null) {
-           _handleShare([], text: textItem.path);
+        _handleShare([], text: textItem.path);
       } else if (value.isNotEmpty) {
-           _handleShare(value);
+        _handleShare(value);
       }
-      
+
       if (value.isNotEmpty) {
-           ReceiveSharingIntent.instance.reset();
+        ReceiveSharingIntent.instance.reset();
       }
     });
   }
@@ -389,16 +445,24 @@ class _MyHomePageState extends State<MyHomePage> {
   @override
   void dispose() {
     _intentDataStreamSubscription?.cancel();
+    _timelineScrollController.removeListener(_handleTimelineScroll);
     _timelineScrollController.dispose();
     _searchController.dispose();
     _searchFocusNode.dispose();
     super.dispose();
   }
 
+  void _handleTimelineScroll() {
+    if (_currentView == ViewMode.timeline) {
+      _updateNowVisibility();
+    }
+  }
+
   void _updateNowVisibility() {
     if (_nowDividerKey.currentContext == null) return;
 
-    final RenderBox? nowBox = _nowDividerKey.currentContext?.findRenderObject() as RenderBox?;
+    final RenderBox? nowBox =
+        _nowDividerKey.currentContext?.findRenderObject() as RenderBox?;
     if (nowBox == null || !nowBox.hasSize) return;
 
     // Get the Now divider's position relative to the screen
@@ -445,13 +509,15 @@ class _MyHomePageState extends State<MyHomePage> {
     final clampedOffset = targetOffset.clamp(0.0, maxScroll);
 
     if (animate) {
-      _timelineScrollController.animateTo(
-        clampedOffset,
-        duration: const Duration(milliseconds: 300),
-        curve: Curves.easeInOut,
-      ).then((_) {
-        if (mounted) _updateNowVisibility();
-      });
+      _timelineScrollController
+          .animateTo(
+            clampedOffset,
+            duration: const Duration(milliseconds: 300),
+            curve: Curves.easeInOut,
+          )
+          .then((_) {
+            if (mounted) _updateNowVisibility();
+          });
     } else {
       _timelineScrollController.jumpTo(clampedOffset);
       Future.delayed(const Duration(milliseconds: 50), () {
@@ -467,7 +533,7 @@ class _MyHomePageState extends State<MyHomePage> {
         _currentUser = user;
       });
       if (user != null) {
-          _loadHistory();
+        _loadHistory();
       }
     } catch (error) {
       print(error);
@@ -498,10 +564,8 @@ class _MyHomePageState extends State<MyHomePage> {
     Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (context) => TagEditorScreen(
-          authToken: _authToken!,
-          items: _history,
-        ),
+        builder: (context) =>
+            TagEditorScreen(authToken: _authToken!, items: _history),
       ),
     ).then((_) {
       _loadHistory(); // Refresh in case tags were deleted
@@ -557,15 +621,15 @@ class _MyHomePageState extends State<MyHomePage> {
       if (await canLaunchUrl(uri)) {
         await launchUrl(uri, mode: LaunchMode.externalApplication);
       } else if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Export saved to ${file.path}')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Export saved to ${file.path}')));
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Export failed: $e')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Export failed: $e')));
       }
     }
   }
@@ -587,7 +651,9 @@ class _MyHomePageState extends State<MyHomePage> {
                   contentPadding: EdgeInsets.zero,
                   leading: _currentUser!.photoUrl != null
                       ? CircleAvatar(
-                          backgroundImage: NetworkImage(_currentUser!.photoUrl!),
+                          backgroundImage: NetworkImage(
+                            _currentUser!.photoUrl!,
+                          ),
                         )
                       : const CircleAvatar(child: Icon(Icons.person)),
                   title: Text(_currentUser!.displayName ?? 'User'),
@@ -656,7 +722,9 @@ class _MyHomePageState extends State<MyHomePage> {
                   onTap: _showUserMenu,
                   child: _currentUser!.photoUrl != null
                       ? CircleAvatar(
-                          backgroundImage: NetworkImage(_currentUser!.photoUrl!),
+                          backgroundImage: NetworkImage(
+                            _currentUser!.photoUrl!,
+                          ),
                         )
                       : const CircleAvatar(child: Icon(Icons.person, size: 20)),
                 ),
@@ -716,22 +784,15 @@ class _MyHomePageState extends State<MyHomePage> {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(
-              Icons.share_outlined,
-              size: 64,
-              color: AppColors.primary,
-            ),
+            Icon(Icons.share_outlined, size: 64, color: AppColors.primary),
             const SizedBox(height: AppSpacing.xl),
-            Text(
-              'Analyze This',
-              style: Theme.of(context).textTheme.titleLarge,
-            ),
+            Text('Analyze This', style: Theme.of(context).textTheme.titleLarge),
             const SizedBox(height: AppSpacing.sm),
             Text(
               'Sign in to view and manage your shared items',
-              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                color: AppColors.textSecondary,
-              ),
+              style: Theme.of(
+                context,
+              ).textTheme.bodyMedium?.copyWith(color: AppColors.textSecondary),
               textAlign: TextAlign.center,
             ),
             const SizedBox(height: AppSpacing.xxl),
@@ -747,6 +808,8 @@ class _MyHomePageState extends State<MyHomePage> {
   }
 
   Widget _buildMainView() {
+    final filteredItems = _getFilteredItems();
+
     return Column(
       children: [
         // Filter controls (view mode tabs)
@@ -756,19 +819,19 @@ class _MyHomePageState extends State<MyHomePage> {
         Expanded(
           child: _isLoading
               ? Center(
-                  child: CircularProgressIndicator(
-                    color: AppColors.primary,
-                  ),
+                  child: CircularProgressIndicator(color: AppColors.primary),
                 )
-              : _getFilteredItems().isEmpty
-                  ? _buildEmptyState()
-                  : _buildHistoryList(),
+              : filteredItems.isEmpty
+              ? _buildEmptyState()
+              : _buildHistoryList(filteredItems),
         ),
       ],
     );
   }
 
   Widget _buildFilterControls() {
+    final isCompact = MediaQuery.of(context).size.width < 430;
+
     return Container(
       padding: const EdgeInsets.symmetric(
         horizontal: AppSpacing.lg,
@@ -776,23 +839,32 @@ class _MyHomePageState extends State<MyHomePage> {
       ),
       decoration: BoxDecoration(
         color: AppColors.surface,
-        border: Border(
-          bottom: BorderSide(color: Colors.grey.shade200),
-        ),
+        border: Border(bottom: BorderSide(color: Colors.grey.shade200)),
       ),
       child: Center(
         child: SegmentedButton<ViewMode>(
           showSelectedIcon: false,
           segments: [
             const ButtonSegment(value: ViewMode.all, label: Text('All')),
-            const ButtonSegment(value: ViewMode.timeline, label: Text('Timeline')),
-            ButtonSegment(value: ViewMode.followUp, label: _buildFollowUpSegmentLabel()),
+            ButtonSegment(
+              value: ViewMode.timeline,
+              label: Text(isCompact ? 'Time' : 'Timeline'),
+            ),
             const ButtonSegment(value: ViewMode.media, label: Text('Media')),
+            ButtonSegment(
+              value: ViewMode.followUp,
+              label: _buildFollowUpSegmentLabel(compact: isCompact),
+            ),
           ],
           selected: {_currentView},
           onSelectionChanged: (Set<ViewMode> selection) {
             setState(() {
               _currentView = selection.first;
+              if (_currentView == ViewMode.timeline) {
+                _hasScrolledToNow = false;
+              } else {
+                _nowButtonVisible = false;
+              }
             });
           },
         ),
@@ -800,29 +872,22 @@ class _MyHomePageState extends State<MyHomePage> {
     );
   }
 
-  Widget _buildFollowUpSegmentLabel() {
+  Widget _buildFollowUpSegmentLabel({required bool compact}) {
     final count = _followUpCountForBadge;
+    final label = compact ? 'Follow' : 'Follow-up';
+
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
-        const Text('Follow-up'),
+        Text(label),
         if (count > 0) ...[
-          const SizedBox(width: 6),
+          const SizedBox(width: 5),
           Container(
-            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+            width: 8,
+            height: 8,
             decoration: BoxDecoration(
               color: AppColors.primary,
-              borderRadius: BorderRadius.circular(10),
-            ),
-            constraints: const BoxConstraints(minWidth: 18),
-            child: Text(
-              '$count',
-              textAlign: TextAlign.center,
-              style: const TextStyle(
-                color: Colors.white,
-                fontSize: 11,
-                fontWeight: FontWeight.w600,
-              ),
+              shape: BoxShape.circle,
             ),
           ),
         ],
@@ -831,54 +896,162 @@ class _MyHomePageState extends State<MyHomePage> {
   }
 
   DateTime? _getEventDateTime(HistoryItem item) {
-    if (item.analysis == null) return null;
+    final candidates = <DateTime>[];
 
-    // Check for new 'timeline' structure
-    final timeline = item.analysis!['timeline'] as Map<String, dynamic>?;
-    if (timeline != null) {
-      final dateStr = timeline['date'];
-      final timeStr = timeline['time'];
-      
-      if (dateStr != null) {
-        try {
-          if (timeStr != null && timeStr != "null") {
-            // Attempt to combine date and time
-            final dateTimeStr = "$dateStr $timeStr";
-            if (_userTimezoneLocation != null) {
-              return tz.TZDateTime.parse(_userTimezoneLocation!, dateTimeStr);
-            }
-            return DateTime.parse(dateTimeStr);
+    void addCandidate(DateTime? candidate) {
+      if (candidate != null) {
+        candidates.add(candidate);
+      }
+    }
+
+    // New schema: top-level item timeline supports multiple events.
+    final topLevelTimeline = item.timeline;
+    if (topLevelTimeline != null) {
+      for (final event in topLevelTimeline) {
+        addCandidate(_parseTimelineEventDate(event));
+      }
+    }
+
+    final analysis = item.analysis;
+    if (analysis != null) {
+      // Compatibility: analysis.timeline may be a map (legacy) or list.
+      final analysisTimeline = analysis['timeline'];
+      if (analysisTimeline is Map) {
+        addCandidate(_parseTimelineEventDate(analysisTimeline));
+      } else if (analysisTimeline is List) {
+        for (final event in analysisTimeline) {
+          if (event is Map) {
+            addCandidate(_parseTimelineEventDate(event));
           }
-          if (_userTimezoneLocation != null) {
-             return tz.TZDateTime.parse(_userTimezoneLocation!, dateStr);
-          }
-          return DateTime.parse(dateStr);
-        } catch (_) {
-          // Fall through to other checks if parsing fails
+        }
+      }
+
+      // Legacy fallback.
+      final details = analysis['details'] as Map<String, dynamic>?;
+      if (details != null) {
+        final dateTimeStr =
+            details['date_time'] ??
+            details['dateTime'] ??
+            details['date'] ??
+            details['event_date'] ??
+            details['eventDate'] ??
+            details['start_date'];
+        if (dateTimeStr != null) {
+          addCandidate(_tryParseDateTime(dateTimeStr.toString()));
         }
       }
     }
 
-    // Fallback to old 'details' structure
-    final details = item.analysis!['details'] as Map<String, dynamic>?;
-    if (details == null) return null;
+    if (candidates.isEmpty) return null;
 
-    final dateTimeStr = details['date_time'] ??
-                        details['dateTime'] ??
-                        details['date'] ??
-                        details['event_date'] ??
-                        details['eventDate'] ??
-                        details['start_date'];
+    final now = DateTime.now();
+    final future = candidates.where((d) => d.isAfter(now)).toList()
+      ..sort((a, b) => a.compareTo(b));
+    if (future.isNotEmpty) {
+      return future.first;
+    }
 
-    if (dateTimeStr == null) return null;
+    candidates.sort((a, b) => a.compareTo(b));
+    return candidates.first;
+  }
 
+  List<Map<String, dynamic>> _getTimelineEvents(HistoryItem item) {
+    final events = <Map<String, dynamic>>[];
+
+    final topLevelTimeline = item.timeline;
+    if (topLevelTimeline != null) {
+      for (final event in topLevelTimeline) {
+        events.add(event);
+      }
+      if (events.isNotEmpty) {
+        return events;
+      }
+    }
+
+    final analysisTimeline = item.analysis?['timeline'];
+    if (analysisTimeline is Map) {
+      events.add(Map<String, dynamic>.from(analysisTimeline));
+    } else if (analysisTimeline is List) {
+      for (final event in analysisTimeline) {
+        if (event is Map) {
+          events.add(Map<String, dynamic>.from(event));
+        }
+      }
+    }
+
+    return events;
+  }
+
+  List<_TimelineEntry> _getTimelineEntriesForItem(
+    HistoryItem item,
+    int itemIndex,
+  ) {
+    final entries = <_TimelineEntry>[];
+    final timelineEvents = _getTimelineEvents(item);
+
+    for (final event in timelineEvents) {
+      final eventDate = _parseTimelineEventDate(event);
+      if (eventDate != null) {
+        entries.add(
+          _TimelineEntry(
+            item: item,
+            itemIndex: itemIndex,
+            eventDate: eventDate,
+          ),
+        );
+      }
+    }
+
+    // Legacy fallback for items with derived date but no explicit timeline list.
+    if (entries.isEmpty) {
+      final eventDate = _getEventDateTime(item);
+      if (eventDate != null) {
+        entries.add(
+          _TimelineEntry(
+            item: item,
+            itemIndex: itemIndex,
+            eventDate: eventDate,
+          ),
+        );
+      }
+    }
+
+    return entries;
+  }
+
+  DateTime? _parseTimelineEventDate(Map event) {
+    final dateValue = event['date'];
+    if (dateValue == null) return null;
+
+    final dateStr = dateValue.toString().trim();
+    if (dateStr.isEmpty || dateStr == 'null') return null;
+
+    final timeValue = event['time'];
+    final timeStr = timeValue?.toString().trim();
+    if (timeStr != null && timeStr.isNotEmpty && timeStr != 'null') {
+      final combined = _tryParseDateTime('$dateStr $timeStr');
+      if (combined != null) return combined;
+    }
+
+    return _tryParseDateTime(dateStr);
+  }
+
+  DateTime? _tryParseDateTime(String raw) {
     try {
       if (_userTimezoneLocation != null) {
-        return tz.TZDateTime.parse(_userTimezoneLocation!, dateTimeStr.toString());
+        return tz.TZDateTime.parse(_userTimezoneLocation!, raw);
       }
-      return DateTime.parse(dateTimeStr.toString());
-    } catch (e) {
-      return null;
+      return DateTime.parse(raw);
+    } catch (_) {
+      try {
+        return DateFormat('yyyy-MM-dd h:mm a').parse(raw);
+      } catch (_) {
+        try {
+          return DateFormat('yyyy-MM-dd HH:mm').parse(raw);
+        } catch (_) {
+          return null;
+        }
+      }
     }
   }
 
@@ -915,7 +1088,9 @@ class _MyHomePageState extends State<MyHomePage> {
     return '~${hours.round()} hr';
   }
 
-  Map<String, List<HistoryItem>> _groupItemsByMediaTag(List<HistoryItem> items) {
+  Map<String, List<HistoryItem>> _groupItemsByMediaTag(
+    List<HistoryItem> items,
+  ) {
     final groups = <String, List<HistoryItem>>{
       'to_watch': [],
       'to_listen': [],
@@ -937,7 +1112,9 @@ class _MyHomePageState extends State<MyHomePage> {
       group.sort((a, b) {
         final timeA = _getConsumptionTime(a);
         final timeB = _getConsumptionTime(b);
-        if (timeA == null && timeB == null) return b.timestamp.compareTo(a.timestamp);
+        if (timeA == null && timeB == null) {
+          return b.timestamp.compareTo(a.timestamp);
+        }
         if (timeA == null) return 1;
         if (timeB == null) return -1;
         return timeA.compareTo(timeB);
@@ -957,15 +1134,20 @@ class _MyHomePageState extends State<MyHomePage> {
     // Apply search filter
     if (_searchQuery.isNotEmpty) {
       final query = _searchQuery.toLowerCase();
-      items = items.where((item) =>
-        (item.title?.toLowerCase().contains(query) ?? false) ||
-        item.value.toLowerCase().contains(query)
-      ).toList();
+      items = items
+          .where(
+            (item) =>
+                (item.title?.toLowerCase().contains(query) ?? false) ||
+                item.value.toLowerCase().contains(query),
+          )
+          .toList();
     }
 
     // Apply type filter (multi-select)
     if (_selectedTypes.isNotEmpty) {
-      items = items.where((item) => _selectedTypes.contains(item.type)).toList();
+      items = items
+          .where((item) => _selectedTypes.contains(item.type))
+          .toList();
     }
 
     // Apply tag filter
@@ -980,12 +1162,13 @@ class _MyHomePageState extends State<MyHomePage> {
     // Apply view-specific filtering and sorting
     switch (_currentView) {
       case ViewMode.timeline:
-        items = items.where((item) => _getEventDateTime(item) != null).toList();
-        items.sort((a, b) {
-          final dateA = _getEventDateTime(a)!;
-          final dateB = _getEventDateTime(b)!;
-          return dateB.compareTo(dateA);
-        });
+        final timelineItems = <HistoryItem>[];
+        for (int i = 0; i < items.length; i++) {
+          if (_getTimelineEntriesForItem(items[i], i).isNotEmpty) {
+            timelineItems.add(items[i]);
+          }
+        }
+        items = timelineItems;
         break;
       case ViewMode.followUp:
         items = items.where((item) => item.status == 'follow_up').toList();
@@ -1015,29 +1198,31 @@ class _MyHomePageState extends State<MyHomePage> {
       message = 'No visible items';
       icon = Icons.visibility_off_outlined;
     } else {
-    switch (_currentView) {
-      case ViewMode.timeline:
-        message = 'No items with event dates found';
-        icon = Icons.event_outlined;
-        break;
-      case ViewMode.followUp:
-        message = 'No items need follow-up';
-        icon = Icons.check_circle_outline;
-        break;
-      case ViewMode.media:
-        message = 'No media items found';
-        icon = Icons.play_circle_outline;
-        break;
-      case ViewMode.all:
-        if (_selectedTypes.isNotEmpty || _selectedTags.isNotEmpty || _searchQuery.isNotEmpty) {
-          message = 'No matching items found';
-          icon = Icons.filter_list_off;
-        } else {
-          message = 'No items yet';
-          icon = Icons.inbox_outlined;
-        }
-        break;
-    }
+      switch (_currentView) {
+        case ViewMode.timeline:
+          message = 'No items with event dates found';
+          icon = Icons.event_outlined;
+          break;
+        case ViewMode.followUp:
+          message = 'No items need follow-up';
+          icon = Icons.check_circle_outline;
+          break;
+        case ViewMode.media:
+          message = 'No media items found';
+          icon = Icons.play_circle_outline;
+          break;
+        case ViewMode.all:
+          if (_selectedTypes.isNotEmpty ||
+              _selectedTags.isNotEmpty ||
+              _searchQuery.isNotEmpty) {
+            message = 'No matching items found';
+            icon = Icons.filter_list_off;
+          } else {
+            message = 'No items yet';
+            icon = Icons.inbox_outlined;
+          }
+          break;
+      }
     }
 
     return Center(
@@ -1046,23 +1231,19 @@ class _MyHomePageState extends State<MyHomePage> {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(
-              icon,
-              size: 48,
-              color: AppColors.textSecondary,
-            ),
+            Icon(icon, size: 48, color: AppColors.textSecondary),
             const SizedBox(height: AppSpacing.lg),
-            Text(
-              message,
-              style: Theme.of(context).textTheme.titleMedium,
-            ),
+            Text(message, style: Theme.of(context).textTheme.titleMedium),
             const SizedBox(height: AppSpacing.sm),
-          Text(
+            Text(
               (!_showHidden && _history.any((item) => item.isHidden))
                   ? 'Enable "Show Archive" to view archived items'
-                  : _currentView == ViewMode.all && _selectedTypes.isEmpty && _selectedTags.isEmpty && _searchQuery.isEmpty
-                      ? 'Share content from other apps to see it here'
-                      : 'Try changing your filters',
+                  : _currentView == ViewMode.all &&
+                        _selectedTypes.isEmpty &&
+                        _selectedTags.isEmpty &&
+                        _searchQuery.isEmpty
+                  ? 'Share content from other apps to see it here'
+                  : 'Try changing your filters',
               style: Theme.of(context).textTheme.bodySmall,
               textAlign: TextAlign.center,
             ),
@@ -1072,9 +1253,7 @@ class _MyHomePageState extends State<MyHomePage> {
     );
   }
 
-  Widget _buildHistoryList() {
-    final items = _getFilteredItems();
-
+  Widget _buildHistoryList(List<HistoryItem> items) {
     if (_currentView == ViewMode.timeline) {
       return _buildTimelineList(items);
     }
@@ -1127,12 +1306,17 @@ class _MyHomePageState extends State<MyHomePage> {
       // Section header
       sections.add(
         Padding(
-          padding: const EdgeInsets.fromLTRB(0, AppSpacing.lg, 0, AppSpacing.sm),
+          padding: const EdgeInsets.fromLTRB(
+            0,
+            AppSpacing.lg,
+            0,
+            AppSpacing.sm,
+          ),
           child: Text(
             groupLabels[tag]!,
-            style: Theme.of(context).textTheme.titleMedium?.copyWith(
-              fontWeight: FontWeight.bold,
-            ),
+            style: Theme.of(
+              context,
+            ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold),
           ),
         ),
       );
@@ -1145,7 +1329,9 @@ class _MyHomePageState extends State<MyHomePage> {
 
         sections.add(
           Padding(
-            padding: EdgeInsets.only(bottom: i < groupItems.length - 1 ? AppSpacing.md : 0),
+            padding: EdgeInsets.only(
+              bottom: i < groupItems.length - 1 ? AppSpacing.md : 0,
+            ),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
@@ -1157,7 +1343,10 @@ class _MyHomePageState extends State<MyHomePage> {
                       children: [
                         if (consumptionTime != null)
                           Container(
-                            padding: const EdgeInsets.symmetric(horizontal: AppSpacing.sm, vertical: 2),
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: AppSpacing.sm,
+                              vertical: 2,
+                            ),
                             decoration: BoxDecoration(
                               color: Colors.grey.shade100,
                               borderRadius: BorderRadius.circular(12),
@@ -1170,10 +1359,14 @@ class _MyHomePageState extends State<MyHomePage> {
                               ),
                             ),
                           ),
-                        if (consumptionTime != null && isFuture) const SizedBox(width: AppSpacing.xs),
+                        if (consumptionTime != null && isFuture)
+                          const SizedBox(width: AppSpacing.xs),
                         if (isFuture)
                           Container(
-                            padding: const EdgeInsets.symmetric(horizontal: AppSpacing.sm, vertical: 2),
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: AppSpacing.sm,
+                              vertical: 2,
+                            ),
                             decoration: BoxDecoration(
                               color: Colors.purple.shade50,
                               borderRadius: BorderRadius.circular(12),
@@ -1196,7 +1389,8 @@ class _MyHomePageState extends State<MyHomePage> {
                   isHidden: item.isHidden,
                   isHiding: _hidingItemIds.contains(item.id),
                   onToggleHidden: () => _setItemHidden(item, !item.isHidden),
-                  onTap: () => _openDetailFiltered(items, itemIndexMap[item.id] ?? 0),
+                  onTap: () =>
+                      _openDetailFiltered(items, itemIndexMap[item.id] ?? 0),
                 ),
               ],
             ),
@@ -1212,9 +1406,16 @@ class _MyHomePageState extends State<MyHomePage> {
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              Icon(Icons.play_circle_outline, size: 48, color: AppColors.textSecondary),
+              Icon(
+                Icons.play_circle_outline,
+                size: 48,
+                color: AppColors.textSecondary,
+              ),
               const SizedBox(height: AppSpacing.lg),
-              Text('No media items found', style: Theme.of(context).textTheme.titleMedium),
+              Text(
+                'No media items found',
+                style: Theme.of(context).textTheme.titleMedium,
+              ),
             ],
           ),
         ),
@@ -1306,13 +1507,18 @@ class _MyHomePageState extends State<MyHomePage> {
   }
 
   Widget _buildTimelineList(List<HistoryItem> items) {
+    final entries = <_TimelineEntry>[];
+    for (int i = 0; i < items.length; i++) {
+      entries.addAll(_getTimelineEntriesForItem(items[i], i));
+    }
+    entries.sort((a, b) => b.eventDate.compareTo(a.eventDate));
+
     final now = DateTime.now();
-    int nowIndex = items.length; // Default: Now at end
+    int nowIndex = entries.length; // Default: Now at end
 
     // Find where to insert Now divider
-    for (int i = 0; i < items.length; i++) {
-      final eventDate = _getEventDateTime(items[i]);
-      if (eventDate != null && eventDate.isBefore(now)) {
+    for (int i = 0; i < entries.length; i++) {
+      if (entries[i].eventDate.isBefore(now)) {
         nowIndex = i;
         break;
       }
@@ -1321,11 +1527,11 @@ class _MyHomePageState extends State<MyHomePage> {
     // Store for scroll calculations
     _nowListIndex = nowIndex;
 
-    // Total items = items + 1 for Now divider
-    final totalCount = items.length + 1;
+    // Total items = entries + 1 for Now divider
+    final totalCount = entries.length + 1;
 
     // Scroll to Now on first load (with delay to ensure widget is rendered)
-    if (!_hasScrolledToNow && items.isNotEmpty) {
+    if (!_hasScrolledToNow && entries.isNotEmpty) {
       _hasScrolledToNow = true;
       WidgetsBinding.instance.addPostFrameCallback((_) {
         // Small delay to ensure GlobalKey context is available
@@ -1336,15 +1542,6 @@ class _MyHomePageState extends State<MyHomePage> {
         });
       });
     }
-
-    // Add scroll listener for visibility tracking
-    _timelineScrollController.removeListener(_updateNowVisibility);
-    _timelineScrollController.addListener(_updateNowVisibility);
-
-    // Update visibility after build
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) _updateNowVisibility();
-    });
 
     final listView = ListView.builder(
       controller: _timelineScrollController,
@@ -1357,11 +1554,12 @@ class _MyHomePageState extends State<MyHomePage> {
         }
 
         // Adjust item index based on Now divider position
-        final itemIndex = index > nowIndex ? index - 1 : index;
-        final item = items[itemIndex];
-        final eventDate = _getEventDateTime(item);
+        final entryIndex = index > nowIndex ? index - 1 : index;
+        final entry = entries[entryIndex];
+        final item = entry.item;
+        final eventDate = entry.eventDate;
 
-        final isPastEvent = eventDate != null && eventDate.isBefore(now);
+        final isPastEvent = eventDate.isBefore(now);
         final card = HistoryCard(
           item: item,
           authToken: _authToken,
@@ -1370,7 +1568,7 @@ class _MyHomePageState extends State<MyHomePage> {
           showImage: false,
           showDate: false,
           onToggleHidden: () => _setItemHidden(item, !item.isHidden),
-          onTap: () => _openDetailFiltered(items, itemIndex),
+          onTap: () => _openDetailFiltered(items, entry.itemIndex),
         );
 
         final styledCard = isPastEvent
@@ -1381,10 +1579,26 @@ class _MyHomePageState extends State<MyHomePage> {
                   opacity: 0.7,
                   child: ColorFiltered(
                     colorFilter: const ColorFilter.matrix(<double>[
-                      0.2126, 0.7152, 0.0722, 0, 0,
-                      0.2126, 0.7152, 0.0722, 0, 0,
-                      0.2126, 0.7152, 0.0722, 0, 0,
-                      0,      0,      0,      1, 0,
+                      0.2126,
+                      0.7152,
+                      0.0722,
+                      0,
+                      0,
+                      0.2126,
+                      0.7152,
+                      0.0722,
+                      0,
+                      0,
+                      0.2126,
+                      0.7152,
+                      0.0722,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      1,
+                      0,
                     ]),
                     child: card,
                   ),
@@ -1398,10 +1612,7 @@ class _MyHomePageState extends State<MyHomePage> {
           ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              if (eventDate != null) _buildEventDateBadge(eventDate),
-              styledCard,
-            ],
+            children: [_buildEventDateBadge(eventDate), styledCard],
           ),
         );
       },
@@ -1416,9 +1627,7 @@ class _MyHomePageState extends State<MyHomePage> {
             right: 0,
             top: _nowIsAbove ? AppSpacing.md : null,
             bottom: !_nowIsAbove ? AppSpacing.md : null,
-            child: Center(
-              child: _buildNowButton(),
-            ),
+            child: Center(child: _buildNowButton()),
           ),
       ],
     );
