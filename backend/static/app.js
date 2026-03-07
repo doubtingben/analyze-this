@@ -88,10 +88,12 @@ const detailTimelineAddContainer = document.getElementById(
 );
 const detailTimelineAddBtn = document.getElementById("detail-timeline-add-btn");
 const followUpCountBadgeEl = document.getElementById("follow-up-count-badge");
+const mediaFiltersEl = document.getElementById("media-filters");
 
 // State
 let allItems = [];
 let currentView = "all"; // 'all', 'timeline', 'follow_up', or 'media'
+let currentMediaGroup = "to_watch"; // Default media group
 let selectedTypes = new Set(); // Empty = all types
 let selectedTags = new Set(); // Empty = no tag filter
 let searchQuery = ""; // Empty = no search
@@ -140,9 +142,20 @@ function getViewFromPathname(pathname) {
 }
 
 function updateViewButtons() {
-  document.querySelectorAll(".view-btn").forEach((btn) => {
+  document.querySelectorAll(".view-btn[data-view]").forEach((btn) => {
     btn.classList.toggle("active", btn.dataset.view === currentView);
   });
+  
+  if (mediaFiltersEl) {
+    if (currentView === "media") {
+      mediaFiltersEl.style.display = "flex";
+      mediaFiltersEl.querySelectorAll(".view-btn[data-media]").forEach((btn) => {
+        btn.classList.toggle("active", btn.dataset.media === currentMediaGroup);
+      });
+    } else {
+      mediaFiltersEl.style.display = "none";
+    }
+  }
 }
 
 function updateUrlForView(view, replace = false) {
@@ -428,9 +441,21 @@ async function handleCreateSubmit(e) {
 // Setup filter event listeners
 function setupFilters() {
   // View toggle buttons
-  document.querySelectorAll(".view-btn").forEach((btn) => {
+  document.querySelectorAll(".view-btn[data-view]").forEach((btn) => {
     btn.addEventListener("click", () => {
       setView(btn.dataset.view, { push: true });
+    });
+  });
+
+  // Media group buttons
+  document.querySelectorAll(".view-btn[data-media]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const media = btn.dataset.media;
+      if (media !== currentMediaGroup) {
+        currentMediaGroup = media;
+        updateViewButtons();
+        renderFilteredItems();
+      }
     });
   });
 
@@ -1507,66 +1532,49 @@ function renderTimelineItems(items) {
 
 function renderMediaItems(items) {
   const groups = groupItemsByMediaTag(items);
-  const groupLabels = {
-    to_watch: "To Watch",
-    to_listen: "To Listen",
-    to_read: "To Read",
-  };
+  
+  const groupItems = groups[currentMediaGroup] || [];
 
-  let hasAnyItems = false;
-
-  for (const tag of ["to_watch", "to_listen", "to_read"]) {
-    const groupItems = groups[tag];
-    if (groupItems.length === 0) continue;
-
-    hasAnyItems = true;
-
-    // Section header
-    const header = document.createElement("div");
-    header.className = "media-section-header";
-    header.textContent = groupLabels[tag];
-    itemsContainerEl.appendChild(header);
-
-    // Items
-    for (const item of groupItems) {
-      const card = renderItem(item);
-
-      // Add badges before the card content
-      const badgesRow = document.createElement("div");
-      badgesRow.className = "media-badges";
-
-      const consumptionTime = getConsumptionTime(item);
-      if (consumptionTime !== null) {
-        const badge = document.createElement("span");
-        badge.className = "consumption-time-badge";
-        badge.textContent = formatConsumptionTime(consumptionTime);
-        badgesRow.appendChild(badge);
-      }
-
-      if (isFutureAvailability(item)) {
-        const badge = document.createElement("span");
-        badge.className = "availability-badge";
-        badge.textContent = `Available ${formatAvailabilityDate(getEventDateTime(item))}`;
-        badgesRow.appendChild(badge);
-      }
-
-      if (badgesRow.children.length > 0) {
-        // Insert badges after the header element
-        const headerEl = card.querySelector(".item-header");
-        if (headerEl && headerEl.nextSibling) {
-          card.insertBefore(badgesRow, headerEl.nextSibling);
-        } else {
-          card.appendChild(badgesRow);
-        }
-      }
-
-      itemsContainerEl.appendChild(card);
-    }
-  }
-
-  if (!hasAnyItems) {
+  if (groupItems.length === 0) {
     emptyStateEl.style.display = "block";
     emptyStateEl.querySelector("p").textContent = "No media items found.";
+    return;
+  }
+
+  // Items
+  for (const item of groupItems) {
+    const card = renderItem(item);
+
+    // Add badges before the card content
+    const badgesRow = document.createElement("div");
+    badgesRow.className = "media-badges";
+
+    const consumptionTime = getConsumptionTime(item);
+    if (consumptionTime !== null) {
+      const badge = document.createElement("span");
+      badge.className = "consumption-time-badge";
+      badge.textContent = formatConsumptionTime(consumptionTime);
+      badgesRow.appendChild(badge);
+    }
+
+    if (isFutureAvailability(item)) {
+      const badge = document.createElement("span");
+      badge.className = "availability-badge";
+      badge.textContent = `Available ${formatAvailabilityDate(getEventDateTime(item))}`;
+      badgesRow.appendChild(badge);
+    }
+
+    if (badgesRow.children.length > 0) {
+      // Insert badges after the header element
+      const headerEl = card.querySelector(".item-header");
+      if (headerEl && headerEl.nextSibling) {
+        card.insertBefore(badgesRow, headerEl.nextSibling);
+      } else {
+        card.appendChild(badgesRow);
+      }
+    }
+
+    itemsContainerEl.appendChild(card);
   }
 }
 

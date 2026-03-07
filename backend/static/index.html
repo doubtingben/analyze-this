@@ -402,7 +402,8 @@
         <div id="loading" class="loading">Loading...</div>
 
         <div id="filters" class="filters" style="display: none">
-          <div class="view-toggle">
+          <div class="filters-left" style="display: flex; flex-direction: column; gap: 10px; align-items: flex-start;">
+            <div class="view-toggle">
             <button class="view-btn active" data-view="all">All</button>
             <button class="view-btn" data-view="timeline">Timeline</button>
             <button class="view-btn view-btn-with-badge" data-view="follow_up">
@@ -414,6 +415,12 @@
               ></span>
             </button>
             <button class="view-btn" data-view="media">Media</button>
+          </div>
+          <div id="media-filters" class="view-toggle media-filters" style="display: none; margin-top: 10px;">
+            <button class="view-btn active" data-media="to_watch">To Watch</button>
+            <button class="view-btn" data-media="to_listen">To Listen</button>
+            <button class="view-btn" data-media="to_read">To Read</button>
+          </div>
           </div>
           <div class="filter-controls">
             <input

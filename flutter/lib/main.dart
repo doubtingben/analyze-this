@@ -81,6 +81,7 @@ class _MyHomePageState extends State<MyHomePage> {
   String _searchQuery = ''; // Empty = no search
   bool _showHidden = false;
   bool _searchExpanded = false;
+  String _selectedMediaGroup = 'to_watch'; // Default media group
   final Set<String> _hidingItemIds =
       {}; // Track items currently being hidden/unhidden
 
@@ -832,43 +833,74 @@ class _MyHomePageState extends State<MyHomePage> {
   Widget _buildFilterControls() {
     final isCompact = MediaQuery.of(context).size.width < 430;
 
-    return Container(
-      padding: const EdgeInsets.symmetric(
-        horizontal: AppSpacing.lg,
-        vertical: AppSpacing.md,
-      ),
-      decoration: BoxDecoration(
-        color: AppColors.surface,
-        border: Border(bottom: BorderSide(color: Colors.grey.shade200)),
-      ),
-      child: Center(
-        child: SegmentedButton<ViewMode>(
-          showSelectedIcon: false,
-          segments: [
-            const ButtonSegment(value: ViewMode.all, label: Text('All')),
-            ButtonSegment(
-              value: ViewMode.timeline,
-              label: Text(isCompact ? 'Time' : 'Timeline'),
+    return Column(
+      children: [
+        Container(
+          padding: const EdgeInsets.symmetric(
+            horizontal: AppSpacing.lg,
+            vertical: AppSpacing.md,
+          ),
+          decoration: BoxDecoration(
+            color: AppColors.surface,
+            border: Border(bottom: BorderSide(color: Colors.grey.shade200)),
+          ),
+          child: Center(
+            child: SegmentedButton<ViewMode>(
+              showSelectedIcon: false,
+              segments: [
+                const ButtonSegment(value: ViewMode.all, label: Text('All')),
+                ButtonSegment(
+                  value: ViewMode.timeline,
+                  label: Text(isCompact ? 'Time' : 'Timeline'),
+                ),
+                const ButtonSegment(value: ViewMode.media, label: Text('Media')),
+                ButtonSegment(
+                  value: ViewMode.followUp,
+                  label: _buildFollowUpSegmentLabel(compact: isCompact),
+                ),
+              ],
+              selected: {_currentView},
+              onSelectionChanged: (Set<ViewMode> selection) {
+                setState(() {
+                  _currentView = selection.first;
+                  if (_currentView == ViewMode.timeline) {
+                    _hasScrolledToNow = false;
+                  } else {
+                    _nowButtonVisible = false;
+                  }
+                });
+              },
             ),
-            const ButtonSegment(value: ViewMode.media, label: Text('Media')),
-            ButtonSegment(
-              value: ViewMode.followUp,
-              label: _buildFollowUpSegmentLabel(compact: isCompact),
-            ),
-          ],
-          selected: {_currentView},
-          onSelectionChanged: (Set<ViewMode> selection) {
-            setState(() {
-              _currentView = selection.first;
-              if (_currentView == ViewMode.timeline) {
-                _hasScrolledToNow = false;
-              } else {
-                _nowButtonVisible = false;
-              }
-            });
-          },
+          ),
         ),
-      ),
+        if (_currentView == ViewMode.media)
+          Container(
+            padding: const EdgeInsets.symmetric(
+              horizontal: AppSpacing.lg,
+              vertical: AppSpacing.sm,
+            ),
+            decoration: BoxDecoration(
+              color: AppColors.surface,
+              border: Border(bottom: BorderSide(color: Colors.grey.shade200)),
+            ),
+            child: Center(
+              child: SegmentedButton<String>(
+                showSelectedIcon: false,
+                segments: const [
+                  ButtonSegment(value: 'to_watch', label: Text('To Watch')),
+                  ButtonSegment(value: 'to_listen', label: Text('To Listen')),
+                  ButtonSegment(value: 'to_read', label: Text('To Read')),
+                ],
+                selected: {_selectedMediaGroup},
+                onSelectionChanged: (Set<String> selection) {
+                  setState(() {
+                    _selectedMediaGroup = selection.first;
+                  });
+                },
+              ),
+            ),
+          ),
+      ],
     );
   }
 
@@ -1293,34 +1325,9 @@ class _MyHomePageState extends State<MyHomePage> {
       itemIndexMap[items[i].id] = i;
     }
 
-    const groupLabels = {
-      'to_watch': 'To Watch',
-      'to_listen': 'To Listen',
-      'to_read': 'To Read',
-    };
+    final groupItems = groups[_selectedMediaGroup] ?? [];
 
-    for (final tag in ['to_watch', 'to_listen', 'to_read']) {
-      final groupItems = groups[tag]!;
-      if (groupItems.isEmpty) continue;
-
-      // Section header
-      sections.add(
-        Padding(
-          padding: const EdgeInsets.fromLTRB(
-            0,
-            AppSpacing.lg,
-            0,
-            AppSpacing.sm,
-          ),
-          child: Text(
-            groupLabels[tag]!,
-            style: Theme.of(
-              context,
-            ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold),
-          ),
-        ),
-      );
-
+    if (groupItems.isNotEmpty) {
       // Items in this group
       for (int i = 0; i < groupItems.length; i++) {
         final item = groupItems[i];
