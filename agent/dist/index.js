@@ -58,6 +58,17 @@ async function run() {
                 }
             }
         });
+        registry.tools.push({
+            type: "function",
+            function: {
+                name: "get_app_version",
+                description: "Get the currently deployed application version by checking both the local repository's checkout state and the running backend application API.",
+                parameters: {
+                    type: "object",
+                    properties: {}
+                }
+            }
+        });
         const originalCallTool = registry.callTool;
         registry.callTool = async (name, args) => {
             if (name === "update_app") {
@@ -91,6 +102,43 @@ async function run() {
                         message: `Failed to update app: ${error.message}`,
                         stdout: error.stdout,
                         stderr: error.stderr
+                    };
+                }
+            }
+            if (name === "get_app_version") {
+                try {
+                    let gitInfo = "Unknown Git State";
+                    try {
+                        const { stdout } = await execAsync('git log -1 --format="Commit: %H%nMessage: %s"');
+                        gitInfo = stdout.trim();
+                    }
+                    catch (e) {
+                        console.error("Git log failed:", e.message);
+                    }
+                    let apiVersion = "Unknown API Version";
+                    try {
+                        const response = await fetch("http://127.0.0.1:8000/api/version");
+                        if (response.ok) {
+                            const data = await response.json();
+                            apiVersion = data.version;
+                        }
+                        else {
+                            apiVersion = `HTTP ${response.status}`;
+                        }
+                    }
+                    catch (e) {
+                        console.error("Failed to fetch API version:", e.message);
+                    }
+                    return {
+                        status: "success",
+                        deployed_api_version: apiVersion,
+                        local_checkout_info: gitInfo
+                    };
+                }
+                catch (error) {
+                    return {
+                        status: "error",
+                        message: `Failed to get app version: ${error.message}`
                     };
                 }
             }
@@ -152,7 +200,7 @@ async function run() {
 }
 async function generateReply(prompt, tools, callTool, history = []) {
     const historyText = history.map(h => `<${h.nick}> ${h.message}`).join('\n');
-    const systemPrompt = `You are AnalyzeBot. Keep responses concise and useful in IRC. Use tools when needed.\n\n` +
+    const systemPrompt = `You are AnalyzeBot. Keep responses concise and useful in IRC. Use tools when needed. You can manage deployments and check the current app version using your tools.\n\n` +
         `Here is the recent channel history for context:\n` +
         (historyText ? historyText : "(no history yet)") + `\n\n` +
         `If the channel history is missing or incomplete for you to understand the context, it's ok to ask the user for additional context.`;
