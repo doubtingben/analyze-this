@@ -285,15 +285,18 @@ class FirestoreDatabase(DatabaseInterface):
                 analysis = item_data.get('analysis') or {}
                 tags = analysis.get('tags') or []
 
-                transaction.delete(item_ref)
-
+                # Perform all reads before any writes
+                user_tags_doc = None
+                user_tags_ref = None
                 if tags:
                     user_tags_ref = self.db.collection('user_tags').document(user_email)
                     user_tags_doc = user_tags_ref.get(transaction=transaction)
 
-                    if user_tags_doc.exists:
-                        tag_updates = self._get_tag_updates([], tags)
-                        transaction.set(user_tags_ref, tag_updates, merge=True)
+                transaction.delete(item_ref)
+
+                if tags and user_tags_doc and user_tags_doc.exists:
+                    tag_updates = self._get_tag_updates([], tags)
+                    transaction.set(user_tags_ref, tag_updates, merge=True)
 
                 return True
 
@@ -357,9 +360,6 @@ class FirestoreDatabase(DatabaseInterface):
 
                 item_data = doc.to_dict()
 
-                # Apply update in transaction
-                transaction.update(item_ref, updates)
-
                 # Calculate tag diff
                 old_analysis = item_data.get('analysis') or {}
                 old_tags = set(old_analysis.get('tags') or [])
@@ -381,15 +381,21 @@ class FirestoreDatabase(DatabaseInterface):
                 added_tags = list(new_tags - old_tags)
                 removed_tags = list(old_tags - new_tags)
 
+                # Perform all reads before any writes
+                user_tags_doc = None
+                user_tags_ref = None
                 if added_tags or removed_tags:
                     user_email = item_data.get('user_email')
                     if user_email:
                         user_tags_ref = self.db.collection('user_tags').document(user_email)
                         user_tags_doc = user_tags_ref.get(transaction=transaction)
 
-                        if user_tags_doc.exists:
-                            tag_updates = self._get_tag_updates(added_tags, removed_tags)
-                            transaction.set(user_tags_ref, tag_updates, merge=True)
+                # Apply update in transaction
+                transaction.update(item_ref, updates)
+
+                if (added_tags or removed_tags) and user_tags_doc and user_tags_doc.exists:
+                    tag_updates = self._get_tag_updates(added_tags, removed_tags)
+                    transaction.set(user_tags_ref, tag_updates, merge=True)
 
                 return True
 
