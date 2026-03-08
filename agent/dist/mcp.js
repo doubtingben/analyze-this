@@ -1,7 +1,6 @@
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { SSEClientTransport } from "@modelcontextprotocol/sdk/client/sse.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
-import { z } from "genkit";
 import { readFileSync } from "fs";
 // Load configuration from file or environment
 export function loadMcpConfig() {
@@ -39,7 +38,10 @@ function createTransport(config) {
             return new StdioClientTransport({
                 command: config.command,
                 args: config.args,
-                env: config.env,
+                env: {
+                    ...process.env,
+                    ...config.env,
+                },
             });
         default:
             throw new Error(`Unknown MCP server type: ${config.type}`);
@@ -56,51 +58,59 @@ export async function getMcpClient(config) {
     await client.connect(transport);
     return client;
 }
-export async function getMcpTools(ai) {
+export async function buildMcpToolRegistry() {
     const config = loadMcpConfig();
     const serverNames = Object.keys(config.servers);
     if (serverNames.length === 0) {
         console.warn("No MCP servers configured.");
-        return [];
+        return {
+            tools: [],
+            callTool: async () => {
+                throw new Error("No MCP tools configured");
+            },
+        };
     }
     const allTools = [];
-    const clients = [];
+    const toolMap = new Map();
     for (const serverName of serverNames) {
         const serverConfig = config.servers[serverName];
         console.log(`Connecting to MCP server '${serverName}' (${serverConfig.type})...`);
         try {
             const client = await getMcpClient(serverConfig);
-            clients.push(client);
             const toolsList = await client.listTools();
             console.log(`Loaded ${toolsList.tools.length} tools from '${serverName}'.`);
-            const genkitTools = toolsList.tools.map((tool) => {
+            const openAITools = toolsList.tools.map((tool) => {
                 // Prefix tool name with server name to avoid collisions
                 const prefixedName = serverNames.length > 1
                     ? `${serverName}_${tool.name}`
                     : tool.name;
-                // Workaround: Append the JSON schema to the description so the LLM knows what to pass.
-                const schemaDescription = `\n\nInput Schema: ${JSON.stringify(tool.inputSchema, null, 2)}`;
-                return ai.defineTool({
-                    name: prefixedName,
-                    description: (tool.description || "") + schemaDescription,
-                    inputSchema: z.any(),
-                    outputSchema: z.any(),
-                }, async (input) => {
-                    const result = await client.callTool({
-                        name: tool.name,
-                        arguments: input,
-                    });
-                    // MCP returns { content: [{ type: 'text', text: '...' }] } usually.
-                    // Genkit expects a return value (string or object).
-                    // We should parse the MCP result.
-                    return result;
-                });
+                toolMap.set(prefixedName, { client, mcpToolName: tool.name });
+                return {
+                    type: "function",
+                    function: {
+                        name: prefixedName,
+                        description: tool.description || "",
+                        parameters: tool.inputSchema || { type: "object", properties: {} },
+                    },
+                };
             });
-            allTools.push(...genkitTools);
+            allTools.push(...openAITools);
         }
         catch (error) {
             console.error(`Failed to connect to MCP server '${serverName}':`, error);
         }
     }
-    return allTools;
+    return {
+        tools: allTools,
+        callTool: async (name, args) => {
+            const tool = toolMap.get(name);
+            if (!tool) {
+                throw new Error(`Unknown tool: ${name}`);
+            }
+            return tool.client.callTool({
+                name: tool.mcpToolName,
+                arguments: args,
+            });
+        },
+    };
 }

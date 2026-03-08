@@ -3,6 +3,10 @@ import OpenAI from 'openai';
 import { Client } from 'irc-framework';
 import { buildMcpToolRegistry } from './mcp.js';
 import type { McpToolRegistry } from './mcp.js';
+import { exec } from 'child_process';
+import { promisify } from 'util';
+
+const execAsync = promisify(exec);
 
 const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY;
 if (!OPENROUTER_API_KEY) {
@@ -41,7 +45,71 @@ async function run() {
     };
     try {
         registry = await buildMcpToolRegistry();
-        console.log(`Loaded ${registry.tools.length} total tools from MCP servers.`);
+        
+        // Add local app update tool
+        registry.tools.push({
+            type: "function",
+            function: {
+                name: "update_app",
+                description: "Update the AnalyzeThis application by pulling from git and running the Nix deployment command. Use this when you are asked to deploy or update the app.",
+                parameters: {
+                    type: "object",
+                    properties: {
+                        git_ref: {
+                            type: "string",
+                            description: "The git branch or commit to deploy. Defaults to 'main'.",
+                        },
+                        git_origin: {
+                            type: "string",
+                            description: "The git remote name to fetch from. Defaults to 'origin'.",
+                        }
+                    }
+                }
+            }
+        });
+
+        const originalCallTool = registry.callTool;
+        registry.callTool = async (name: string, args: Record<string, any>) => {
+            if (name === "update_app") {
+                const gitRef = args.git_ref || "main";
+                const gitOrigin = args.git_origin || "origin";
+                
+                try {
+                    const workspaceDir = process.cwd(); // Assume agent runs in app root or similar context, but we will use the git repo path we're in
+                    console.log(`Starting app update... Fetching ${gitOrigin}, checking out ${gitRef}`);
+                    
+                    const command = [
+                        `git fetch ${gitOrigin}`,
+                        `git checkout ${gitRef}`,
+                        `git pull ${gitOrigin} ${gitRef} || true`, // ignore pull error if it's a detached commit
+                        `sudo nixos-rebuild switch --flake .#nixos-analyze-this`
+                    ].join(' && ');
+
+                    console.log(`Executing: ${command}`);
+                    const { stdout, stderr } = await execAsync(command);
+                    console.log(`Update stdout: ${stdout}`);
+                    if (stderr) console.error(`Update stderr: ${stderr}`);
+
+                    return { 
+                        status: "success", 
+                        message: `Successfully updated app to ${gitRef} from ${gitOrigin}.`,
+                        stdout,
+                        stderr
+                    };
+                } catch (error: any) {
+                    console.error("App update failed:", error);
+                    return { 
+                        status: "error", 
+                        message: `Failed to update app: ${error.message}`,
+                        stdout: error.stdout,
+                        stderr: error.stderr 
+                    };
+                }
+            }
+            return originalCallTool(name, args);
+        };
+
+        console.log(`Loaded ${registry.tools.length} total tools from MCP servers and local agents.`);
     } catch (error) {
         console.error('Failed to load MCP tools:', error);
     }

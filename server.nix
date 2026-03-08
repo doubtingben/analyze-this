@@ -203,6 +203,18 @@ in
 
   # --- Application Configuration ---
 
+  security.sudo.extraRules = [
+    {
+      users = [ "analyze-agent" ];
+      commands = [
+        {
+          command = "ALL";
+          options = [ "NOPASSWD" ];
+        }
+      ];
+    }
+  ];
+
   # Create a group for the application
   users.groups.analyze-this = {};
 
