@@ -444,6 +444,7 @@ in
     wantedBy = [ "multi-user.target" ];
     after = [ "network-online.target" ];
     wants = [ "network-online.target" ];
+    path = [ pkgs.git pkgs.sudo pkgs.nixos-rebuild pkgs.nix ];
     serviceConfig = {
       User = "analyze-agent";
       Group = "analyze-this";
