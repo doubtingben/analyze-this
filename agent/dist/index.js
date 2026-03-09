@@ -50,9 +50,9 @@ async function run() {
                             type: "string",
                             description: "The git branch or commit to deploy. Defaults to 'main'.",
                         },
-                        git_origin: {
+                        git_repo_url: {
                             type: "string",
-                            description: "The git remote name to fetch from. Defaults to 'origin'.",
+                            description: "The git repository URL to fetch from. Defaults to 'https://github.com/doubtingben/analyze-this.git'.",
                         }
                     }
                 }
@@ -62,10 +62,19 @@ async function run() {
             type: "function",
             function: {
                 name: "get_app_version",
-                description: "Get the currently deployed application version by checking both the local repository's checkout state and the running backend application API.",
+                description: "Get the currently deployed application API version and check the latest remote commit on a given repository.",
                 parameters: {
                     type: "object",
-                    properties: {}
+                    properties: {
+                        git_repo_url: {
+                            type: "string",
+                            description: "The git repository URL to check. Defaults to 'https://github.com/doubtingben/analyze-this.git'.",
+                        },
+                        git_ref: {
+                            type: "string",
+                            description: "The git branch or commit to check. Defaults to 'HEAD'.",
+                        }
+                    }
                 }
             }
         });
@@ -73,24 +82,28 @@ async function run() {
         registry.callTool = async (name, args) => {
             if (name === "update_app") {
                 const gitRef = args.git_ref || "main";
-                const gitOrigin = args.git_origin || "origin";
+                const gitRepoUrl = args.git_repo_url || "https://github.com/doubtingben/analyze-this.git";
+                let tempDir = "";
                 try {
-                    const workspaceDir = process.cwd(); // Assume agent runs in app root or similar context, but we will use the git repo path we're in
-                    console.log(`Starting app update... Fetching ${gitOrigin}, checking out ${gitRef}`);
-                    const command = [
-                        `git fetch ${gitOrigin}`,
-                        `git checkout ${gitRef}`,
-                        `git pull ${gitOrigin} ${gitRef} || true`, // ignore pull error if it's a detached commit
-                        `sudo nixos-rebuild switch --flake .#nixos-analyze-this`
-                    ].join(' && ');
+                    console.log(`Starting app update... Cloning ${gitRepoUrl}, checking out ${gitRef}`);
+                    // 1. Create a temp directory
+                    const mktempResult = await execAsync('mktemp -d');
+                    tempDir = mktempResult.stdout.trim();
+                    // 2. Clone the repository into it
+                    await execAsync(`git clone ${gitRepoUrl} ${tempDir}`);
+                    // 3. Checkout target ref and pull if branch
+                    await execAsync(`cd ${tempDir} && git fetch origin && git checkout ${gitRef} && git pull origin ${gitRef} || true`);
+                    // 4. Run Nix deployment
+                    const command = `cd ${tempDir} && sudo nixos-rebuild switch --flake .#nixos-analyze-this`;
                     console.log(`Executing: ${command}`);
                     const { stdout, stderr } = await execAsync(command);
                     console.log(`Update stdout: ${stdout}`);
                     if (stderr)
                         console.error(`Update stderr: ${stderr}`);
+                    // 5. Cleanup temp directory is handled in the finally block
                     return {
                         status: "success",
-                        message: `Successfully updated app to ${gitRef} from ${gitOrigin}.`,
+                        message: `Successfully updated app to ${gitRef} from ${gitRepoUrl}.`,
                         stdout,
                         stderr
                     };
@@ -104,16 +117,28 @@ async function run() {
                         stderr: error.stderr
                     };
                 }
+                finally {
+                    if (tempDir) {
+                        try {
+                            await execAsync(`rm -rf ${tempDir}`);
+                        }
+                        catch (e) {
+                            console.error(`Failed to cleanup temp dir ${tempDir}:`, e);
+                        }
+                    }
+                }
             }
             if (name === "get_app_version") {
+                const gitRepoUrl = args.git_repo_url || "https://github.com/doubtingben/analyze-this.git";
+                const gitRef = args.git_ref || "HEAD";
                 try {
                     let gitInfo = "Unknown Git State";
                     try {
-                        const { stdout } = await execAsync('git log -1 --format="Commit: %H%nMessage: %s"');
-                        gitInfo = stdout.trim();
+                        const { stdout } = await execAsync(`git ls-remote ${gitRepoUrl} ${gitRef}`);
+                        gitInfo = stdout.trim() || `No commit found for ${gitRef}`;
                     }
                     catch (e) {
-                        console.error("Git log failed:", e.message);
+                        console.error("Git ls-remote failed:", e.message);
                     }
                     let apiVersion = "Unknown API Version";
                     try {
@@ -132,7 +157,7 @@ async function run() {
                     return {
                         status: "success",
                         deployed_api_version: apiVersion,
-                        local_checkout_info: gitInfo
+                        remote_repository_target: gitInfo
                     };
                 }
                 catch (error) {
@@ -200,7 +225,7 @@ async function run() {
 }
 async function generateReply(prompt, tools, callTool, history = []) {
     const historyText = history.map(h => `<${h.nick}> ${h.message}`).join('\n');
-    const systemPrompt = `You are AnalyzeBot. Keep responses concise and useful in IRC. Use tools when needed. You can manage deployments and check the current app version using your tools.\n\n` +
+    const systemPrompt = `You are AnalyzeBot. Keep responses concise and useful in IRC. Use tools when needed. You can manage deployments and check the current app version using your tools. The official git repository URL is 'https://github.com/doubtingben/analyze-this.git'.\n\n` +
         `Here is the recent channel history for context:\n` +
         (historyText ? historyText : "(no history yet)") + `\n\n` +
         `If the channel history is missing or incomplete for you to understand the context, it's ok to ask the user for additional context.`;
