@@ -5,6 +5,7 @@ import asyncio
 import functools
 import datetime
 import json
+import logging
 import secrets
 import tempfile
 import zipfile
@@ -40,6 +41,10 @@ from rate_limiter import RateLimiter
 
 # Load environment variables
 load_dotenv()
+
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 # Increase global connection pool size to handle high concurrency with Google Cloud Storage and other APIs
 # This addresses "WARNING:urllib3.connectionpool:Connection pool is full"
@@ -138,12 +143,12 @@ async def lifespan(app: FastAPI):
     init_tracing()
 
     if APP_ENV == "development":
-        print("Starting in DEVELOPMENT mode using SQLite")
+        logger.info("Starting in DEVELOPMENT mode using SQLite")
         db = SQLiteDatabase()
         if hasattr(db, 'init_db'):
             await db.init_db()
     else:
-        print("Starting in PRODUCTION mode using Firestore")
+        logger.info("Starting in PRODUCTION mode using Firestore")
         db = FirestoreDatabase()
     yield
 
@@ -504,10 +509,10 @@ async def verify_google_token(token: str):
                 valid_audiences = [aid for aid in [GOOGLE_CLIENT_ID, GOOGLE_EXTENSION_CLIENT_ID, GOOGLE_IOS_CLIENT_ID, GOOGLE_ANDROID_CLIENT_ID, GOOGLE_ANDROID_DEBUG_CLIENT_ID] if aid]
 
                 if aud not in valid_audiences:
-                    print(f"Token verification failed: Audience mismatch. Expected one of {valid_audiences}, got {aud}")
+                    logger.warning(f"Token verification failed: Audience mismatch. Expected one of {valid_audiences}, got {aud}")
                     return None
             else:
-                print(f"Token verification failed (TokenInfo). Status: {token_info_resp.status_code}")
+                logger.warning(f"Token verification failed (TokenInfo). Status: {token_info_resp.status_code}")
                 return None
 
             # If audience is valid, fetch user profile
@@ -518,12 +523,12 @@ async def verify_google_token(token: str):
             if response.status_code == 200:
                 return response.json()
             else:
-                print(f"Token verification failed (Method 2). Status: {response.status_code}, Body: {response.text}")
+                logger.warning(f"Token verification failed (Method 2). Status: {response.status_code}, Body: {response.text}")
     except Exception as e:
-        print(f"Token verification exception (Method 2): {e}")
+        logger.error(f"Token verification exception (Method 2): {e}")
         pass
         
-    print("Token verification failed: Invalid token")
+    logger.warning("Token verification failed: Invalid token")
     return None
 
 import uuid
@@ -728,7 +733,7 @@ async def share_item(
                 item_data['type'] = item_data.get('type', 'file')  # Preserve type if provided
                 
             except Exception as e:
-                print(f"Upload failed: {e}")
+                logger.error(f"Upload failed: {e}", exc_info=True)
                 detail = "File upload failed"
                 if APP_ENV == "development":
                     detail = f"File upload failed: {str(e)}"
@@ -805,7 +810,7 @@ async def share_item(
     #     if analysis_result:
     #         new_item.analysis = analysis_result
     # except Exception as e:
-    #     print(f"Analysis failed: {e}")
+    #     logger.error(f"Analysis failed: {e}")
     
     # Save to DB
     await db.create_shared_item(new_item)
@@ -822,7 +827,7 @@ async def share_item(
         except Exception as e:
             enqueue_span.set_attribute("jobs.enqueued", False)
             record_exception(e)
-            print(f"Failed to enqueue worker jobs for item {new_item.id}: {e}")
+            logger.error(f"Failed to enqueue worker jobs for item {new_item.id}: {e}")
 
     message = format_item_message(
         "shared",
@@ -901,14 +906,14 @@ async def get_content(blob_path: str, request: Request):
     # Security Check: Ensure user owns the file and prevent traversal
     # 1. Prevent Directory Traversal (basic string check)
     if ".." in blob_path or blob_path.startswith("/") or "\\" in blob_path:
-        print(f"Potential traversal attempt by {user_email}: {blob_path}")
+        logger.warning(f"Potential traversal attempt by {user_email}: {blob_path}")
         raise HTTPException(status_code=403, detail="Forbidden")
 
     # 2. Ensure path starts with the user's upload directory
     # expected prefix: uploads/{user_email}/
     expected_prefix = f"uploads/{user_email}/"
     if not blob_path.startswith(expected_prefix):
-        print(f"Access denied for {user_email} to {blob_path} (Prefix mismatch)")
+        logger.warning(f"Access denied for {user_email} to {blob_path} (Prefix mismatch)")
         raise HTTPException(status_code=403, detail="Forbidden")
 
     try:
@@ -922,7 +927,7 @@ async def get_content(blob_path: str, request: Request):
              user_upload_dir = (base_dir / "uploads" / user_email).resolve()
 
              if not str(requested_path).startswith(str(user_upload_dir)):
-                 print(f"Path traversal detected for {user_email}: {blob_path} -> {requested_path}")
+                 logger.warning(f"Path traversal detected for {user_email}: {blob_path} -> {requested_path}")
                  raise HTTPException(status_code=403, detail="Forbidden")
 
              if not requested_path.exists():
@@ -948,7 +953,7 @@ async def get_content(blob_path: str, request: Request):
     except HTTPException:
         raise
     except Exception as e:
-        print(f"Error serving content: {e}")
+        logger.error(f"Error serving content: {e}", exc_info=True)
         raise HTTPException(status_code=404, detail="File not found")
 
 @app.get("/api/user")
@@ -1307,7 +1312,7 @@ async def create_item_note(
             except Exception as e:
                 upload_span.set_attribute("file.upload_success", False)
                 record_exception(e)
-                print(f"Note file upload failed: {e}")
+                logger.error(f"Note file upload failed: {e}", exc_info=True)
                 detail = "File upload failed"
                 if APP_ENV == "development":
                     detail = f"File upload failed: {str(e)}"
@@ -1363,7 +1368,7 @@ async def create_item_note(
             except Exception as e:
                 job_span.set_attribute("job.enqueued", False)
                 record_exception(e)
-                print(f"Failed to enqueue follow_up job for item {item_id}: {e}")
+                logger.error(f"Failed to enqueue follow_up job for item {item_id}: {e}")
 
     return response_data
 
@@ -1612,5 +1617,5 @@ async def search_items_endpoint(request: Request, q: str, limit: int = 10):
 
     except Exception as e:
         record_exception(e)
-        print(f"Search failed: {e}")
+        logger.error(f"Search failed: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail="Search failed")
