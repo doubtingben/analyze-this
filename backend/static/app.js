@@ -983,8 +983,8 @@ function displayMetrics(data) {
     item.dataset.status = status;
     item.innerHTML = `
             <div class="metrics-status-item-left">
-                <div class="metrics-status-icon">${config.icon}</div>
-                <span class="metrics-status-label">${config.label}</span>
+                <div class="metrics-status-icon">${escapeHtml(config.icon)}</div>
+                <span class="metrics-status-label">${escapeHtml(config.label)}</span>
             </div>
             <span class="metrics-status-count">${count}</span>
         `;
@@ -1062,8 +1062,8 @@ function displayWorkerQueueMetrics(workerQueue) {
     item.dataset.status = status;
     item.innerHTML = `
             <div class="metrics-status-item-left">
-                <div class="metrics-status-icon">${config.icon}</div>
-                <span class="metrics-status-label">${config.label}</span>
+                <div class="metrics-status-icon">${escapeHtml(config.icon)}</div>
+                <span class="metrics-status-label">${escapeHtml(config.label)}</span>
             </div>
             <span class="metrics-status-count">${count}</span>
         `;
