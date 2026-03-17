@@ -736,7 +736,12 @@ function escapeHtml(str) {
   if (!str) return "";
   const div = document.createElement("div");
   div.textContent = str;
-  return div.innerHTML;
+  // div.innerHTML correctly escapes &, <, and >.
+  // We must also manually escape double and single quotes
+  // because this function is used for both text content and HTML attributes.
+  return div.innerHTML
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
 }
 
 function closeMetricsModal() {
