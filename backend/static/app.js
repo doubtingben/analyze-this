@@ -984,7 +984,7 @@ function displayMetrics(data) {
     item.innerHTML = `
             <div class="metrics-status-item-left">
                 <div class="metrics-status-icon">${config.icon}</div>
-                <span class="metrics-status-label">${config.label}</span>
+                <span class="metrics-status-label">${escapeHtml(config.label)}</span>
             </div>
             <span class="metrics-status-count">${count}</span>
         `;
@@ -1063,7 +1063,7 @@ function displayWorkerQueueMetrics(workerQueue) {
     item.innerHTML = `
             <div class="metrics-status-item-left">
                 <div class="metrics-status-icon">${config.icon}</div>
-                <span class="metrics-status-label">${config.label}</span>
+                <span class="metrics-status-label">${escapeHtml(config.label)}</span>
             </div>
             <span class="metrics-status-count">${count}</span>
         `;
@@ -2265,7 +2265,8 @@ async function loadDetailNotes() {
     updateNoteCountBadge(itemId, notes.length);
     renderDetailNotes(notes);
   } catch (error) {
-    detailNotesList.innerHTML = `<div class="detail-muted">${error.message || "Failed to load notes"}</div>`;
+    const errorMessage = typeof error.message === 'string' ? error.message : "Failed to load notes";
+    detailNotesList.innerHTML = `<div class="detail-muted">${escapeHtml(errorMessage)}</div>`;
   } finally {
     detailNotesLoading.style.display = "none";
   }
