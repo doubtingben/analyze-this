@@ -83,3 +83,48 @@ class ItemNote(BaseModel):
     note_type: str = Field(default="context")
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+class PodcastVisibility(str, Enum):
+    private = "private"
+    public = "public"
+
+
+class PodcastEpisodeStatus(str, Enum):
+    draft = "draft"
+    processing = "processing"
+    published = "published"
+    failed = "failed"
+
+
+class PodcastSettings(BaseModel):
+    id: Optional[str] = Field(default=None)  # Firestore ID
+    user_email: str
+    tts_provider: Optional[str] = None
+    tts_model: Optional[str] = None
+    prompt_template: Optional[str] = None
+    visibility: PodcastVisibility = Field(default=PodcastVisibility.private)
+    private_feed_token_hash: Optional[str] = None
+    private_feed_token_last_rotated_at: Optional[datetime] = None
+    private_feed_token_hint: Optional[str] = None
+    metadata: dict = Field(default_factory=dict)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
+class PodcastEpisode(BaseModel):
+    id: str = Field(default_factory=lambda: str(uuid4()))
+    user_email: str
+    source_type: str
+    source_item_id: Optional[str] = None
+    source_day_key: Optional[str] = None
+    title: str
+    description: Optional[str] = None
+    audio_path: Optional[str] = None
+    duration_seconds: Optional[int] = None
+    published_at: Optional[datetime] = None
+    status: PodcastEpisodeStatus = Field(default=PodcastEpisodeStatus.draft)
+    prompt_version: Optional[str] = None
+    metadata: dict = Field(default_factory=dict)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
