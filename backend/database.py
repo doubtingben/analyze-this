@@ -146,6 +146,10 @@ class DatabaseInterface(ABC):
     async def search_similar_items(self, embedding: List[float], user_email: str, limit: int = 10) -> List[dict]:
         pass
 
+    @abstractmethod
+    async def get_user_by_podcast_slug(self, slug: str) -> Optional[User]:
+        pass
+
 
 # --- Firestore Implementation ---
 
@@ -191,6 +195,14 @@ class FirestoreDatabase(DatabaseInterface):
         user_data['updated_at'] = firestore.SERVER_TIMESTAMP
         self.db.collection('users').document(user.email).set(user_data, merge=True)
         return user
+
+    async def get_user_by_podcast_slug(self, slug: str) -> Optional[User]:
+        users_ref = self.db.collection('users')
+        query = users_ref.where(filter=FieldFilter('podcast_settings.slug', '==', slug)).limit(1)
+        docs = list(query.stream())
+        if not docs:
+            return None
+        return User(**docs[0].to_dict())
 
     async def create_shared_item(self, item: SharedItem) -> SharedItem:
         item_dict = item.dict()
@@ -845,6 +857,7 @@ class DBUser(Base):
     name = Column(String, nullable=True)
     picture = Column(String, nullable=True)
     timezone = Column(String, default="America/New_York")
+    podcast_settings = Column(JSON, nullable=True)
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
 
 class DBSharedItem(Base):
@@ -971,6 +984,14 @@ class SQLiteDatabase(DatabaseInterface):
 
             await conn.run_sync(ensure_user_timezone_column)
 
+            def ensure_user_podcast_settings_column(sync_conn):
+                inspector = inspect(sync_conn)
+                columns = [col['name'] for col in inspector.get_columns('users')]
+                if 'podcast_settings' not in columns:
+                    sync_conn.execute(text("ALTER TABLE users ADD COLUMN podcast_settings JSON"))
+
+            await conn.run_sync(ensure_user_podcast_settings_column)
+
     async def close(self):
         await self.engine.dispose()
 
@@ -984,6 +1005,7 @@ class SQLiteDatabase(DatabaseInterface):
                     name=db_user.name,
                     picture=db_user.picture,
                     timezone=db_user.timezone or "America/New_York",
+                    podcast_settings=db_user.podcast_settings,
                     created_at=db_user.created_at
                 )
             return None
@@ -1001,6 +1023,8 @@ class SQLiteDatabase(DatabaseInterface):
             if db_user:
                 db_user.name = user.name
                 db_user.picture = user.picture
+                db_user.timezone = user.timezone
+                db_user.podcast_settings = user.podcast_settings
                 # update timestamp?
             else:
                 db_user = DBUser(
@@ -1008,12 +1032,30 @@ class SQLiteDatabase(DatabaseInterface):
                     name=user.name,
                     picture=user.picture,
                     timezone=user.timezone,
+                    podcast_settings=user.podcast_settings,
                     created_at=user.created_at or datetime.datetime.now(datetime.timezone.utc)
                 )
                 session.add(db_user)
 
             await session.commit()
             return user
+
+    async def get_user_by_podcast_slug(self, slug: str) -> Optional[User]:
+        async with self.SessionLocal() as session:
+            result = await session.execute(
+                select(DBUser).where(func.json_extract(DBUser.podcast_settings, '$.slug') == slug)
+            )
+            db_user = result.scalar_one_or_none()
+            if not db_user:
+                return None
+            return User(
+                email=db_user.email,
+                name=db_user.name,
+                picture=db_user.picture,
+                timezone=db_user.timezone or "America/New_York",
+                podcast_settings=db_user.podcast_settings,
+                created_at=db_user.created_at
+            )
 
     async def create_shared_item(self, item: SharedItem) -> SharedItem:
         async with self.SessionLocal() as session:

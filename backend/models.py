@@ -51,6 +51,7 @@ class User(BaseModel):
     name: Optional[str] = None
     picture: Optional[str] = None
     timezone: str = Field(default="America/New_York")
+    podcast_settings: Optional[dict] = Field(default=None)
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 class SharedItem(BaseModel):

@@ -8,9 +8,12 @@ import json
 import secrets
 import tempfile
 import zipfile
+import email.utils
+import urllib.parse
 from pathlib import Path
 from contextlib import asynccontextmanager
 from typing import Optional, List
+import xml.etree.ElementTree as ET
 from pydantic import BaseModel, Field, field_validator
 from fastapi import FastAPI, Request, Depends, HTTPException, status, File, UploadFile, Form, BackgroundTasks
 from fastapi.responses import HTMLResponse, RedirectResponse, FileResponse, Response, StreamingResponse
@@ -1054,6 +1057,272 @@ async def get_authenticated_email(request: Request) -> str:
         raise HTTPException(status_code=401, detail="Unauthorized")
 
     return user_email
+
+def _build_base_url(request: Request) -> str:
+    base_url = str(request.base_url).rstrip("/")
+    if APP_ENV != "development":
+        base_url = base_url.replace("http://", "https://")
+    return base_url
+
+def _is_audio_episode(item: dict) -> bool:
+    item_type = (item.get("type") or "").lower()
+    if item_type == "audio":
+        return True
+
+    metadata = item.get("item_metadata") or {}
+    mime_type = (metadata.get("mime_type") or metadata.get("content_type") or "").lower()
+    if mime_type.startswith("audio/"):
+        return True
+
+    content = (item.get("content") or "").lower()
+    return content.endswith((".mp3", ".m4a", ".aac", ".wav", ".ogg", ".flac"))
+
+def _podcast_settings_for_user(user) -> dict:
+    settings = {}
+    if user and getattr(user, "podcast_settings", None):
+        settings = _serialize_value(user.podcast_settings)
+    if not isinstance(settings, dict):
+        settings = {}
+
+    if not settings.get("slug"):
+        settings["slug"] = secrets.token_urlsafe(10)
+    if not settings.get("private_feed_token"):
+        settings["private_feed_token"] = secrets.token_urlsafe(32)
+    if not settings.get("private_feed_token_expires_at"):
+        expires = datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(days=90)
+        settings["private_feed_token_expires_at"] = expires.isoformat()
+    if "visibility" not in settings:
+        settings["visibility"] = "private"
+    return settings
+
+def _is_valid_private_feed_token(settings: dict, token: Optional[str]) -> bool:
+    if not token:
+        return False
+    stored_token = settings.get("private_feed_token")
+    if not stored_token or token != stored_token:
+        return False
+
+    expires_at = settings.get("private_feed_token_expires_at")
+    if not expires_at:
+        return True
+    try:
+        dt = datetime.datetime.fromisoformat(str(expires_at).replace("Z", "+00:00"))
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=datetime.timezone.utc)
+        return dt > datetime.datetime.now(datetime.timezone.utc)
+    except Exception:
+        return False
+
+def _episode_duration(item: dict) -> Optional[str]:
+    metadata = item.get("item_metadata") or {}
+    for key in ("duration", "duration_seconds", "audio_duration", "length_seconds"):
+        if metadata.get(key) is None:
+            continue
+        val = metadata.get(key)
+        if isinstance(val, (int, float)):
+            total = int(val)
+            hours = total // 3600
+            minutes = (total % 3600) // 60
+            seconds = total % 60
+            if hours > 0:
+                return f"{hours:02d}:{minutes:02d}:{seconds:02d}"
+            return f"{minutes:02d}:{seconds:02d}"
+        return str(val)
+    return None
+
+def _render_podcast_feed_xml(request: Request, owner_email: str, owner_name: Optional[str], items: List[dict], is_public: bool, token: Optional[str] = None) -> str:
+    base_url = _build_base_url(request)
+    rss = ET.Element("rss", {"version": "2.0", "xmlns:itunes": "http://www.itunes.com/dtds/podcast-1.0.dtd"})
+    channel = ET.SubElement(rss, "channel")
+    ET.SubElement(channel, "title").text = f"{owner_name or owner_email} - Analyze This Podcast"
+    ET.SubElement(channel, "link").text = base_url
+    ET.SubElement(channel, "description").text = f"Podcast feed for {owner_name or owner_email}"
+    ET.SubElement(channel, "language").text = "en-us"
+
+    for raw_item in items:
+        item = _serialize_value(raw_item)
+        if item.get("hidden"):
+            continue
+        if not _is_audio_episode(item):
+            continue
+
+        episode_id = item.get("id") or item.get("firestore_id")
+        if not episode_id:
+            continue
+        item_el = ET.SubElement(channel, "item")
+        title = item.get("title") or f"Episode {episode_id}"
+        ET.SubElement(item_el, "title").text = str(title)
+        ET.SubElement(item_el, "guid", {"isPermaLink": "false"}).text = str(episode_id)
+        description = item.get("content") or ""
+        ET.SubElement(item_el, "description").text = str(description)
+
+        created_at = item.get("created_at")
+        if created_at:
+            try:
+                dt = datetime.datetime.fromisoformat(str(created_at).replace("Z", "+00:00"))
+                if dt.tzinfo is None:
+                    dt = dt.replace(tzinfo=datetime.timezone.utc)
+                ET.SubElement(item_el, "pubDate").text = email.utils.format_datetime(dt)
+            except Exception:
+                pass
+
+        duration = _episode_duration(item)
+        if duration:
+            ET.SubElement(item_el, "itunes:duration").text = duration
+
+        params = {}
+        if not is_public and token:
+            params["feed_token"] = token
+        query = f"?{urllib.parse.urlencode(params)}" if params else ""
+        audio_url = f"{base_url}/api/podcast/episodes/{episode_id}/audio{query}"
+        ET.SubElement(item_el, "enclosure", {"url": audio_url, "type": "audio/mpeg"})
+
+    return ET.tostring(rss, encoding="utf-8", xml_declaration=True).decode("utf-8")
+
+class PodcastSettingsPatchRequest(BaseModel):
+    visibility: Optional[str] = Field(default=None, pattern="^(public|private)$")
+    title: Optional[str] = Field(default=None, max_length=255)
+    description: Optional[str] = Field(default=None, max_length=1000)
+    slug: Optional[str] = Field(default=None, max_length=100)
+
+@app.get("/api/podcast/feed")
+async def get_private_podcast_feed(request: Request, feed_token: Optional[str] = None):
+    user_email = await get_authenticated_email(request)
+    user = await db.get_user(user_email)
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    settings = _podcast_settings_for_user(user)
+    if not _is_valid_private_feed_token(settings, feed_token):
+        raise HTTPException(status_code=403, detail="Invalid or expired feed token")
+
+    items = await db.get_shared_items(user_email)
+    xml = _render_podcast_feed_xml(
+        request=request,
+        owner_email=user_email,
+        owner_name=user.name if user else None,
+        items=items,
+        is_public=False,
+        token=feed_token
+    )
+    return Response(content=xml, media_type="application/rss+xml")
+
+@app.get("/podcast/{user_id_or_slug}.xml")
+async def get_public_podcast_feed(user_id_or_slug: str, request: Request):
+    user = await db.get_user(user_id_or_slug)
+    if not user:
+        user = await db.get_user_by_podcast_slug(user_id_or_slug)
+    if not user:
+        raise HTTPException(status_code=404, detail="Not found")
+
+    settings = _podcast_settings_for_user(user)
+    if settings.get("visibility") != "public":
+        raise HTTPException(status_code=404, detail="Not found")
+
+    items = await db.get_shared_items(user.email)
+    xml = _render_podcast_feed_xml(
+        request=request,
+        owner_email=user.email,
+        owner_name=user.name,
+        items=items,
+        is_public=True,
+    )
+    return Response(content=xml, media_type="application/rss+xml")
+
+@app.patch("/api/podcast/settings", dependencies=[Depends(check_csrf)])
+async def patch_podcast_settings(request: Request, payload: PodcastSettingsPatchRequest):
+    user_email = await get_authenticated_email(request)
+    user = await db.get_user(user_email)
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    settings = _podcast_settings_for_user(user)
+    updates = payload.model_dump(exclude_none=True)
+    if "slug" in updates:
+        candidate = updates["slug"].strip().lower()
+        if not candidate:
+            raise HTTPException(status_code=400, detail="Slug cannot be empty")
+        existing = await db.get_user_by_podcast_slug(candidate)
+        if existing and existing.email != user_email:
+            raise HTTPException(status_code=409, detail="Slug already in use")
+        settings["slug"] = candidate
+
+    for field in ("visibility", "title", "description"):
+        if field in updates:
+            settings[field] = updates[field]
+
+    user.podcast_settings = settings
+    await db.upsert_user(user)
+    return {"podcast_settings": _serialize_value(settings)}
+
+@app.post("/api/podcast/settings/rotate-token", dependencies=[Depends(check_csrf)])
+async def rotate_podcast_feed_token(request: Request):
+    user_email = await get_authenticated_email(request)
+    user = await db.get_user(user_email)
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    settings = _podcast_settings_for_user(user)
+    settings["private_feed_token"] = secrets.token_urlsafe(32)
+    settings["private_feed_token_expires_at"] = (
+        datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(days=90)
+    ).isoformat()
+    user.podcast_settings = settings
+    await db.upsert_user(user)
+    return {"podcast_settings": _serialize_value(settings)}
+
+@app.get("/api/podcast/episodes/{episode_id}/audio")
+async def get_podcast_episode_audio(episode_id: str, request: Request, feed_token: Optional[str] = None):
+    item = await db.get_shared_item(episode_id)
+    if not item:
+        raise HTTPException(status_code=404, detail="Not found")
+
+    owner_email = item.get("user_email")
+    if not owner_email:
+        raise HTTPException(status_code=404, detail="Not found")
+
+    owner_user = await db.get_user(owner_email)
+    owner_settings = _podcast_settings_for_user(owner_user)
+
+    is_authorized = False
+    try:
+        requester_email = await get_authenticated_email(request)
+        if requester_email == owner_email:
+            is_authorized = True
+    except HTTPException:
+        pass
+
+    if not is_authorized and _is_valid_private_feed_token(owner_settings, feed_token):
+        is_authorized = True
+    if not is_authorized and owner_settings.get("visibility") == "public":
+        is_authorized = True
+
+    if not is_authorized:
+        raise HTTPException(status_code=404, detail="Not found")
+
+    blob_path = item.get("content")
+    if not _is_safe_user_blob_path(blob_path, owner_email):
+        raise HTTPException(status_code=404, detail="Not found")
+
+    try:
+        if APP_ENV == "development":
+            base_dir = Path("static").resolve()
+            requested_path = (base_dir / blob_path).resolve()
+            return FileResponse(str(requested_path), media_type="audio/mpeg")
+
+        bucket = storage.bucket()
+        blob = bucket.blob(blob_path)
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(None, blob.reload)
+
+        def iterfile():
+            with blob.open("rb") as f:
+                while chunk := f.read(64 * 1024):
+                    yield chunk
+        return StreamingResponse(iterfile(), media_type=blob.content_type or "audio/mpeg")
+    except Exception:
+        raise HTTPException(status_code=404, detail="Not found")
+
 
 @app.get("/api/export")
 async def export_user_data(request: Request, background_tasks: BackgroundTasks):
