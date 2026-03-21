@@ -1043,7 +1043,7 @@ class DBPodcastSettings(Base):
     private_feed_token_hash = Column(String, nullable=True)
     private_feed_token_last_rotated_at = Column(DateTime, nullable=True)
     private_feed_token_hint = Column(String, nullable=True)
-    metadata = Column(JSON, nullable=True)
+    settings_metadata = Column('metadata', JSON, nullable=True)
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.datetime.utcnow)
 
@@ -1061,7 +1061,7 @@ class DBPodcastEpisode(Base):
     published_at = Column(DateTime, nullable=True, index=True)
     status = Column(String, nullable=False, default='draft')
     prompt_version = Column(String, nullable=True)
-    metadata = Column(JSON, nullable=True)
+    episode_metadata = Column('metadata', JSON, nullable=True)
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.datetime.utcnow)
 
@@ -1091,7 +1091,7 @@ class SQLiteDatabase(DatabaseInterface):
             'private_feed_token_hash': settings.private_feed_token_hash,
             'private_feed_token_last_rotated_at': self._normalize_datetime(settings.private_feed_token_last_rotated_at),
             'private_feed_token_hint': settings.private_feed_token_hint,
-            'metadata': settings.metadata or {},
+            'metadata': settings.settings_metadata or {},
             'created_at': self._normalize_datetime(settings.created_at),
             'updated_at': self._normalize_datetime(settings.updated_at),
         }
@@ -1111,7 +1111,7 @@ class SQLiteDatabase(DatabaseInterface):
             'published_at': self._normalize_datetime(episode.published_at),
             'status': episode.status,
             'prompt_version': episode.prompt_version,
-            'metadata': episode.metadata or {},
+            'metadata': episode.episode_metadata or {},
             'created_at': self._normalize_datetime(episode.created_at),
             'updated_at': self._normalize_datetime(episode.updated_at),
         }
@@ -1309,7 +1309,7 @@ class SQLiteDatabase(DatabaseInterface):
                 db_settings.private_feed_token_hash = settings.private_feed_token_hash
                 db_settings.private_feed_token_last_rotated_at = settings.private_feed_token_last_rotated_at
                 db_settings.private_feed_token_hint = settings.private_feed_token_hint
-                db_settings.metadata = settings.metadata
+                db_settings.settings_metadata = settings.metadata
                 db_settings.updated_at = now
             else:
                 db_settings = DBPodcastSettings(
@@ -1321,7 +1321,7 @@ class SQLiteDatabase(DatabaseInterface):
                     private_feed_token_hash=settings.private_feed_token_hash,
                     private_feed_token_last_rotated_at=settings.private_feed_token_last_rotated_at,
                     private_feed_token_hint=settings.private_feed_token_hint,
-                    metadata=settings.metadata,
+                    settings_metadata=settings.metadata,
                     created_at=settings.created_at or now,
                     updated_at=now,
                 )
@@ -1346,7 +1346,7 @@ class SQLiteDatabase(DatabaseInterface):
                 published_at=episode.published_at,
                 status=episode.status.value if hasattr(episode.status, 'value') else episode.status,
                 prompt_version=episode.prompt_version,
-                metadata=episode.metadata,
+                episode_metadata=episode.metadata,
                 created_at=episode.created_at or now,
                 updated_at=episode.updated_at or now,
             )
