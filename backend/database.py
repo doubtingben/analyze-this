@@ -7,7 +7,15 @@ from abc import ABC, abstractmethod
 from typing import List, Optional, Dict, Any
 import logging
 
-from models import User, SharedItem, ItemNote, WorkerJobStatus
+from models import (
+    User,
+    SharedItem,
+    ItemNote,
+    WorkerJobStatus,
+    PodcastSettings,
+    PodcastEpisode,
+    PodcastVisibility,
+)
 
 # Firestore imports
 import firebase_admin
@@ -143,6 +151,40 @@ class DatabaseInterface(ABC):
         pass
 
     @abstractmethod
+    async def get_podcast_settings(self, user_email: str) -> Optional[dict]:
+        pass
+
+    @abstractmethod
+    async def upsert_podcast_settings(self, settings: PodcastSettings) -> dict:
+        pass
+
+    @abstractmethod
+    async def create_podcast_episode(self, episode: PodcastEpisode) -> dict:
+        pass
+
+    @abstractmethod
+    async def list_podcast_episodes(
+        self,
+        user_email: str,
+        visibility: Optional[PodcastVisibility] = None,
+        public_only: Optional[bool] = None,
+        start_date: Optional[datetime.datetime] = None,
+        end_date: Optional[datetime.datetime] = None,
+        limit: int = 50,
+    ) -> List[dict]:
+        pass
+
+    @abstractmethod
+    async def get_podcast_episode_by_source_key(
+        self,
+        user_email: str,
+        source_type: str,
+        source_item_id: Optional[str],
+        source_day_key: Optional[str],
+    ) -> Optional[dict]:
+        pass
+
+    @abstractmethod
     async def search_similar_items(self, embedding: List[float], user_email: str, limit: int = 10) -> List[dict]:
         pass
 
@@ -178,6 +220,19 @@ class FirestoreDatabase(DatabaseInterface):
             key = f"tags.{self._encode_tag(tag)}"
             updates[key] = firestore.Increment(-1)
         return updates
+
+    def _normalize_datetime(self, value: Any) -> Any:
+        if isinstance(value, datetime.datetime):
+            return value.isoformat()
+        return value
+
+    def _normalize_document(self, doc) -> dict:
+        data = doc.to_dict() or {}
+        normalized = {}
+        for key, value in data.items():
+            normalized[key] = self._normalize_datetime(value)
+        normalized['firestore_id'] = doc.id
+        return normalized
 
     async def get_user(self, email: str) -> Optional[User]:
         doc = self.db.collection('users').document(email).get()
@@ -797,6 +852,94 @@ class FirestoreDatabase(DatabaseInterface):
         loop = asyncio.get_running_loop()
         return await loop.run_in_executor(None, get_counts)
 
+    async def get_podcast_settings(self, user_email: str) -> Optional[dict]:
+        doc = self.db.collection('podcast_settings').document(user_email).get()
+        if not doc.exists:
+            return None
+        return self._normalize_document(doc)
+
+    async def upsert_podcast_settings(self, settings: PodcastSettings) -> dict:
+        settings_ref = self.db.collection('podcast_settings').document(settings.user_email)
+        now = datetime.datetime.now(datetime.timezone.utc)
+        existing = settings_ref.get()
+
+        payload = settings.dict()
+        payload.pop('id', None)
+        if isinstance(payload.get('visibility'), PodcastVisibility):
+            payload['visibility'] = payload['visibility'].value
+        payload['updated_at'] = now
+        if not existing.exists:
+            payload['created_at'] = payload.get('created_at') or now
+
+        settings_ref.set(payload, merge=True)
+        updated_doc = settings_ref.get()
+        return self._normalize_document(updated_doc)
+
+    async def create_podcast_episode(self, episode: PodcastEpisode) -> dict:
+        episode_ref = self.db.collection('podcast_episodes').document(episode.id)
+        payload = episode.dict()
+        if hasattr(payload.get('status'), 'value'):
+            payload['status'] = payload['status'].value
+        payload['created_at'] = payload.get('created_at') or datetime.datetime.now(datetime.timezone.utc)
+        payload['updated_at'] = payload.get('updated_at') or datetime.datetime.now(datetime.timezone.utc)
+        episode_ref.set(payload)
+        return self._normalize_document(episode_ref.get())
+
+    async def list_podcast_episodes(
+        self,
+        user_email: str,
+        visibility: Optional[PodcastVisibility] = None,
+        public_only: Optional[bool] = None,
+        start_date: Optional[datetime.datetime] = None,
+        end_date: Optional[datetime.datetime] = None,
+        limit: int = 50,
+    ) -> List[dict]:
+        settings = await self.get_podcast_settings(user_email)
+        if public_only is True and (not settings or settings.get('visibility') != PodcastVisibility.public.value):
+            return []
+        if visibility and settings and settings.get('visibility') != visibility.value:
+            return []
+
+        def _list():
+            query = (
+                self.db.collection('podcast_episodes')
+                .where(filter=FieldFilter('user_email', '==', user_email))
+            )
+            if start_date:
+                query = query.where(filter=FieldFilter('published_at', '>=', start_date))
+            if end_date:
+                query = query.where(filter=FieldFilter('published_at', '<=', end_date))
+            query = query.order_by('published_at', direction=firestore.Query.DESCENDING).limit(limit)
+            return [self._normalize_document(doc) for doc in query.stream()]
+
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(None, _list)
+
+    async def get_podcast_episode_by_source_key(
+        self,
+        user_email: str,
+        source_type: str,
+        source_item_id: Optional[str],
+        source_day_key: Optional[str],
+    ) -> Optional[dict]:
+        def _fetch():
+            query = (
+                self.db.collection('podcast_episodes')
+                .where(filter=FieldFilter('user_email', '==', user_email))
+                .where(filter=FieldFilter('source_type', '==', source_type))
+            )
+            if source_item_id is not None:
+                query = query.where(filter=FieldFilter('source_item_id', '==', source_item_id))
+            if source_day_key is not None:
+                query = query.where(filter=FieldFilter('source_day_key', '==', source_day_key))
+            docs = list(query.limit(1).stream())
+            if not docs:
+                return None
+            return self._normalize_document(docs[0])
+
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(None, _fetch)
+
     async def search_similar_items(self, embedding: List[float], user_email: str, limit: int = 10) -> List[dict]:
         # Firestore Vector Search using `find_nearest`
         try:
@@ -890,6 +1033,38 @@ class DBWorkerJob(Base):
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.datetime.utcnow)
 
+class DBPodcastSettings(Base):
+    __tablename__ = 'podcast_settings'
+    user_email = Column(String, primary_key=True)
+    tts_provider = Column(String, nullable=True)
+    tts_model = Column(String, nullable=True)
+    prompt_template = Column(String, nullable=True)
+    visibility = Column(String, nullable=False, default='private')
+    private_feed_token_hash = Column(String, nullable=True)
+    private_feed_token_last_rotated_at = Column(DateTime, nullable=True)
+    private_feed_token_hint = Column(String, nullable=True)
+    metadata = Column(JSON, nullable=True)
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.datetime.utcnow)
+
+class DBPodcastEpisode(Base):
+    __tablename__ = 'podcast_episodes'
+    id = Column(String, primary_key=True)
+    user_email = Column(String, nullable=False, index=True)
+    source_type = Column(String, nullable=False, index=True)
+    source_item_id = Column(String, nullable=True, index=True)
+    source_day_key = Column(String, nullable=True, index=True)
+    title = Column(String, nullable=False)
+    description = Column(String, nullable=True)
+    audio_path = Column(String, nullable=True)
+    duration_seconds = Column(Integer, nullable=True)
+    published_at = Column(DateTime, nullable=True, index=True)
+    status = Column(String, nullable=False, default='draft')
+    prompt_version = Column(String, nullable=True)
+    metadata = Column(JSON, nullable=True)
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.datetime.utcnow)
+
 class SQLiteDatabase(DatabaseInterface):
     def __init__(self, db_url: str = "sqlite+aiosqlite:///./development.db"):
         self.engine = create_async_engine(db_url, echo=False)
@@ -898,6 +1073,48 @@ class SQLiteDatabase(DatabaseInterface):
             class_=AsyncSession,
             expire_on_commit=False
         )
+
+    @staticmethod
+    def _normalize_datetime(value: Any) -> Any:
+        if isinstance(value, datetime.datetime):
+            return value.isoformat()
+        return value
+
+    def _serialize_podcast_settings(self, settings: DBPodcastSettings) -> dict:
+        return {
+            'firestore_id': settings.user_email,
+            'user_email': settings.user_email,
+            'tts_provider': settings.tts_provider,
+            'tts_model': settings.tts_model,
+            'prompt_template': settings.prompt_template,
+            'visibility': settings.visibility,
+            'private_feed_token_hash': settings.private_feed_token_hash,
+            'private_feed_token_last_rotated_at': self._normalize_datetime(settings.private_feed_token_last_rotated_at),
+            'private_feed_token_hint': settings.private_feed_token_hint,
+            'metadata': settings.metadata or {},
+            'created_at': self._normalize_datetime(settings.created_at),
+            'updated_at': self._normalize_datetime(settings.updated_at),
+        }
+
+    def _serialize_podcast_episode(self, episode: DBPodcastEpisode) -> dict:
+        return {
+            'firestore_id': episode.id,
+            'id': episode.id,
+            'user_email': episode.user_email,
+            'source_type': episode.source_type,
+            'source_item_id': episode.source_item_id,
+            'source_day_key': episode.source_day_key,
+            'title': episode.title,
+            'description': episode.description,
+            'audio_path': episode.audio_path,
+            'duration_seconds': episode.duration_seconds,
+            'published_at': self._normalize_datetime(episode.published_at),
+            'status': episode.status,
+            'prompt_version': episode.prompt_version,
+            'metadata': episode.metadata or {},
+            'created_at': self._normalize_datetime(episode.created_at),
+            'updated_at': self._normalize_datetime(episode.updated_at),
+        }
 
     async def init_db(self):
         async with self.engine.begin() as conn:
@@ -971,6 +1188,57 @@ class SQLiteDatabase(DatabaseInterface):
 
             await conn.run_sync(ensure_user_timezone_column)
 
+            def ensure_podcast_settings_table(sync_conn):
+                inspector = inspect(sync_conn)
+                if 'podcast_settings' not in inspector.get_table_names():
+                    sync_conn.execute(text("""
+                        CREATE TABLE podcast_settings (
+                            user_email VARCHAR PRIMARY KEY,
+                            tts_provider VARCHAR,
+                            tts_model VARCHAR,
+                            prompt_template VARCHAR,
+                            visibility VARCHAR NOT NULL DEFAULT 'private',
+                            private_feed_token_hash VARCHAR,
+                            private_feed_token_last_rotated_at DATETIME,
+                            private_feed_token_hint VARCHAR,
+                            metadata JSON,
+                            created_at DATETIME,
+                            updated_at DATETIME
+                        )
+                    """))
+
+            await conn.run_sync(ensure_podcast_settings_table)
+
+            def ensure_podcast_episodes_table(sync_conn):
+                inspector = inspect(sync_conn)
+                if 'podcast_episodes' not in inspector.get_table_names():
+                    sync_conn.execute(text("""
+                        CREATE TABLE podcast_episodes (
+                            id VARCHAR PRIMARY KEY,
+                            user_email VARCHAR NOT NULL,
+                            source_type VARCHAR NOT NULL,
+                            source_item_id VARCHAR,
+                            source_day_key VARCHAR,
+                            title VARCHAR NOT NULL,
+                            description VARCHAR,
+                            audio_path VARCHAR,
+                            duration_seconds INTEGER,
+                            published_at DATETIME,
+                            status VARCHAR NOT NULL DEFAULT 'draft',
+                            prompt_version VARCHAR,
+                            metadata JSON,
+                            created_at DATETIME,
+                            updated_at DATETIME
+                        )
+                    """))
+                    sync_conn.execute(text("CREATE INDEX ix_podcast_episodes_user_email ON podcast_episodes (user_email)"))
+                    sync_conn.execute(text("CREATE INDEX ix_podcast_episodes_source_type ON podcast_episodes (source_type)"))
+                    sync_conn.execute(text("CREATE INDEX ix_podcast_episodes_source_item_id ON podcast_episodes (source_item_id)"))
+                    sync_conn.execute(text("CREATE INDEX ix_podcast_episodes_source_day_key ON podcast_episodes (source_day_key)"))
+                    sync_conn.execute(text("CREATE INDEX ix_podcast_episodes_published_at ON podcast_episodes (published_at)"))
+
+            await conn.run_sync(ensure_podcast_episodes_table)
+
     async def close(self):
         await self.engine.dispose()
 
@@ -1014,6 +1282,126 @@ class SQLiteDatabase(DatabaseInterface):
 
             await session.commit()
             return user
+
+    async def get_podcast_settings(self, user_email: str) -> Optional[dict]:
+        async with self.SessionLocal() as session:
+            result = await session.execute(
+                select(DBPodcastSettings).where(DBPodcastSettings.user_email == user_email)
+            )
+            settings = result.scalar_one_or_none()
+            if not settings:
+                return None
+            return self._serialize_podcast_settings(settings)
+
+    async def upsert_podcast_settings(self, settings: PodcastSettings) -> dict:
+        async with self.SessionLocal() as session:
+            result = await session.execute(
+                select(DBPodcastSettings).where(DBPodcastSettings.user_email == settings.user_email)
+            )
+            db_settings = result.scalar_one_or_none()
+            now = datetime.datetime.now(datetime.timezone.utc)
+
+            if db_settings:
+                db_settings.tts_provider = settings.tts_provider
+                db_settings.tts_model = settings.tts_model
+                db_settings.prompt_template = settings.prompt_template
+                db_settings.visibility = settings.visibility.value if isinstance(settings.visibility, PodcastVisibility) else str(settings.visibility)
+                db_settings.private_feed_token_hash = settings.private_feed_token_hash
+                db_settings.private_feed_token_last_rotated_at = settings.private_feed_token_last_rotated_at
+                db_settings.private_feed_token_hint = settings.private_feed_token_hint
+                db_settings.metadata = settings.metadata
+                db_settings.updated_at = now
+            else:
+                db_settings = DBPodcastSettings(
+                    user_email=settings.user_email,
+                    tts_provider=settings.tts_provider,
+                    tts_model=settings.tts_model,
+                    prompt_template=settings.prompt_template,
+                    visibility=settings.visibility.value if isinstance(settings.visibility, PodcastVisibility) else str(settings.visibility),
+                    private_feed_token_hash=settings.private_feed_token_hash,
+                    private_feed_token_last_rotated_at=settings.private_feed_token_last_rotated_at,
+                    private_feed_token_hint=settings.private_feed_token_hint,
+                    metadata=settings.metadata,
+                    created_at=settings.created_at or now,
+                    updated_at=now,
+                )
+                session.add(db_settings)
+
+            await session.commit()
+            return self._serialize_podcast_settings(db_settings)
+
+    async def create_podcast_episode(self, episode: PodcastEpisode) -> dict:
+        async with self.SessionLocal() as session:
+            now = datetime.datetime.now(datetime.timezone.utc)
+            db_episode = DBPodcastEpisode(
+                id=episode.id,
+                user_email=episode.user_email,
+                source_type=episode.source_type,
+                source_item_id=episode.source_item_id,
+                source_day_key=episode.source_day_key,
+                title=episode.title,
+                description=episode.description,
+                audio_path=episode.audio_path,
+                duration_seconds=episode.duration_seconds,
+                published_at=episode.published_at,
+                status=episode.status.value if hasattr(episode.status, 'value') else episode.status,
+                prompt_version=episode.prompt_version,
+                metadata=episode.metadata,
+                created_at=episode.created_at or now,
+                updated_at=episode.updated_at or now,
+            )
+            session.add(db_episode)
+            await session.commit()
+            return self._serialize_podcast_episode(db_episode)
+
+    async def list_podcast_episodes(
+        self,
+        user_email: str,
+        visibility: Optional[PodcastVisibility] = None,
+        public_only: Optional[bool] = None,
+        start_date: Optional[datetime.datetime] = None,
+        end_date: Optional[datetime.datetime] = None,
+        limit: int = 50,
+    ) -> List[dict]:
+        settings = await self.get_podcast_settings(user_email)
+        if public_only is True and (not settings or settings.get('visibility') != PodcastVisibility.public.value):
+            return []
+        if visibility and settings and settings.get('visibility') != visibility.value:
+            return []
+
+        async with self.SessionLocal() as session:
+            query = select(DBPodcastEpisode).where(DBPodcastEpisode.user_email == user_email)
+            if start_date:
+                query = query.where(DBPodcastEpisode.published_at >= start_date)
+            if end_date:
+                query = query.where(DBPodcastEpisode.published_at <= end_date)
+            query = query.order_by(DBPodcastEpisode.published_at.desc()).limit(limit)
+            result = await session.execute(query)
+            episodes = result.scalars().all()
+            return [self._serialize_podcast_episode(episode) for episode in episodes]
+
+    async def get_podcast_episode_by_source_key(
+        self,
+        user_email: str,
+        source_type: str,
+        source_item_id: Optional[str],
+        source_day_key: Optional[str],
+    ) -> Optional[dict]:
+        async with self.SessionLocal() as session:
+            query = (
+                select(DBPodcastEpisode)
+                .where(DBPodcastEpisode.user_email == user_email)
+                .where(DBPodcastEpisode.source_type == source_type)
+            )
+            if source_item_id is not None:
+                query = query.where(DBPodcastEpisode.source_item_id == source_item_id)
+            if source_day_key is not None:
+                query = query.where(DBPodcastEpisode.source_day_key == source_day_key)
+            result = await session.execute(query.limit(1))
+            episode = result.scalar_one_or_none()
+            if not episode:
+                return None
+            return self._serialize_podcast_episode(episode)
 
     async def create_shared_item(self, item: SharedItem) -> SharedItem:
         async with self.SessionLocal() as session:
