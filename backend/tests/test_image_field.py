@@ -36,6 +36,8 @@ class TestImageFieldIntegration(unittest.TestCase):
         # Override the dependency if necessary, but main.app uses main.db global
         self.client = TestClient(main.app)
         self.headers = {"Authorization": "Bearer dev-token"}
+        import os
+        os.environ["APP_ENV"] = "development"
 
     def tearDown(self):
         self.db_patcher.stop()

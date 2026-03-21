@@ -5,7 +5,10 @@ import functools
 import logging
 import os
 import re
+import socket
 import uuid
+import urllib.parse
+import ipaddress
 from pathlib import Path
 from typing import Optional
 
@@ -130,9 +133,52 @@ def _extract_pdf_text_safe(file_bytes: bytes) -> str:
         return file_bytes.decode("utf-8", errors="ignore")
 
 
-def _fetch_url_text(url: str) -> str:
+def _is_safe_url(url: str) -> bool:
     try:
-        response = httpx.get(url, timeout=20.0, follow_redirects=True)
+        parsed = urllib.parse.urlparse(url)
+        if parsed.scheme not in ("http", "https"):
+            return False
+
+        hostname = parsed.hostname
+        if not hostname:
+            return False
+
+        # Resolve the hostname to an IP address
+        ip_addr = socket.gethostbyname(hostname)
+        ip = ipaddress.ip_address(ip_addr)
+
+        # Check against private, loopback, multicast, etc.
+        if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_multicast or ip.is_reserved:
+            return False
+
+        return True
+    except Exception as e:
+        logger.warning("URL validation failed for %s: %s", url, e)
+        return False
+
+
+def _fetch_url_text(url: str, redirects: int = 0) -> str:
+    if redirects > 5:
+        logger.warning("Too many redirects for %s", url)
+        return ""
+
+    if not _is_safe_url(url):
+        logger.warning("SSRF blocked: Unsafe URL %s", url)
+        return ""
+
+    try:
+        # We manually handle redirects to validate each Location header against SSRF
+        response = httpx.get(url, timeout=20.0, follow_redirects=False)
+
+        if response.status_code in (301, 302, 303, 307, 308):
+            location = response.headers.get("Location")
+            if not location:
+                return ""
+
+            # Handle relative redirects
+            location = urllib.parse.urljoin(url, location)
+            return _fetch_url_text(location, redirects + 1)
+
         response.raise_for_status()
         content_type = response.headers.get("content-type", "")
 
