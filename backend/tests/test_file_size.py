@@ -77,7 +77,7 @@ class TestFileSizeLimit(unittest.TestCase):
             files = {"file": ("test.txt", b"12345678901", "text/plain")} # 11 bytes
             headers = {"Authorization": "Bearer token"}
 
-            response = self.client.post("/api/share", files=files, headers=headers)
+            response = self.client.post("/api/share", data={"type": "file"}, files=files, headers=headers)
 
             self.assertEqual(response.status_code, 413)
             self.assertIn("File too large", response.text)
@@ -88,7 +88,7 @@ class TestFileSizeLimit(unittest.TestCase):
             files = {"file": ("test.txt", b"1234567890", "text/plain")} # 10 bytes
             headers = {"Authorization": "Bearer token"}
 
-            response = self.client.post("/api/share", files=files, headers=headers)
+            response = self.client.post("/api/share", data={"type": "file"}, files=files, headers=headers)
 
             # Should be 200 OK (or whatever success code)
             # Note: response might be 400 if other validations fail (e.g. CSRF or mocking)

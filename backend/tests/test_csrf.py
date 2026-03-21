@@ -111,7 +111,7 @@ class TestCSRF(unittest.TestCase):
         response = self.client.post(
             "/api/share",
             data={"title": "Attack", "content": "http://evil.com", "type": "web_url"},
-            files={"file": ("empty.txt", b"", "text/plain")},
+            files={"file": ("", b"", "text/plain")},
             # No X-CSRF-Token header
         )
         self.assertEqual(response.status_code, 403, "Should fail without CSRF header")
@@ -120,7 +120,7 @@ class TestCSRF(unittest.TestCase):
         response = self.client.post(
             "/api/share",
             data={"title": "Safe", "content": "http://good.com", "type": "web_url"},
-            files={"file": ("empty.txt", b"", "text/plain")},
+            files={"file": ("", b"", "text/plain")},
             headers={"X-CSRF-Token": csrf_token}
         )
         self.assertEqual(response.status_code, 200, "Should succeed with CSRF header")
