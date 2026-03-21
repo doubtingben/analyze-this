@@ -15,20 +15,20 @@ logger = logging.getLogger(__name__)
 
 BASE_URL = "https://api.ticktick.com/open/v1"
 
-TICKTICK_ACCESS_TOKEN = os.getenv("TICKTICK_ACCESS_TOKEN", "")
-TICKTICK_PROJECT_ID = os.getenv("TICKTICK_PROJECT_ID", "")
-
 
 class TickTickClient:
     """Async client for the TickTick Open API v1."""
 
     def __init__(
         self,
-        access_token: str = TICKTICK_ACCESS_TOKEN,
-        project_id: str = TICKTICK_PROJECT_ID,
+        access_token: Optional[str] = None,
+        project_id: Optional[str] = None,
     ):
-        self.access_token = access_token
-        self.project_id = project_id
+        # Read from the live process environment at instantiation time so
+        # callers that invoke load_dotenv() before constructing the client
+        # get the expected configuration.
+        self.access_token = access_token if access_token is not None else os.getenv("TICKTICK_ACCESS_TOKEN", "")
+        self.project_id = project_id if project_id is not None else os.getenv("TICKTICK_PROJECT_ID", "")
         self._headers = {"Authorization": f"Bearer {self.access_token}"}
 
     def _check_config(self) -> Optional[str]:
