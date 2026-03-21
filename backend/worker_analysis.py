@@ -5,6 +5,7 @@ import logging
 from dotenv import load_dotenv
 
 from analysis import analyze_content, generate_embedding
+from podcast_derivative import should_enqueue_podcast_derivative
 from notifications import format_item_message, send_irccat_message
 from database import DatabaseInterface, FirestoreDatabase, SQLiteDatabase
 from worker_queue import process_queue_jobs
@@ -280,6 +281,13 @@ async def _process_analysis_item(db, data, context):
                 logger.info(f"Enqueued normalize job for item {doc_id}.")
             except Exception as e:
                 logger.error(f"Failed to enqueue normalize job for {doc_id}: {e}")
+
+            try:
+                if should_enqueue_podcast_derivative(item_type, analysis_result):
+                    await db.enqueue_worker_job(doc_id, user_email or "", "podcast_derivative")
+                    logger.info(f"Enqueued podcast_derivative job for item {doc_id}.")
+            except Exception as e:
+                logger.error(f"Failed to enqueue podcast_derivative job for {doc_id}: {e}")
 
             return True, None
 

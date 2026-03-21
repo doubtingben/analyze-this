@@ -27,6 +27,7 @@ import firebase_admin
 from firebase_admin import credentials, storage
 
 from models import User, SharedItem, ShareType, ItemNote, ItemStatus
+from podcast_derivative import should_enqueue_podcast_derivative
 from notifications import format_item_message, send_irccat_message
 from database import DatabaseInterface, FirestoreDatabase, SQLiteDatabase
 from analysis import generate_embedding
@@ -817,8 +818,13 @@ async def share_item(
             analysis_payload = inject_trace_context({"source": "share"})
 
             await db.enqueue_worker_job(new_item.id, user_email, "analysis", analysis_payload)
+            if should_enqueue_podcast_derivative(new_item.type.value, None):
+                await db.enqueue_worker_job(new_item.id, user_email, "podcast_derivative", analysis_payload)
             enqueue_span.set_attribute("jobs.enqueued", True)
-            add_span_event("worker_jobs_enqueued", {"item_id": new_item.id, "jobs": ["analysis"]})
+            enqueued_jobs = ["analysis"]
+            if should_enqueue_podcast_derivative(new_item.type.value, None):
+                enqueued_jobs.append("podcast_derivative")
+            add_span_event("worker_jobs_enqueued", {"item_id": new_item.id, "jobs": enqueued_jobs})
         except Exception as e:
             enqueue_span.set_attribute("jobs.enqueued", False)
             record_exception(e)
