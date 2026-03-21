@@ -32,6 +32,7 @@ JOB_TYPE_TO_JOB_NAME = {
     "analysis": "worker-analysis",
     "normalize": "worker-normalize",
     "follow_up": "worker-follow-up",
+    "podcast_derivative": "worker-podcast-derivative",
 }
 
 

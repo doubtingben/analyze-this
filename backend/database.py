@@ -106,6 +106,14 @@ class DatabaseInterface(ABC):
         pass
 
     @abstractmethod
+    async def create_podcast_episode(self, episode: PodcastEpisode) -> PodcastEpisode:
+        pass
+
+    @abstractmethod
+    async def get_podcast_episodes(self, item_id: str) -> List[dict]:
+        pass
+
+    @abstractmethod
     async def get_user_tags(self, user_email: str) -> List[str]:
         pass
 
@@ -524,6 +532,41 @@ class FirestoreDatabase(DatabaseInterface):
         self.db.collection('item_notes').document(note.id).set(note_dict)
         return note
 
+    async def create_podcast_episode(self, episode: PodcastEpisode) -> PodcastEpisode:
+        episode_dict = {
+            'id': episode.id,
+            'item_id': episode.item_id,
+            'user_email': episode.user_email,
+            'title': episode.title,
+            'source_type': episode.source_type,
+            'script_text': episode.script_text,
+            'audio_path': episode.audio_path,
+            'tts_provider': episode.tts_provider,
+            'tts_model': episode.tts_model,
+            'created_at': episode.created_at,
+        }
+        self.db.collection('podcast_episodes').document(episode.id).set(episode_dict)
+        return episode
+
+    async def get_podcast_episodes(self, item_id: str) -> List[dict]:
+        episodes_ref = self.db.collection('podcast_episodes')
+
+        def get_docs():
+            episodes_by_id: Dict[str, dict] = {}
+            item_queries = [
+                episodes_ref.where(filter=FieldFilter('item_id', '==', item_id)),
+                episodes_ref.where(filter=FieldFilter('source_item_id', '==', item_id)),
+            ]
+            for query in item_queries:
+                ordered = query.order_by('created_at', direction=firestore.Query.ASCENDING)
+                for doc in ordered.stream():
+                    data = doc.to_dict()
+                    episodes_by_id[data.get('id', doc.id)] = data
+            return list(episodes_by_id.values())
+
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(None, get_docs)
+
     async def get_item_notes(self, item_id: str) -> List[dict]:
         notes_ref = self.db.collection('item_notes')
         query = notes_ref.where(
@@ -878,6 +921,8 @@ class FirestoreDatabase(DatabaseInterface):
     async def create_podcast_episode(self, episode: PodcastEpisode) -> dict:
         episode_ref = self.db.collection('podcast_episodes').document(episode.id)
         payload = episode.dict()
+        if not payload.get('source_item_id') and payload.get('item_id'):
+            payload['source_item_id'] = payload['item_id']
         if hasattr(payload.get('status'), 'value'):
             payload['status'] = payload['status'].value
         payload['created_at'] = payload.get('created_at') or datetime.datetime.now(datetime.timezone.utc)
@@ -1032,7 +1077,6 @@ class DBWorkerJob(Base):
     payload = Column(JSON, nullable=True)
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.datetime.utcnow)
-
 class DBPodcastSettings(Base):
     __tablename__ = 'podcast_settings'
     user_email = Column(String, primary_key=True)
@@ -1052,11 +1096,15 @@ class DBPodcastEpisode(Base):
     id = Column(String, primary_key=True)
     user_email = Column(String, nullable=False, index=True)
     source_type = Column(String, nullable=False, index=True)
+    item_id = Column(String, nullable=True, index=True)
     source_item_id = Column(String, nullable=True, index=True)
     source_day_key = Column(String, nullable=True, index=True)
     title = Column(String, nullable=False)
     description = Column(String, nullable=True)
+    script_text = Column(String, nullable=True)
     audio_path = Column(String, nullable=True)
+    tts_provider = Column(String, nullable=True)
+    tts_model = Column(String, nullable=True)
     duration_seconds = Column(Integer, nullable=True)
     published_at = Column(DateTime, nullable=True, index=True)
     status = Column(String, nullable=False, default='draft')
@@ -1102,11 +1150,15 @@ class SQLiteDatabase(DatabaseInterface):
             'id': episode.id,
             'user_email': episode.user_email,
             'source_type': episode.source_type,
+            'item_id': episode.item_id,
             'source_item_id': episode.source_item_id,
             'source_day_key': episode.source_day_key,
             'title': episode.title,
             'description': episode.description,
+            'script_text': episode.script_text,
             'audio_path': episode.audio_path,
+            'tts_provider': episode.tts_provider,
+            'tts_model': episode.tts_model,
             'duration_seconds': episode.duration_seconds,
             'published_at': self._normalize_datetime(episode.published_at),
             'status': episode.status,
@@ -1187,7 +1239,6 @@ class SQLiteDatabase(DatabaseInterface):
                     sync_conn.execute(text("ALTER TABLE users ADD COLUMN timezone VARCHAR DEFAULT 'America/New_York'"))
 
             await conn.run_sync(ensure_user_timezone_column)
-
             def ensure_podcast_settings_table(sync_conn):
                 inspector = inspect(sync_conn)
                 if 'podcast_settings' not in inspector.get_table_names():
@@ -1217,11 +1268,15 @@ class SQLiteDatabase(DatabaseInterface):
                             id VARCHAR PRIMARY KEY,
                             user_email VARCHAR NOT NULL,
                             source_type VARCHAR NOT NULL,
+                            item_id VARCHAR,
                             source_item_id VARCHAR,
                             source_day_key VARCHAR,
                             title VARCHAR NOT NULL,
                             description VARCHAR,
+                            script_text VARCHAR,
                             audio_path VARCHAR,
+                            tts_provider VARCHAR,
+                            tts_model VARCHAR,
                             duration_seconds INTEGER,
                             published_at DATETIME,
                             status VARCHAR NOT NULL DEFAULT 'draft',
@@ -1231,11 +1286,22 @@ class SQLiteDatabase(DatabaseInterface):
                             updated_at DATETIME
                         )
                     """))
+                    sync_conn.execute(text("CREATE INDEX ix_podcast_episodes_item_id ON podcast_episodes (item_id)"))
                     sync_conn.execute(text("CREATE INDEX ix_podcast_episodes_user_email ON podcast_episodes (user_email)"))
                     sync_conn.execute(text("CREATE INDEX ix_podcast_episodes_source_type ON podcast_episodes (source_type)"))
                     sync_conn.execute(text("CREATE INDEX ix_podcast_episodes_source_item_id ON podcast_episodes (source_item_id)"))
                     sync_conn.execute(text("CREATE INDEX ix_podcast_episodes_source_day_key ON podcast_episodes (source_day_key)"))
                     sync_conn.execute(text("CREATE INDEX ix_podcast_episodes_published_at ON podcast_episodes (published_at)"))
+                else:
+                    columns = [col['name'] for col in inspector.get_columns('podcast_episodes')]
+                    if 'item_id' not in columns:
+                        sync_conn.execute(text("ALTER TABLE podcast_episodes ADD COLUMN item_id VARCHAR"))
+                    if 'script_text' not in columns:
+                        sync_conn.execute(text("ALTER TABLE podcast_episodes ADD COLUMN script_text VARCHAR"))
+                    if 'tts_provider' not in columns:
+                        sync_conn.execute(text("ALTER TABLE podcast_episodes ADD COLUMN tts_provider VARCHAR"))
+                    if 'tts_model' not in columns:
+                        sync_conn.execute(text("ALTER TABLE podcast_episodes ADD COLUMN tts_model VARCHAR"))
 
             await conn.run_sync(ensure_podcast_episodes_table)
 
@@ -1337,11 +1403,15 @@ class SQLiteDatabase(DatabaseInterface):
                 id=episode.id,
                 user_email=episode.user_email,
                 source_type=episode.source_type,
-                source_item_id=episode.source_item_id,
+                item_id=episode.item_id,
+                source_item_id=episode.source_item_id or episode.item_id,
                 source_day_key=episode.source_day_key,
                 title=episode.title,
                 description=episode.description,
+                script_text=episode.script_text,
                 audio_path=episode.audio_path,
+                tts_provider=episode.tts_provider,
+                tts_model=episode.tts_model,
                 duration_seconds=episode.duration_seconds,
                 published_at=episode.published_at,
                 status=episode.status.value if hasattr(episode.status, 'value') else episode.status,
@@ -1650,6 +1720,24 @@ class SQLiteDatabase(DatabaseInterface):
             await session.commit()
             return note
 
+    async def create_podcast_episode(self, episode: PodcastEpisode) -> PodcastEpisode:
+        async with self.SessionLocal() as session:
+            db_episode = DBPodcastEpisode(
+                id=str(episode.id),
+                item_id=episode.item_id,
+                user_email=episode.user_email,
+                title=episode.title,
+                source_type=episode.source_type,
+                script_text=episode.script_text,
+                audio_path=episode.audio_path,
+                tts_provider=episode.tts_provider,
+                tts_model=episode.tts_model,
+                created_at=episode.created_at or datetime.datetime.utcnow(),
+            )
+            session.add(db_episode)
+            await session.commit()
+            return episode
+
     async def reset_failed_jobs(self, job_type: str, error_msg: str) -> int:
         async with self.SessionLocal() as session:
             stmt = (
@@ -1739,6 +1827,19 @@ class SQLiteDatabase(DatabaseInterface):
                 }
                 for note in notes
             ]
+
+    async def get_podcast_episodes(self, item_id: str) -> List[dict]:
+        async with self.SessionLocal() as session:
+            result = await session.execute(
+                select(DBPodcastEpisode)
+                .where(
+                    (DBPodcastEpisode.item_id == item_id)
+                    | (DBPodcastEpisode.source_item_id == item_id)
+                )
+                .order_by(DBPodcastEpisode.created_at.asc())
+            )
+            episodes = result.scalars().all()
+            return [self._serialize_podcast_episode(episode) for episode in episodes]
 
     async def get_follow_up_notes(self, item_id: str) -> List[dict]:
         async with self.SessionLocal() as session:

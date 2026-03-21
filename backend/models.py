@@ -84,7 +84,6 @@ class ItemNote(BaseModel):
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
 
-
 class PodcastVisibility(str, Enum):
     private = "private"
     public = "public"
@@ -116,11 +115,15 @@ class PodcastEpisode(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid4()))
     user_email: str
     source_type: str
+    item_id: Optional[str] = None
     source_item_id: Optional[str] = None
     source_day_key: Optional[str] = None
     title: str
     description: Optional[str] = None
+    script_text: Optional[str] = None
     audio_path: Optional[str] = None
+    tts_provider: Optional[str] = None
+    tts_model: Optional[str] = None
     duration_seconds: Optional[int] = None
     published_at: Optional[datetime] = None
     status: PodcastEpisodeStatus = Field(default=PodcastEpisodeStatus.draft)

@@ -23,7 +23,7 @@ echo "Run './backend/scripts/setup-worker-sa.sh' to configure it if needed."
 if [ -z "$1" ]; then
   echo "Usage: ./backend/scripts/deploy-worker.sh <manager> [region]"
   echo ""
-  echo "Note: analysis, normalize, and follow_up workers are now deployed as Cloud Run Jobs."
+  echo "Note: analysis, normalize, follow_up, and podcast_derivative workers are now deployed as Cloud Run Jobs."
   echo "Use ./backend/scripts/deploy-worker-job.sh to deploy them."
   exit 1
 fi
@@ -31,8 +31,8 @@ fi
 JOB_TYPE="$1"
 if [ "$JOB_TYPE" != "manager" ]; then
   echo "Error: This script now only deploys the manager service."
-  echo "For worker jobs (analysis, normalize, follow_up), use:"
-  echo "  ./backend/scripts/deploy-worker-job.sh <analysis|normalize|follow_up|all>"
+  echo "For worker jobs (analysis, normalize, follow_up, podcast_derivative), use:"
+  echo "  ./backend/scripts/deploy-worker-job.sh <analysis|normalize|follow_up|podcast_derivative|all>"
   exit 1
 fi
 
