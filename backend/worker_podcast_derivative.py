@@ -6,6 +6,9 @@ import logging
 import os
 import re
 import uuid
+import ipaddress
+import socket
+import urllib.parse
 from pathlib import Path
 from typing import Optional
 
@@ -130,16 +133,54 @@ def _extract_pdf_text_safe(file_bytes: bytes) -> str:
         return file_bytes.decode("utf-8", errors="ignore")
 
 
+def _is_safe_url(url: str) -> bool:
+    try:
+        parsed = urllib.parse.urlparse(url)
+        if parsed.scheme not in ('http', 'https'):
+            return False
+        hostname = parsed.hostname
+        if not hostname:
+            return False
+
+        # Resolve hostname (this only checks IPv4 to mitigate basic SSRF;
+        # full protection requires a custom httpx transport to prevent DNS rebinding)
+        ip_addr = socket.gethostbyname(hostname)
+        ip_obj = ipaddress.ip_address(ip_addr)
+
+        if (ip_obj.is_loopback or ip_obj.is_private or ip_obj.is_link_local or
+            ip_obj.is_multicast or str(ip_obj) == "0.0.0.0" or ip_obj.is_unspecified):
+            return False
+
+        return True
+    except Exception:
+        return False
+
 def _fetch_url_text(url: str) -> str:
     try:
-        response = httpx.get(url, timeout=20.0, follow_redirects=True)
-        response.raise_for_status()
-        content_type = response.headers.get("content-type", "")
+        current_url = url
+        for _ in range(5): # Max 5 redirects
+            if not _is_safe_url(current_url):
+                logger.warning("Blocked unsafe URL: %s", current_url)
+                return ""
 
-        if "application/pdf" in content_type:
-            return _extract_pdf_text_safe(response.content)
+            response = httpx.get(current_url, timeout=20.0, follow_redirects=False)
 
-        return _clean_text(response.text)
+            if response.status_code in (301, 302, 303, 307, 308):
+                location = response.headers.get('Location')
+                if not location:
+                    break
+                current_url = urllib.parse.urljoin(current_url, location)
+                continue
+
+            response.raise_for_status()
+            content_type = response.headers.get("content-type", "")
+
+            if "application/pdf" in content_type:
+                return _extract_pdf_text_safe(response.content)
+
+            return _clean_text(response.text)
+
+        return ""
     except Exception as e:
         logger.warning("Failed to fetch URL text for %s: %s", url, e)
         return ""
