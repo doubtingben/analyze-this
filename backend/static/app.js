@@ -2265,7 +2265,7 @@ async function loadDetailNotes() {
     updateNoteCountBadge(itemId, notes.length);
     renderDetailNotes(notes);
   } catch (error) {
-    detailNotesList.innerHTML = `<div class="detail-muted">${error.message || "Failed to load notes"}</div>`;
+    detailNotesList.innerHTML = `<div class="detail-muted">${escapeHtml(error.message || "Failed to load notes")}</div>`;
   } finally {
     detailNotesLoading.style.display = "none";
   }
