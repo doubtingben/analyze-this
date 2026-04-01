@@ -7,3 +7,8 @@
 **Vulnerability:** The application was catching exceptions during file uploads and returning the raw exception message to the user (`detail=f"File upload failed: {str(e)}"`). This could leak sensitive internal details (e.g., file paths, connection strings, library versions) in production environments.
 **Learning:** Always sanitize error messages in production. Use a generic message for the user and log the detailed error internally. Environment-specific error details (e.g., `APP_ENV == 'development'`) can be useful for debugging but must be strictly controlled.
 **Prevention:** Implement a standard error handling pattern that checks the environment and returns generic messages in production.
+
+## 2025-04-01 - [HIGH] XSS Vulnerability in Custom escapeHtml Function
+**Vulnerability:** The custom `escapeHtml` function in `backend/static/app.js` was using `div.textContent = str; return div.innerHTML;`. While this effectively escapes `<`, `>`, and `&`, it fails to escape single and double quotes (`'` and `"`). This allows an attacker to break out of HTML attributes (e.g., `<input value="<escaped_string>">`) and inject malicious scripts.
+**Learning:** Relying solely on `textContent` to `innerHTML` conversion is insufficient for complete HTML escaping, particularly when the resulting string might be interpolated into HTML attributes.
+**Prevention:** Always ensure that quotes are properly escaped (`&quot;` and `&#039;`) when creating custom HTML escaping functions, or use a robust library if possible.
