@@ -153,6 +153,58 @@ class TestApi(unittest.TestCase):
 
         file_path.unlink(missing_ok=True)
 
+    def test_get_podcast_feed_returns_notes_and_audio_url(self):
+        from models import PodcastFeedEntry, PodcastFeedEntryStatus
+
+        entry = PodcastFeedEntry(
+            user_email="dev@example.com",
+            item_id="item-123",
+            title="Feed episode",
+            summary="Episode summary",
+            analysis_notes="Overview\n\nShared item: /?item=item-123",
+            shared_item_url="/?item=item-123",
+            status=PodcastFeedEntryStatus.ready,
+            audio_storage_path="uploads/dev@example.com/podcast/item-123.mp3",
+            mime_type="audio/mpeg",
+        )
+        asyncio.run(main.db.create_podcast_feed_entry(entry))
+
+        response = self.client.get("/api/podcast/feed", headers=self.headers)
+        self.assertEqual(response.status_code, 200)
+        entries = response.json()
+        self.assertEqual(len(entries), 1)
+        self.assertEqual(entries[0]["analysis_notes"], "Overview\n\nShared item: /?item=item-123")
+        self.assertEqual(entries[0]["shared_item_url"], "/?item=item-123")
+        self.assertIn("/api/podcast/audio/", entries[0]["audio_url"])
+        self.assertIn("token=", entries[0]["audio_url"])
+        self.assertIn("/api/podcast/rss?token=", entries[0]["rss_url"])
+
+    def test_get_podcast_rss_uses_private_tokenized_urls(self):
+        from models import PodcastFeedEntry, PodcastFeedEntryStatus
+
+        entry = PodcastFeedEntry(
+            user_email="dev@example.com",
+            item_id="item-rss",
+            title="RSS episode",
+            summary="RSS summary",
+            analysis_notes="Episode notes",
+            shared_item_url="/?item=item-rss",
+            status=PodcastFeedEntryStatus.ready,
+            audio_storage_path="uploads/dev@example.com/podcast/item-rss.mp3",
+            mime_type="audio/mpeg",
+        )
+        asyncio.run(main.db.create_podcast_feed_entry(entry))
+
+        feed_response = self.client.get("/api/podcast/feed", headers=self.headers)
+        rss_url = feed_response.json()[0]["rss_url"]
+
+        rss_response = self.client.get(rss_url)
+        self.assertEqual(rss_response.status_code, 200)
+        self.assertTrue(rss_response.headers["content-type"].startswith("application/rss+xml"))
+        self.assertIn("<title>RSS episode</title>", rss_response.text)
+        self.assertIn("/api/podcast/audio/", rss_response.text)
+        self.assertIn("token=", rss_response.text)
+
 
 if __name__ == "__main__":
     unittest.main()

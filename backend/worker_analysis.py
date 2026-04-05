@@ -2,11 +2,13 @@ import os
 import argparse
 import asyncio
 import logging
+from datetime import datetime, timezone
 from dotenv import load_dotenv
 
 from analysis import analyze_content, generate_embedding
 from notifications import format_item_message, send_irccat_message
 from database import DatabaseInterface, FirestoreDatabase, SQLiteDatabase
+from models import PodcastFeedEntry
 from worker_queue import process_queue_jobs
 from tracing import create_span, add_span_attributes, add_span_event, record_exception
 
@@ -20,6 +22,111 @@ logger = logging.getLogger(__name__)
 # Load environment variables
 load_dotenv()
 APP_ENV = os.getenv("APP_ENV", "production")
+PUBLIC_APP_URL = (os.getenv("PUBLIC_APP_URL") or "").rstrip("/")
+
+
+def _podcast_eligibility(item_type: str, analysis_result: dict | None) -> tuple[bool, str | None, str]:
+    normalized_type = (item_type or "text").lower()
+    if analysis_result and analysis_result.get("podcast_candidate") is True:
+        return True, analysis_result.get("podcast_candidate_reason"), analysis_result.get("podcast_source_kind") or "narration"
+
+    if normalized_type == "audio":
+        return True, None, "native_audio"
+
+    if normalized_type == "text":
+        return True, None, "narration"
+
+    if normalized_type == "file":
+        return True, None, "narration"
+
+    reason = analysis_result.get("podcast_candidate_reason") if analysis_result else None
+    return False, reason or f"unsupported_type:{normalized_type}", "unsupported"
+
+
+def _build_shared_item_url(user_email: str | None, item_id: str) -> str | None:
+    if PUBLIC_APP_URL:
+        return f"{PUBLIC_APP_URL}/?item={item_id}"
+    if APP_ENV == "development":
+        return f"/?item={item_id}"
+    return None
+
+
+def _build_analysis_notes(item: dict, analysis_result: dict | None) -> str | None:
+    if not analysis_result:
+        return None
+
+    parts = []
+    overview = analysis_result.get("overview")
+    if overview:
+        parts.append(str(overview).strip())
+
+    tags = analysis_result.get("tags") or []
+    if tags:
+        parts.append("Tags: " + ", ".join(str(tag) for tag in tags[:10]))
+
+    timeline = analysis_result.get("timeline") or item.get("timeline") or []
+    if isinstance(timeline, dict):
+        timeline = [timeline]
+    if timeline:
+        first_event = timeline[0] or {}
+        event_bits = []
+        for key in ("date", "time", "location", "principal", "purpose"):
+            value = first_event.get(key)
+            if value:
+                event_bits.append(f"{key}: {value}")
+        if event_bits:
+            parts.append("Timeline: " + "; ".join(event_bits))
+
+    follow_up = analysis_result.get("follow_up")
+    if follow_up:
+        parts.append("Follow up: " + str(follow_up).strip())
+
+    if not parts:
+        return None
+    return "\n\n".join(parts)
+
+
+async def _upsert_podcast_feed_entry(db, item: dict, analysis_result: dict, source_kind: str) -> str | None:
+    user_email = item.get("user_email")
+    item_id = item.get("firestore_id") or item.get("id")
+    if not user_email or not item_id:
+        return None
+
+    title = analysis_result.get("podcast_title") or item.get("title") or "Untitled item"
+    summary = analysis_result.get("podcast_summary") or analysis_result.get("overview")
+    existing = await db.get_podcast_feed_entry_by_item(user_email, item_id)
+    existing_status = existing.get("status") if existing else None
+    next_status = "queued" if existing_status in (None, "failed") else existing_status
+
+    entry_updates = {
+        "title": title,
+        "summary": summary,
+        "analysis_notes": _build_analysis_notes(item, analysis_result),
+        "shared_item_url": _build_shared_item_url(user_email, item_id),
+        "source_kind": source_kind,
+        "status": next_status,
+        "error": None if next_status != "failed" else existing.get("error") if existing else None,
+        "updated_at": datetime.now(timezone.utc),
+    }
+
+    if existing:
+        entry_id = existing.get("firestore_id") or existing.get("id")
+        if entry_id:
+            await db.update_podcast_feed_entry(entry_id, entry_updates)
+        return entry_id
+
+    entry = PodcastFeedEntry(
+        user_email=user_email,
+        item_id=item_id,
+        title=title,
+        summary=summary,
+        analysis_notes=entry_updates["analysis_notes"],
+        shared_item_url=entry_updates["shared_item_url"],
+        source_kind=source_kind,
+        status="queued",
+    )
+    created = await db.create_podcast_feed_entry(entry)
+    return str(created.id)
 
 
 async def get_db() -> DatabaseInterface:
@@ -92,6 +199,13 @@ async def process_items_async(limit: int = 10, item_id: str = None, force: bool 
             # If analyze_content is CPU bound blocking:
             preferred_tags = tags_by_user.get(data.get('user_email'))
             analysis_result = await loop.run_in_executor(None, analyze_content, content, item_type, preferred_tags)
+            podcast_candidate, podcast_reason, podcast_source_kind = _podcast_eligibility(item_type, analysis_result or {})
+            if analysis_result is not None:
+                analysis_result.setdefault("podcast_candidate", podcast_candidate)
+                analysis_result.setdefault("podcast_candidate_reason", podcast_reason)
+                analysis_result.setdefault("podcast_source_kind", podcast_source_kind)
+                analysis_result.setdefault("podcast_title", data.get("title"))
+                analysis_result.setdefault("podcast_summary", analysis_result.get("overview"))
 
             if analysis_result and not analysis_result.get('error'):
                 # Determine status based on analysis result content
@@ -120,6 +234,12 @@ async def process_items_async(limit: int = 10, item_id: str = None, force: bool 
                     update_data['embedding'] = embedding
 
                 await db.update_shared_item(doc_id, update_data)
+                if podcast_candidate:
+                    preexisting_entry = await db.get_podcast_feed_entry_by_item(data.get("user_email") or "", doc_id)
+                    feed_entry_id = await _upsert_podcast_feed_entry(db, data, analysis_result, podcast_source_kind)
+                    preexisting_status = preexisting_entry.get("status") if preexisting_entry else None
+                    if preexisting_status not in ("queued", "processing", "ready"):
+                        await db.enqueue_worker_job(doc_id, data.get("user_email") or "", "podcast_audio", {"source": "analysis", "feed_entry_id": feed_entry_id})
                 logger.info(f"Successfully analyzed item {doc_id}.")
                 message = format_item_message(
                     "analyzed",
@@ -196,6 +316,13 @@ async def _process_analysis_item(db, data, context):
         with create_span("llm_content_analysis", {"item.id": doc_id, "item.type": item_type}) as llm_span:
             loop = asyncio.get_running_loop()
             analysis_result = await loop.run_in_executor(None, analyze_content, content, item_type, preferred_tags)
+            podcast_candidate, podcast_reason, podcast_source_kind = _podcast_eligibility(item_type, analysis_result or {})
+            if analysis_result is not None:
+                analysis_result.setdefault("podcast_candidate", podcast_candidate)
+                analysis_result.setdefault("podcast_candidate_reason", podcast_reason)
+                analysis_result.setdefault("podcast_source_kind", podcast_source_kind)
+                analysis_result.setdefault("podcast_title", data.get("title"))
+                analysis_result.setdefault("podcast_summary", analysis_result.get("overview"))
 
             if analysis_result and not analysis_result.get('error'):
                 llm_span.set_attribute("analysis.success", True)
@@ -280,6 +407,18 @@ async def _process_analysis_item(db, data, context):
                 logger.info(f"Enqueued normalize job for item {doc_id}.")
             except Exception as e:
                 logger.error(f"Failed to enqueue normalize job for {doc_id}: {e}")
+
+            if podcast_candidate:
+                try:
+                    preexisting_entry = await db.get_podcast_feed_entry_by_item(user_email or "", doc_id)
+                    feed_entry_id = await _upsert_podcast_feed_entry(db, data, analysis_result, podcast_source_kind)
+                    preexisting_status = preexisting_entry.get("status") if preexisting_entry else None
+                    if preexisting_status not in ("queued", "processing", "ready"):
+                        payload = {"source": "analysis", "feed_entry_id": feed_entry_id}
+                        await db.enqueue_worker_job(doc_id, user_email or "", "podcast_audio", payload)
+                        logger.info(f"Enqueued podcast_audio job for item {doc_id}.")
+                except Exception as e:
+                    logger.error(f"Failed to enqueue podcast_audio job for {doc_id}: {e}")
 
             return True, None
 
