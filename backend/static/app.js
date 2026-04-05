@@ -92,7 +92,7 @@ const mediaFiltersEl = document.getElementById("media-filters");
 
 // State
 let allItems = [];
-let podcastEntries = [];
+let podcastFeed = { rss_url: null, entries: [] };
 let currentView = "all"; // 'all', 'timeline', 'follow_up', 'media', or 'podcast'
 let currentMediaGroup = "to_watch"; // Default media group
 let selectedTypes = new Set(); // Empty = all types
@@ -238,7 +238,7 @@ async function init() {
     setupTagEditor();
 
     allItems = await fetchItems();
-    podcastEntries = await fetchPodcastFeed();
+    podcastFeed = await fetchPodcastFeedSafe();
     await fetchNoteCounts(allItems);
     renderFilteredItems();
   } catch (error) {
@@ -430,7 +430,7 @@ async function handleCreateSubmit(e) {
 
     // Refresh items and close modal
     allItems = await fetchItems();
-    podcastEntries = await fetchPodcastFeed();
+    podcastFeed = await fetchPodcastFeedSafe();
     await fetchNoteCounts(allItems);
     renderFilteredItems();
     closeModal();
@@ -1371,7 +1371,7 @@ function updateFollowUpBadge() {
 function renderFilteredItems() {
   updateFollowUpBadge();
   if (currentView === "podcast") {
-    renderPodcastFeed(podcastEntries);
+    renderPodcastFeed(podcastFeed);
     return;
   }
   const items = getFilteredItems();
@@ -1413,12 +1413,29 @@ async function fetchItems() {
 async function fetchPodcastFeed() {
   const response = await fetch("/api/podcast/feed");
   if (response.status === 401) {
-    return [];
+    return { rss_url: null, entries: [] };
   }
   if (!response.ok) {
     throw new Error("Failed to fetch podcast feed");
   }
-  return response.json();
+  const payload = await response.json();
+  return {
+    rss_url: payload?.rss_url || null,
+    entries: Array.isArray(payload?.entries) ? payload.entries : [],
+  };
+}
+
+async function fetchPodcastFeedSafe() {
+  try {
+    return await fetchPodcastFeed();
+  } catch (error) {
+    console.warn("Podcast feed unavailable:", error);
+    return { rss_url: null, entries: [] };
+  }
+}
+
+function getFallbackPodcastRssUrl() {
+  return `${window.location.origin}/api/podcast/rss`;
 }
 
 async function fetchNoteCounts(items) {
@@ -1497,18 +1514,12 @@ function renderItems(items) {
   }
 }
 
-function renderPodcastFeed(entries) {
+function renderPodcastFeed(feed) {
   loadingEl.style.display = "none";
   filtersEl.style.display = "flex";
   itemsContainerEl.innerHTML = "";
-
-  if (!entries || entries.length === 0) {
-    emptyStateEl.style.display = "block";
-    emptyStateEl.querySelector("p").textContent = "No podcast episodes yet.";
-    return;
-  }
-
-  emptyStateEl.style.display = "none";
+  const entries = Array.isArray(feed?.entries) ? feed.entries : [];
+  const rssUrl = feed?.rss_url || getFallbackPodcastRssUrl();
 
   const feedMeta = document.createElement("section");
   feedMeta.className = "podcast-feed-meta";
@@ -1519,7 +1530,6 @@ function renderPodcastFeed(entries) {
     </div>
   `;
 
-  const rssUrl = entries[0]?.rss_url;
   if (rssUrl) {
     const actions = document.createElement("div");
     actions.className = "podcast-feed-actions";
@@ -1548,6 +1558,14 @@ function renderPodcastFeed(entries) {
   }
 
   itemsContainerEl.appendChild(feedMeta);
+
+  if (!entries.length) {
+    emptyStateEl.style.display = "block";
+    emptyStateEl.querySelector("p").textContent = "No podcast episodes yet.";
+    return;
+  }
+
+  emptyStateEl.style.display = "none";
 
   entries.forEach((entry) => {
     const card = document.createElement("article");

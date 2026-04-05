@@ -900,11 +900,18 @@ def _build_content_url(base_url: str, blob_path: str) -> str:
 @app.get("/api/podcast/feed")
 async def get_podcast_feed(request: Request, limit: int = 50):
     user_email = await get_authenticated_email(request)
-    entries = await db.get_podcast_feed_entries(user_email, limit=limit)
-
     base_url = _get_public_base_url(request)
     feed_token = _generate_podcast_feed_token(user_email)
     rss_url = f"{base_url}/api/podcast/rss?token={feed_token}"
+    try:
+        entries = await db.get_podcast_feed_entries(user_email, limit=limit)
+    except Exception as e:
+        print(f"Podcast feed unavailable for {user_email}: {e}")
+        return {
+            "rss_url": rss_url,
+            "entries": [],
+        }
+
     response_entries = []
     for entry in entries:
         serialized = _serialize_value(entry)
@@ -913,10 +920,12 @@ async def get_podcast_feed(request: Request, limit: int = 50):
             serialized["audio_url"] = f"{base_url}/api/podcast/audio/{entry_id}?token={feed_token}"
         else:
             serialized["audio_url"] = None
-        serialized["rss_url"] = rss_url
         response_entries.append(serialized)
 
-    return response_entries
+    return {
+        "rss_url": rss_url,
+        "entries": response_entries,
+    }
 
 
 @app.get("/api/podcast/audio/{entry_id}")
@@ -941,7 +950,11 @@ async def get_podcast_rss(request: Request):
     if not user_email:
         user_email = await get_authenticated_email(request)
 
-    entries = await db.get_podcast_feed_entries(user_email, limit=100)
+    try:
+        entries = await db.get_podcast_feed_entries(user_email, limit=100)
+    except Exception as e:
+        print(f"Podcast RSS unavailable for {user_email}: {e}")
+        entries = []
     base_url = _get_public_base_url(request)
     feed_token = request.query_params.get("token") or _generate_podcast_feed_token(user_email)
 
