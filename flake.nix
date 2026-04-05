@@ -60,6 +60,7 @@
         python
         uv
         nodejs
+        ffmpeg
         git
         gnumake
         sops

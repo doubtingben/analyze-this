@@ -1041,6 +1041,13 @@ body {
     font-size: 13px;
 }
 
+.podcast-card-footer-actions {
+    display: flex;
+    gap: 10px;
+    align-items: center;
+    flex-wrap: wrap;
+}
+
 .podcast-card-footer a {
     color: #2563eb;
     text-decoration: none;

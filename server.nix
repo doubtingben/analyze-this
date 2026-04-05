@@ -170,6 +170,7 @@ in
     git
     curl
     wget
+    ffmpeg
   ];
 
   # Some programs need SUID wrappers, can be configured further or are
@@ -385,6 +386,7 @@ in
     description = "Analyze This Worker (Podcast Audio)";
     after = [ "network-online.target" ];
     wants = [ "network-online.target" ];
+    path = [ pkgs.ffmpeg ];
     serviceConfig = {
       Type = "oneshot";
       User = "analyze-worker";

@@ -8,7 +8,13 @@ from uuid import uuid4
 from dotenv import load_dotenv
 
 from podcast_audio import get_podcast_audio_driver
-from podcast_content import build_podcast_notes, build_podcast_script, build_shared_item_url, upload_audio_bytes
+from podcast_content import (
+    build_podcast_notes,
+    build_podcast_script,
+    build_shared_item_url,
+    normalize_audio_bytes,
+    upload_audio_bytes,
+)
 from tracing import add_span_attributes, create_span, record_exception
 from worker_analysis import get_db
 
@@ -84,14 +90,15 @@ async def _process_podcast_audio_item(db, data, context):
                     metadata={"item_id": item_id},
                 )
 
-        blob_path = f"uploads/{user_email}/podcast/{item_id}-{uuid4().hex}.{_audio_extension(result.mime_type)}"
-        upload_audio_bytes(blob_path, result.audio_bytes or b"", result.mime_type)
+        normalized_audio_bytes, normalized_mime_type = normalize_audio_bytes(result.audio_bytes or b"", result.mime_type)
+        blob_path = f"uploads/{user_email}/podcast/{item_id}-{uuid4().hex}.{_audio_extension(normalized_mime_type)}"
+        upload_audio_bytes(blob_path, normalized_audio_bytes, normalized_mime_type)
 
         await db.update_podcast_feed_entry(feed_entry_id, {
             "status": "ready",
             "audio_storage_path": blob_path,
             "duration_seconds": result.duration_seconds,
-            "mime_type": result.mime_type,
+            "mime_type": normalized_mime_type,
             "provider": result.provider,
             "provider_voice_id": os.getenv("ELEVENLABS_VOICE_ID"),
             "source_kind": source_kind,

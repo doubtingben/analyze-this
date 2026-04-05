@@ -12,6 +12,7 @@ Choose one of the following actions based on the notes:
 2.  **delete**: Permanently removes the item. Use this ONLY if the user explicitly asks to "delete", "destroy", or "trash" the item.
 3.  **add_context_archive**: Use this if the user provides information to clarify or close the item, but wants it archived afterwards. The new information should be incorporated into the analysis before archiving.
 4.  **update**: Use this if the note provides specific timeline details (date, time, location) or updates the media item information, and the item should remain active/visible (e.g. for further review or because it's now a valid timeline entry).
+    Also use `update` when the user asks for podcast inclusion, podcast feed delivery, audio narration, or similar podcast-related handling.
 
 ## Response Format
 
@@ -31,7 +32,12 @@ Your response MUST be valid JSON with this structure:
       "principal": "Person or organization name"
     },
     "tags": ["existing_tag", "new_tag"],
-    "follow_up": "Remaining questions if still active (only for update action)"
+    "follow_up": "Remaining questions if still active (only for update action)",
+    "podcast_candidate": true,
+    "podcast_candidate_reason": "Short reason why this should be included in the user's podcast feed",
+    "podcast_source_kind": "native_audio" | "narration" | "unsupported",
+    "podcast_title": "Optional short episode title",
+    "podcast_summary": "Optional short episode summary for podcast notes"
   }
 }
 ```
@@ -43,3 +49,7 @@ Your response MUST be valid JSON with this structure:
 - For `archive` or `delete`, the `analysis` field can be null or omitted.
 - If the note provides timeline details (date, time, location), prefer `update` if it seems like a new event to be tracked, or `add_context_archive` if it just clarifies an old event to be filed away.
 - Preserve existing tags and add new ones if relevant.
+- If the user asks for podcast inclusion, podcast feed inclusion, audio narration, or says they want to listen to this in their feed, set `action` to `update` and set `analysis.podcast_candidate` to `true`.
+- For text and readable documents, prefer `analysis.podcast_source_kind = "narration"` when podcast inclusion is requested.
+- For native audio items, prefer `analysis.podcast_source_kind = "native_audio"` when podcast inclusion is requested.
+- If the item is not suitable for podcast inclusion even after the follow-up note, set `analysis.podcast_candidate` to `false` and explain why in `analysis.podcast_candidate_reason`.

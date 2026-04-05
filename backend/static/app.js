@@ -1617,14 +1617,32 @@ function renderPodcastFeed(feed) {
 
     const footer = document.createElement("div");
     footer.className = "podcast-card-footer";
+    const footerActions = document.createElement("div");
+    footerActions.className = "podcast-card-footer-actions";
+
     if (entry.shared_item_url) {
       const sourceLink = document.createElement("a");
       sourceLink.href = entry.shared_item_url;
       sourceLink.target = "_blank";
       sourceLink.rel = "noopener noreferrer";
       sourceLink.textContent = "Open shared item";
-      footer.appendChild(sourceLink);
+      footerActions.appendChild(sourceLink);
     }
+    if (entry.audio_url) {
+      const shareBtn = document.createElement("button");
+      shareBtn.type = "button";
+      shareBtn.className = "btn-secondary";
+      shareBtn.textContent = "Copy episode link";
+      shareBtn.addEventListener("click", async () => {
+        await navigator.clipboard.writeText(entry.audio_url);
+        shareBtn.textContent = "Copied";
+        setTimeout(() => {
+          shareBtn.textContent = "Copy episode link";
+        }, 1200);
+      });
+      footerActions.appendChild(shareBtn);
+    }
+    footer.appendChild(footerActions);
     if (entry.error) {
       const error = document.createElement("span");
       error.className = "podcast-card-error";

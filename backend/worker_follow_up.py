@@ -2,11 +2,13 @@ import os
 import argparse
 import asyncio
 import logging
+from datetime import datetime, timezone
 from dotenv import load_dotenv
 
 from follow_up_analysis import analyze_follow_up
 from notifications import format_item_message, send_irccat_message
 from database import DatabaseInterface, FirestoreDatabase, SQLiteDatabase
+from worker_analysis import _podcast_eligibility, _upsert_podcast_feed_entry
 from worker_queue import process_queue_jobs
 from tracing import create_span, add_span_attributes, add_span_event, record_exception
 
@@ -183,11 +185,30 @@ async def _process_follow_up_item(db, data, context):
                 elif new_analysis.get('follow_up'):
                     new_status = 'follow_up'
 
+                podcast_candidate, podcast_reason, podcast_source_kind = _podcast_eligibility(item_type, new_analysis or {})
+                new_analysis.setdefault('podcast_candidate', podcast_candidate)
+                new_analysis.setdefault('podcast_candidate_reason', podcast_reason)
+                new_analysis.setdefault('podcast_source_kind', podcast_source_kind)
+                new_analysis.setdefault('podcast_title', item.get('title'))
+                new_analysis.setdefault('podcast_summary', new_analysis.get('overview'))
+
                 await db.update_shared_item(doc_id, {
                     'analysis': new_analysis,
                     'status': new_status,
                     'next_step': new_status
                 })
+
+                if podcast_candidate:
+                    preexisting_entry = await db.get_podcast_feed_entry_by_item(user_email or "", doc_id)
+                    feed_entry_id = await _upsert_podcast_feed_entry(db, item, new_analysis, podcast_source_kind)
+                    preexisting_status = preexisting_entry.get("status") if preexisting_entry else None
+                    if preexisting_status not in ("queued", "processing", "ready"):
+                        payload = {
+                            "source": "follow_up",
+                            "feed_entry_id": feed_entry_id,
+                            "requested_at": datetime.now(timezone.utc).isoformat(),
+                        }
+                        await db.enqueue_worker_job(doc_id, user_email or "", "podcast_audio", payload)
 
                 await send_irccat_message(format_item_message(
                     "updated via follow-up", user_email or "unknown", doc_id, item.get('title'),

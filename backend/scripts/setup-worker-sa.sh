@@ -9,6 +9,7 @@ BACKEND_DIR="$(dirname "$SCRIPT_DIR")"
 PROJECT_ID="analyze-this-2026"
 SERVICE_ACCOUNT_NAME="worker-sa"
 SERVICE_ACCOUNT_EMAIL="${SERVICE_ACCOUNT_NAME}@${PROJECT_ID}.iam.gserviceaccount.com"
+STORAGE_BUCKET="${FIREBASE_STORAGE_BUCKET:-analyze-this-2026-preview}"
 
 echo "Setting up Service Account for project: $PROJECT_ID"
 
@@ -43,6 +44,11 @@ gcloud projects add-iam-policy-binding "$PROJECT_ID" \
     --role "roles/storage.objectViewer" \
     --condition None > /dev/null
 
+echo "Granting Storage Object Admin role on bucket gs://$STORAGE_BUCKET..."
+gcloud storage buckets add-iam-policy-binding "gs://$STORAGE_BUCKET" \
+    --member "serviceAccount:$SERVICE_ACCOUNT_EMAIL" \
+    --role "roles/storage.objectAdmin" > /dev/null
+
 echo "Granting Cloud Run Developer role (to execute Cloud Run Jobs)..."
 gcloud projects add-iam-policy-binding "$PROJECT_ID" \
     --member "serviceAccount:$SERVICE_ACCOUNT_EMAIL" \
@@ -56,3 +62,4 @@ gcloud projects add-iam-policy-binding "$PROJECT_ID" \
     --condition None > /dev/null
 
 echo "Service Account setup complete."
+echo "Bucket write access was granted on gs://$STORAGE_BUCKET for podcast audio uploads."
