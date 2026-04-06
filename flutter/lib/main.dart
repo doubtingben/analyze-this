@@ -245,6 +245,8 @@ class _MyHomePageState extends State<MyHomePage> {
     int? width,
     int? height,
     double? duration,
+    String? sourceUrl,
+    String? sourceMeta,
   }) async {
     if (_currentUser == null) {
       // Require authentication - no offline support
@@ -286,6 +288,8 @@ class _MyHomePageState extends State<MyHomePage> {
           width: width,
           height: height,
           duration: duration,
+          sourceUrl: sourceUrl,
+          sourceMeta: sourceMeta,
         );
       } else if (text != null) {
         // Handle text/link share
@@ -364,6 +368,9 @@ class _MyHomePageState extends State<MyHomePage> {
 
         // Use metadata from the first item
         final mainItem = mediaItems.first;
+        final sourceItem = items
+            .where((i) => i.type == custom_sharing.SharedMediaType.weburl)
+            .firstOrNull;
 
         _handleShare(
           files,
@@ -372,6 +379,8 @@ class _MyHomePageState extends State<MyHomePage> {
           width: mainItem.width,
           height: mainItem.height,
           duration: mainItem.duration,
+          sourceUrl: sourceItem?.value,
+          sourceMeta: sourceItem?.meta,
         );
       } else {
         // Fallback to Text/URL

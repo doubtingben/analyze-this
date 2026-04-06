@@ -13,6 +13,7 @@ from podcast_content import (
     build_podcast_script,
     build_shared_item_url,
     normalize_audio_bytes,
+    resolve_episode_content,
     upload_audio_bytes,
 )
 from tracing import add_span_attributes, create_span, record_exception
@@ -79,10 +80,13 @@ async def _process_podcast_audio_item(db, data, context):
             if source_kind == "native_audio":
                 result = await driver.normalize_source_audio(source_item=data, metadata={"item_id": item_id})
                 script_text = None
+                resolved_source_kind = source_kind
             else:
-                script_text = build_podcast_script(data, analysis)
+                episode = resolve_episode_content(data, analysis)
+                script_text = build_podcast_script(data, analysis, episode)
                 if not script_text:
                     raise RuntimeError("text_extraction_failed")
+                resolved_source_kind = episode.body_source
                 result = await driver.synthesize_speech(
                     text=script_text,
                     title=feed_entry.get("title") or data.get("title"),
@@ -101,7 +105,7 @@ async def _process_podcast_audio_item(db, data, context):
             "mime_type": normalized_mime_type,
             "provider": result.provider,
             "provider_voice_id": os.getenv("ELEVENLABS_VOICE_ID"),
-            "source_kind": source_kind,
+            "source_kind": resolved_source_kind,
             "script_text": script_text,
             "analysis_notes": build_podcast_notes(data, analysis),
             "shared_item_url": build_shared_item_url(item_id),

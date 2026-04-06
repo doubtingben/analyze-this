@@ -77,6 +77,8 @@ class ApiService {
     int? width,
     int? height,
     double? duration,
+    String? sourceUrl,
+    String? sourceMeta,
   }) async {
     final uri = Uri.parse('${Config.apiUrl}/api/share');
     final request = http.MultipartRequest('POST', uri);
@@ -110,6 +112,8 @@ class ApiService {
       if (width != null) request.fields['width'] = width.toString();
       if (height != null) request.fields['height'] = height.toString();
       if (duration != null) request.fields['duration'] = duration.toString();
+      if (sourceUrl != null && sourceUrl.isNotEmpty) request.fields['source_url'] = sourceUrl;
+      if (sourceMeta != null && sourceMeta.isNotEmpty) request.fields['source_meta'] = sourceMeta;
     } else {
       // If no file, ensure we treat it as JSON/Text request if preferred, 
       // but MultipartRequest works for fields too.
@@ -131,6 +135,8 @@ class ApiService {
           'content': value,
           'type': _mapShareTypeToString(type),
           'user_email': userEmail,
+          if (sourceUrl != null && sourceUrl.isNotEmpty) 'source_url': sourceUrl,
+          if (sourceMeta != null && sourceMeta.isNotEmpty) 'source_meta': sourceMeta,
         }),
       );
        if (jsonResponse.statusCode != 200 && jsonResponse.statusCode != 201) {

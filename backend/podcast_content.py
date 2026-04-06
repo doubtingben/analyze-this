@@ -1,19 +1,36 @@
 import os
+import re
 import subprocess
 import tempfile
+from dataclasses import dataclass
+from html import unescape
 from pathlib import Path
 from typing import Optional
 
 import firebase_admin
+import requests
 from firebase_admin import storage
 
 
 APP_ENV = os.getenv("APP_ENV", "production")
 PUBLIC_APP_URL = (os.getenv("PUBLIC_APP_URL") or "").rstrip("/")
 MAX_PODCAST_TEXT_CHARS = int(os.getenv("MAX_PODCAST_TEXT_CHARS", "12000"))
+MAX_PODCAST_INTRO_CHARS = int(os.getenv("MAX_PODCAST_INTRO_CHARS", "1200"))
 PODCAST_TARGET_LOUDNESS_LUFS = os.getenv("PODCAST_TARGET_LOUDNESS_LUFS", "-16")
 PODCAST_TARGET_TRUE_PEAK_DBTP = os.getenv("PODCAST_TARGET_TRUE_PEAK_DBTP", "-1.5")
 PODCAST_TARGET_LOUDNESS_RANGE = os.getenv("PODCAST_TARGET_LOUDNESS_RANGE", "11")
+PODCAST_FETCH_TIMEOUT_SECONDS = float(os.getenv("PODCAST_FETCH_TIMEOUT_SECONDS", "15"))
+PODCAST_FETCH_USER_AGENT = os.getenv(
+    "PODCAST_FETCH_USER_AGENT",
+    "AnalyzeThisPodcastBot/1.0 (+https://analyzethis.app)",
+)
+
+
+@dataclass
+class EpisodeContent:
+    intro_text: Optional[str]
+    body_text: Optional[str]
+    body_source: str
 
 
 def build_shared_item_url(item_id: str) -> Optional[str]:
@@ -143,6 +160,9 @@ def extract_podcast_text(item: dict) -> Optional[str]:
     if item_type == "text":
         return _truncate_text(item.get("content"))
 
+    if item_type == "web_url":
+        return _extract_remote_text(item.get("content"))
+
     if item_type == "audio":
         return None
 
@@ -166,17 +186,54 @@ def extract_podcast_text(item: dict) -> Optional[str]:
     return None
 
 
-def build_podcast_script(item: dict, analysis: dict) -> str:
-    text = extract_podcast_text(item)
+def resolve_episode_content(item: dict, analysis: dict) -> EpisodeContent:
+    intro_text = _truncate_intro_text(
+        analysis.get("podcast_summary") or analysis.get("overview") or ""
+    )
+    body_text = extract_podcast_text(item)
+    body_source = "item_content" if body_text else "none"
+
+    if not body_text:
+        source_url = ((item.get("item_metadata") or {}).get("sourceUrl") or "").strip()
+        if source_url:
+            body_text = _extract_remote_text(source_url)
+            if body_text:
+                body_source = "source_url"
+
+    return EpisodeContent(
+        intro_text=intro_text,
+        body_text=body_text,
+        body_source=body_source,
+    )
+
+
+def build_podcast_script(item: dict, analysis: dict, episode: EpisodeContent | None = None) -> str:
     title = analysis.get("podcast_title") or item.get("title") or "Untitled item"
-    summary = analysis.get("podcast_summary") or analysis.get("overview") or ""
+    episode = episode or resolve_episode_content(item, analysis)
 
-    if text:
-        body = text
+    parts = [title]
+
+    if episode.intro_text:
+        parts.append(
+            _clean_podcast_script_text(
+                f"First, a quick analysis.\n\n{episode.intro_text}"
+            )
+        )
+
+    if episode.body_text:
+        if episode.intro_text:
+            parts.append("Now let's get into the original piece.")
+        parts.append(episode.body_text)
+    elif episode.intro_text:
+        parts.append("The original source content could not be retrieved, so this episode includes the analysis summary only.")
     else:
-        body = summary or "This shared item is now available in your podcast feed."
+        parts.append("This shared item is now available in your podcast feed.")
 
-    return _clean_podcast_script_text(f"{title}\n\n{body}".strip())
+    return _clean_podcast_script_text("\n\n".join(parts).strip())
+
+
+def get_episode_body_source(item: dict, analysis: dict) -> str:
+    return resolve_episode_content(item, analysis).body_source
 
 
 def build_podcast_notes(item: dict, analysis: dict) -> Optional[str]:
@@ -208,6 +265,16 @@ def _truncate_text(text: Optional[str]) -> Optional[str]:
     return truncated.rsplit(" ", 1)[0]
 
 
+def _truncate_intro_text(text: Optional[str]) -> Optional[str]:
+    if not text:
+        return text
+    cleaned = _clean_podcast_script_text(str(text))
+    if len(cleaned) <= MAX_PODCAST_INTRO_CHARS:
+        return cleaned
+    truncated = cleaned[:MAX_PODCAST_INTRO_CHARS]
+    return truncated.rsplit(" ", 1)[0]
+
+
 def _extract_pdf_text(raw_bytes: bytes) -> str:
     try:
         from pypdf import PdfReader
@@ -224,6 +291,42 @@ def _extract_pdf_text(raw_bytes: bytes) -> str:
         return "\n".join(extracted)
     except Exception:
         return ""
+
+
+def _extract_remote_text(source_url: str) -> Optional[str]:
+    if not source_url:
+        return None
+
+    try:
+        response = requests.get(
+            source_url,
+            timeout=PODCAST_FETCH_TIMEOUT_SECONDS,
+            headers={"User-Agent": PODCAST_FETCH_USER_AGENT},
+            allow_redirects=True,
+        )
+        response.raise_for_status()
+    except Exception:
+        return None
+
+    content_type = (response.headers.get("content-type") or "").lower()
+    if "application/pdf" in content_type or source_url.lower().endswith(".pdf"):
+        return _truncate_text(_extract_pdf_text(response.content))
+
+    text = _extract_html_text(response.text if response.text else response.content.decode("utf-8", errors="ignore"))
+    return _truncate_text(text)
+
+
+def _extract_html_text(html: str) -> str:
+    if not html:
+        return ""
+
+    cleaned = re.sub(r"(?is)<(script|style|noscript).*?>.*?</\1>", " ", html)
+    cleaned = re.sub(r"(?i)</(p|div|article|section|h1|h2|h3|h4|h5|h6|li|blockquote|br)>", "\n\n", cleaned)
+    cleaned = re.sub(r"(?s)<[^>]+>", " ", cleaned)
+    cleaned = unescape(cleaned)
+    cleaned = re.sub(r"[ \t]+", " ", cleaned)
+    cleaned = re.sub(r"\n\s*\n\s*\n+", "\n\n", cleaned)
+    return _clean_podcast_script_text(cleaned)
 
 
 def _clean_podcast_script_text(text: str) -> str:

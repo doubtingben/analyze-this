@@ -615,7 +615,9 @@ async def share_item(
     file_size: int = Form(None),
     duration: float = Form(None),
     width: int = Form(None),
-    height: int = Form(None)
+    height: int = Form(None),
+    source_url: str = Form(None),
+    source_meta: str = Form(None),
 ):
     # Auth Check
     auth_header = request.headers.get('Authorization')
@@ -675,6 +677,8 @@ async def share_item(
             'duration': duration,
             'width': width,
             'height': height,
+            'sourceUrl': source_url,
+            'sourceMeta': source_meta,
         }
         item_data['item_metadata'] = {key: value for key, value in item_metadata.items() if value is not None}
         
@@ -771,11 +775,22 @@ async def share_item(
     # Enforce Input Limits on Resolved Data (Fixes JSON bypass)
     final_title = item_data.get('title')
     final_content = item_data.get('content')
+    source_url = ((item_data.get('item_metadata') or {}).get('sourceUrl') or item_data.get('source_url'))
+    source_meta = ((item_data.get('item_metadata') or {}).get('sourceMeta') or item_data.get('source_meta'))
 
     if final_title and len(final_title) > MAX_TITLE_LENGTH:
         raise HTTPException(status_code=400, detail="Title too long")
     if final_content and len(final_content) > MAX_TEXT_LENGTH:
         raise HTTPException(status_code=400, detail="Content too long")
+    if source_url:
+        normalized_source_url = source_url.lower().strip()
+        if not (normalized_source_url.startswith('http://') or normalized_source_url.startswith('https://')):
+            raise HTTPException(status_code=400, detail="Invalid source URL scheme: Only http/https allowed")
+        item_metadata = dict(item_data.get('item_metadata') or {})
+        item_metadata['sourceUrl'] = source_url
+        if source_meta:
+            item_metadata['sourceMeta'] = source_meta
+        item_data['item_metadata'] = item_metadata
 
     # Security Validation: Prevent IDOR/Traversal on image content paths
     # If the backend is going to read this file (images/screenshots), ensure it belongs to the user.
