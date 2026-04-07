@@ -224,18 +224,32 @@ def normalize_analysis(raw_response: dict) -> dict:
     Ensures 'overview' field exists even if AI doesn't provide it.
     """
     if not raw_response:
-        return {"overview": "Analysis unavailable", "error": "Empty response"}
+        return {
+            "overview": "Analysis unavailable",
+            "error": "Empty response",
+            "podcast_candidate": False,
+            "podcast_candidate_reason": "empty_response",
+            "podcast_source_kind": "unsupported",
+        }
 
     # If there's an error, preserve it but ensure overview exists
     if "error" in raw_response:
         raw_response.setdefault("overview", f"Error: {raw_response['error']}")
+        raw_response.setdefault("podcast_candidate", False)
+        raw_response.setdefault("podcast_candidate_reason", "analysis_error")
+        raw_response.setdefault("podcast_source_kind", "unsupported")
         return raw_response
 
     # Ensure overview exists - generate from other fields if missing
     if "overview" not in raw_response or not raw_response["overview"]:
         # Try to generate overview from available fields
         if "timeline" in raw_response:
-            raw_response["overview"] = f"Timeline event identified: {raw_response['timeline'].get('principal', 'Unknown')} at {raw_response['timeline'].get('location', 'Unknown location')}"
+            timeline_value = raw_response["timeline"]
+            if isinstance(timeline_value, list):
+                timeline_value = timeline_value[0] if timeline_value else {}
+            if not isinstance(timeline_value, dict):
+                timeline_value = {}
+            raw_response["overview"] = f"Timeline event identified: {timeline_value.get('principal', 'Unknown')} at {timeline_value.get('location', 'Unknown location')}"
         elif "follow_up" in raw_response:
             raw_response["overview"] = f"Follow up required: {raw_response['follow_up']}"
         elif "step" in raw_response:
@@ -245,5 +259,11 @@ def normalize_analysis(raw_response: dict) -> dict:
              raw_response["overview"] = str(raw_response["details"])[:200]
         else:
              raw_response["overview"] = "Content analyzed - no specific action identified"
+
+    raw_response.setdefault("podcast_candidate", False)
+    raw_response.setdefault("podcast_candidate_reason", None)
+    raw_response.setdefault("podcast_source_kind", None)
+    raw_response.setdefault("podcast_title", None)
+    raw_response.setdefault("podcast_summary", raw_response.get("overview"))
 
     return raw_response

@@ -92,7 +92,8 @@ const mediaFiltersEl = document.getElementById("media-filters");
 
 // State
 let allItems = [];
-let currentView = "all"; // 'all', 'timeline', 'follow_up', or 'media'
+let podcastFeed = { rss_url: null, entries: [] };
+let currentView = "all"; // 'all', 'timeline', 'follow_up', 'media', or 'podcast'
 let currentMediaGroup = "to_watch"; // Default media group
 let selectedTypes = new Set(); // Empty = all types
 let selectedTags = new Set(); // Empty = no tag filter
@@ -115,6 +116,7 @@ const VIEW_PATHS = {
   timeline: "/timeline",
   follow_up: "/followup",
   media: "/media",
+  podcast: "/podcast",
 };
 
 function getPathForView(view) {
@@ -138,6 +140,7 @@ function getViewFromPathname(pathname) {
   if (normalized === "/timeline") return "timeline";
   if (normalized === "/followup" || normalized === "/follow-up") return "follow_up";
   if (normalized === "/media") return "media";
+  if (normalized === "/podcast") return "podcast";
   return "all";
 }
 
@@ -235,6 +238,7 @@ async function init() {
     setupTagEditor();
 
     allItems = await fetchItems();
+    podcastFeed = await fetchPodcastFeedSafe();
     await fetchNoteCounts(allItems);
     renderFilteredItems();
   } catch (error) {
@@ -426,6 +430,7 @@ async function handleCreateSubmit(e) {
 
     // Refresh items and close modal
     allItems = await fetchItems();
+    podcastFeed = await fetchPodcastFeedSafe();
     await fetchNoteCounts(allItems);
     renderFilteredItems();
     closeModal();
@@ -1365,6 +1370,10 @@ function updateFollowUpBadge() {
 // Render items with current filters applied
 function renderFilteredItems() {
   updateFollowUpBadge();
+  if (currentView === "podcast") {
+    renderPodcastFeed(podcastFeed);
+    return;
+  }
   const items = getFilteredItems();
   renderItems(items);
 }
@@ -1399,6 +1408,34 @@ async function fetchItems() {
     throw new Error("Failed to fetch items");
   }
   return response.json();
+}
+
+async function fetchPodcastFeed() {
+  const response = await fetch("/api/podcast/feed");
+  if (response.status === 401) {
+    return { rss_url: null, entries: [] };
+  }
+  if (!response.ok) {
+    throw new Error("Failed to fetch podcast feed");
+  }
+  const payload = await response.json();
+  return {
+    rss_url: payload?.rss_url || null,
+    entries: Array.isArray(payload?.entries) ? payload.entries : [],
+  };
+}
+
+async function fetchPodcastFeedSafe() {
+  try {
+    return await fetchPodcastFeed();
+  } catch (error) {
+    console.warn("Podcast feed unavailable:", error);
+    return { rss_url: null, entries: [] };
+  }
+}
+
+function getFallbackPodcastRssUrl() {
+  return `${window.location.origin}/api/podcast/rss`;
 }
 
 async function fetchNoteCounts(items) {
@@ -1448,6 +1485,8 @@ function renderItems(items) {
       emptyStateEl.querySelector("p").textContent = "No items need follow-up.";
     } else if (currentView === "media") {
       emptyStateEl.querySelector("p").textContent = "No media items found.";
+    } else if (currentView === "podcast") {
+      emptyStateEl.querySelector("p").textContent = "No podcast episodes yet.";
     } else if (selectedTypes.size > 0) {
       const typeNames = [...selectedTypes].map(formatType).join(", ");
       emptyStateEl.querySelector("p").textContent =
@@ -1473,6 +1512,147 @@ function renderItems(items) {
       itemsContainerEl.appendChild(card);
     });
   }
+}
+
+function renderPodcastFeed(feed) {
+  loadingEl.style.display = "none";
+  filtersEl.style.display = "flex";
+  itemsContainerEl.innerHTML = "";
+  const entries = Array.isArray(feed?.entries) ? feed.entries : [];
+  const rssUrl = feed?.rss_url || getFallbackPodcastRssUrl();
+
+  const feedMeta = document.createElement("section");
+  feedMeta.className = "podcast-feed-meta";
+  feedMeta.innerHTML = `
+    <div>
+      <h2>Podcast Feed</h2>
+      <p>Private audio episodes generated from your shared items.</p>
+    </div>
+  `;
+
+  if (rssUrl) {
+    const actions = document.createElement("div");
+    actions.className = "podcast-feed-actions";
+
+    const openLink = document.createElement("a");
+    openLink.href = rssUrl;
+    openLink.target = "_blank";
+    openLink.rel = "noopener noreferrer";
+    openLink.className = "btn-secondary";
+    openLink.textContent = "Open RSS";
+    actions.appendChild(openLink);
+
+    const copyBtn = document.createElement("button");
+    copyBtn.type = "button";
+    copyBtn.className = "btn-secondary";
+    copyBtn.textContent = "Copy RSS URL";
+    copyBtn.addEventListener("click", async () => {
+      await navigator.clipboard.writeText(rssUrl);
+      copyBtn.textContent = "Copied";
+      setTimeout(() => {
+        copyBtn.textContent = "Copy RSS URL";
+      }, 1200);
+    });
+    actions.appendChild(copyBtn);
+    feedMeta.appendChild(actions);
+  }
+
+  itemsContainerEl.appendChild(feedMeta);
+
+  if (!entries.length) {
+    emptyStateEl.style.display = "block";
+    emptyStateEl.querySelector("p").textContent = "No podcast episodes yet.";
+    return;
+  }
+
+  emptyStateEl.style.display = "none";
+
+  entries.forEach((entry) => {
+    const card = document.createElement("article");
+    card.className = "podcast-card";
+
+    const header = document.createElement("div");
+    header.className = "podcast-card-header";
+
+    const titleBlock = document.createElement("div");
+    const title = document.createElement("h3");
+    title.className = "podcast-card-title";
+    title.textContent = entry.title || "Untitled episode";
+    titleBlock.appendChild(title);
+
+    const status = document.createElement("span");
+    status.className = `podcast-card-status podcast-card-status--${entry.status || "queued"}`;
+    status.textContent = entry.status || "queued";
+    titleBlock.appendChild(status);
+    header.appendChild(titleBlock);
+
+    const date = document.createElement("div");
+    date.className = "podcast-card-date";
+    date.textContent = formatDate(entry.published_at || entry.created_at);
+    header.appendChild(date);
+    card.appendChild(header);
+
+    if (entry.summary) {
+      const summary = document.createElement("p");
+      summary.className = "podcast-card-summary";
+      summary.textContent = entry.summary;
+      card.appendChild(summary);
+    }
+
+    if (entry.audio_url) {
+      const audio = document.createElement("audio");
+      audio.className = "podcast-audio-player";
+      audio.controls = true;
+      audio.preload = "none";
+      audio.src = entry.audio_url;
+      card.appendChild(audio);
+    }
+
+    if (entry.analysis_notes) {
+      const notes = document.createElement("pre");
+      notes.className = "podcast-card-notes";
+      notes.textContent = entry.analysis_notes;
+      card.appendChild(notes);
+    }
+
+    const footer = document.createElement("div");
+    footer.className = "podcast-card-footer";
+    const footerActions = document.createElement("div");
+    footerActions.className = "podcast-card-footer-actions";
+
+    if (entry.shared_item_url) {
+      const sourceLink = document.createElement("a");
+      sourceLink.href = entry.shared_item_url;
+      sourceLink.target = "_blank";
+      sourceLink.rel = "noopener noreferrer";
+      sourceLink.textContent = "Open shared item";
+      footerActions.appendChild(sourceLink);
+    }
+    if (entry.audio_url) {
+      const shareBtn = document.createElement("button");
+      shareBtn.type = "button";
+      shareBtn.className = "btn-secondary";
+      shareBtn.textContent = "Copy episode link";
+      shareBtn.addEventListener("click", async () => {
+        await navigator.clipboard.writeText(entry.audio_url);
+        shareBtn.textContent = "Copied";
+        setTimeout(() => {
+          shareBtn.textContent = "Copy episode link";
+        }, 1200);
+      });
+      footerActions.appendChild(shareBtn);
+    }
+    footer.appendChild(footerActions);
+    if (entry.error) {
+      const error = document.createElement("span");
+      error.className = "podcast-card-error";
+      error.textContent = entry.error;
+      footer.appendChild(error);
+    }
+    card.appendChild(footer);
+
+    itemsContainerEl.appendChild(card);
+  });
 }
 
 // Render items in timeline view with Now divider

@@ -7,7 +7,7 @@ from abc import ABC, abstractmethod
 from typing import List, Optional, Dict, Any
 import logging
 
-from models import User, SharedItem, ItemNote, WorkerJobStatus
+from models import User, SharedItem, ItemNote, WorkerJobStatus, PodcastFeedEntry
 
 # Firestore imports
 import firebase_admin
@@ -144,6 +144,26 @@ class DatabaseInterface(ABC):
 
     @abstractmethod
     async def search_similar_items(self, embedding: List[float], user_email: str, limit: int = 10) -> List[dict]:
+        pass
+
+    @abstractmethod
+    async def create_podcast_feed_entry(self, entry: PodcastFeedEntry) -> PodcastFeedEntry:
+        pass
+
+    @abstractmethod
+    async def get_podcast_feed_entries(self, user_email: str, limit: int = 50) -> List[dict]:
+        pass
+
+    @abstractmethod
+    async def get_podcast_feed_entry(self, entry_id: str, user_email: str) -> Optional[dict]:
+        pass
+
+    @abstractmethod
+    async def get_podcast_feed_entry_by_item(self, user_email: str, item_id: str) -> Optional[dict]:
+        pass
+
+    @abstractmethod
+    async def update_podcast_feed_entry(self, entry_id: str, updates: dict) -> bool:
         pass
 
 
@@ -834,6 +854,67 @@ class FirestoreDatabase(DatabaseInterface):
             logging.error(f"Vector search failed: {e}")
             return []
 
+    async def create_podcast_feed_entry(self, entry: PodcastFeedEntry) -> PodcastFeedEntry:
+        entry_dict = entry.dict()
+        entry_ref = self.db.collection('podcast_feed_entries').document(entry.id)
+        entry_ref.set(entry_dict)
+        return entry
+
+    async def get_podcast_feed_entries(self, user_email: str, limit: int = 50) -> List[dict]:
+        query = (
+            self.db.collection('podcast_feed_entries')
+            .where(filter=FieldFilter('user_email', '==', user_email))
+            .order_by('created_at', direction=firestore.Query.DESCENDING)
+            .limit(limit)
+        )
+
+        def get_docs():
+            entries = []
+            for doc in query.stream():
+                data = doc.to_dict()
+                data['firestore_id'] = doc.id
+                entries.append(data)
+            return entries
+
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(None, get_docs)
+
+    async def get_podcast_feed_entry(self, entry_id: str, user_email: str) -> Optional[dict]:
+        doc = self.db.collection('podcast_feed_entries').document(entry_id).get()
+        if not doc.exists:
+            return None
+        data = doc.to_dict()
+        if data.get('user_email') != user_email:
+            return None
+        data['firestore_id'] = doc.id
+        return data
+
+    async def get_podcast_feed_entry_by_item(self, user_email: str, item_id: str) -> Optional[dict]:
+        query = (
+            self.db.collection('podcast_feed_entries')
+            .where(filter=FieldFilter('user_email', '==', user_email))
+            .where(filter=FieldFilter('item_id', '==', item_id))
+            .limit(1)
+        )
+
+        def get_doc():
+            for doc in query.stream():
+                data = doc.to_dict()
+                data['firestore_id'] = doc.id
+                return data
+            return None
+
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(None, get_doc)
+
+    async def update_podcast_feed_entry(self, entry_id: str, updates: dict) -> bool:
+        entry_ref = self.db.collection('podcast_feed_entries').document(entry_id)
+        doc = entry_ref.get()
+        if not doc.exists:
+            return False
+        entry_ref.update(updates)
+        return True
+
 
 # --- SQLite Implementation ---
 
@@ -889,6 +970,29 @@ class DBWorkerJob(Base):
     payload = Column(JSON, nullable=True)
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.datetime.utcnow)
+
+
+class DBPodcastFeedEntry(Base):
+    __tablename__ = 'podcast_feed_entries'
+    id = Column(String, primary_key=True)
+    user_email = Column(String, nullable=False, index=True)
+    item_id = Column(String, nullable=False, index=True)
+    title = Column(String, nullable=False)
+    summary = Column(String, nullable=True)
+    analysis_notes = Column(String, nullable=True)
+    shared_item_url = Column(String, nullable=True)
+    status = Column(String, nullable=False, default='queued', index=True)
+    audio_storage_path = Column(String, nullable=True)
+    duration_seconds = Column(Integer, nullable=True)
+    mime_type = Column(String, nullable=True)
+    provider = Column(String, nullable=True)
+    provider_voice_id = Column(String, nullable=True)
+    source_kind = Column(String, nullable=True)
+    script_text = Column(String, nullable=True)
+    error = Column(String, nullable=True)
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.datetime.utcnow)
+    published_at = Column(DateTime, nullable=True)
 
 class SQLiteDatabase(DatabaseInterface):
     def __init__(self, db_url: str = "sqlite+aiosqlite:///./development.db"):
@@ -971,6 +1075,39 @@ class SQLiteDatabase(DatabaseInterface):
 
             await conn.run_sync(ensure_user_timezone_column)
 
+            def ensure_podcast_feed_entries_table(sync_conn):
+                inspector = inspect(sync_conn)
+                if 'podcast_feed_entries' not in inspector.get_table_names():
+                    sync_conn.execute(text("""
+                        CREATE TABLE podcast_feed_entries (
+                            id VARCHAR PRIMARY KEY,
+                            user_email VARCHAR NOT NULL,
+                            item_id VARCHAR NOT NULL,
+                            title VARCHAR NOT NULL,
+                            summary VARCHAR,
+                            analysis_notes VARCHAR,
+                            shared_item_url VARCHAR,
+                            status VARCHAR NOT NULL,
+                            audio_storage_path VARCHAR,
+                            duration_seconds INTEGER,
+                            mime_type VARCHAR,
+                            provider VARCHAR,
+                            provider_voice_id VARCHAR,
+                            source_kind VARCHAR,
+                            script_text VARCHAR,
+                            error VARCHAR,
+                            created_at DATETIME,
+                            updated_at DATETIME,
+                            published_at DATETIME
+                        )
+                    """))
+                    sync_conn.execute(text("CREATE INDEX ix_podcast_feed_entries_user_email ON podcast_feed_entries (user_email)"))
+                    sync_conn.execute(text("CREATE INDEX ix_podcast_feed_entries_item_id ON podcast_feed_entries (item_id)"))
+                    sync_conn.execute(text("CREATE INDEX ix_podcast_feed_entries_status ON podcast_feed_entries (status)"))
+                    sync_conn.execute(text("CREATE UNIQUE INDEX ix_podcast_feed_entries_user_item ON podcast_feed_entries (user_email, item_id)"))
+
+            await conn.run_sync(ensure_podcast_feed_entries_table)
+
     async def close(self):
         await self.engine.dispose()
 
@@ -992,6 +1129,143 @@ class SQLiteDatabase(DatabaseInterface):
         # SQLite doesn't support vector search easily. Return empty.
         # Could implement basic cosine similarity in python if needed but slow.
         return []
+
+    async def create_podcast_feed_entry(self, entry: PodcastFeedEntry) -> PodcastFeedEntry:
+        async with self.SessionLocal() as session:
+            db_entry = DBPodcastFeedEntry(
+                id=str(entry.id),
+                user_email=entry.user_email,
+                item_id=entry.item_id,
+                title=entry.title,
+                summary=entry.summary,
+                analysis_notes=entry.analysis_notes,
+                shared_item_url=entry.shared_item_url,
+                status=entry.status,
+                audio_storage_path=entry.audio_storage_path,
+                duration_seconds=entry.duration_seconds,
+                mime_type=entry.mime_type,
+                provider=entry.provider,
+                provider_voice_id=entry.provider_voice_id,
+                source_kind=entry.source_kind,
+                script_text=entry.script_text,
+                error=entry.error,
+                created_at=entry.created_at,
+                updated_at=entry.updated_at,
+                published_at=entry.published_at,
+            )
+            session.add(db_entry)
+            await session.commit()
+            return entry
+
+    async def get_podcast_feed_entries(self, user_email: str, limit: int = 50) -> List[dict]:
+        async with self.SessionLocal() as session:
+            result = await session.execute(
+                select(DBPodcastFeedEntry)
+                .where(DBPodcastFeedEntry.user_email == user_email)
+                .order_by(DBPodcastFeedEntry.created_at.desc())
+                .limit(limit)
+            )
+            entries = result.scalars().all()
+            return [
+                {
+                    'firestore_id': entry.id,
+                    'user_email': entry.user_email,
+                    'item_id': entry.item_id,
+                    'title': entry.title,
+                    'summary': entry.summary,
+                    'analysis_notes': entry.analysis_notes,
+                    'shared_item_url': entry.shared_item_url,
+                    'status': entry.status,
+                    'audio_storage_path': entry.audio_storage_path,
+                    'duration_seconds': entry.duration_seconds,
+                    'mime_type': entry.mime_type,
+                    'provider': entry.provider,
+                    'provider_voice_id': entry.provider_voice_id,
+                    'source_kind': entry.source_kind,
+                    'script_text': entry.script_text,
+                    'error': entry.error,
+                    'created_at': entry.created_at,
+                    'updated_at': entry.updated_at,
+                    'published_at': entry.published_at,
+                }
+                for entry in entries
+            ]
+
+    async def get_podcast_feed_entry(self, entry_id: str, user_email: str) -> Optional[dict]:
+        async with self.SessionLocal() as session:
+            result = await session.execute(
+                select(DBPodcastFeedEntry)
+                .where(DBPodcastFeedEntry.id == entry_id)
+                .where(DBPodcastFeedEntry.user_email == user_email)
+            )
+            entry = result.scalar_one_or_none()
+            if not entry:
+                return None
+            return {
+                'firestore_id': entry.id,
+                'user_email': entry.user_email,
+                'item_id': entry.item_id,
+                'title': entry.title,
+                'summary': entry.summary,
+                'analysis_notes': entry.analysis_notes,
+                'shared_item_url': entry.shared_item_url,
+                'status': entry.status,
+                'audio_storage_path': entry.audio_storage_path,
+                'duration_seconds': entry.duration_seconds,
+                'mime_type': entry.mime_type,
+                'provider': entry.provider,
+                'provider_voice_id': entry.provider_voice_id,
+                'source_kind': entry.source_kind,
+                'script_text': entry.script_text,
+                'error': entry.error,
+                'created_at': entry.created_at,
+                'updated_at': entry.updated_at,
+                'published_at': entry.published_at,
+            }
+
+    async def get_podcast_feed_entry_by_item(self, user_email: str, item_id: str) -> Optional[dict]:
+        async with self.SessionLocal() as session:
+            result = await session.execute(
+                select(DBPodcastFeedEntry)
+                .where(DBPodcastFeedEntry.user_email == user_email)
+                .where(DBPodcastFeedEntry.item_id == item_id)
+            )
+            entry = result.scalar_one_or_none()
+            if not entry:
+                return None
+            return {
+                'firestore_id': entry.id,
+                'user_email': entry.user_email,
+                'item_id': entry.item_id,
+                'title': entry.title,
+                'summary': entry.summary,
+                'analysis_notes': entry.analysis_notes,
+                'shared_item_url': entry.shared_item_url,
+                'status': entry.status,
+                'audio_storage_path': entry.audio_storage_path,
+                'duration_seconds': entry.duration_seconds,
+                'mime_type': entry.mime_type,
+                'provider': entry.provider,
+                'provider_voice_id': entry.provider_voice_id,
+                'source_kind': entry.source_kind,
+                'script_text': entry.script_text,
+                'error': entry.error,
+                'created_at': entry.created_at,
+                'updated_at': entry.updated_at,
+                'published_at': entry.published_at,
+            }
+
+    async def update_podcast_feed_entry(self, entry_id: str, updates: dict) -> bool:
+        async with self.SessionLocal() as session:
+            result = await session.execute(select(DBPodcastFeedEntry).where(DBPodcastFeedEntry.id == entry_id))
+            entry = result.scalar_one_or_none()
+            if not entry:
+                return False
+            for key, value in updates.items():
+                if hasattr(entry, key):
+                    setattr(entry, key, value)
+            await session.commit()
+            return True
 
     async def upsert_user(self, user: User) -> User:
         async with self.SessionLocal() as session:

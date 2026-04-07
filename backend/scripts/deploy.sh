@@ -11,7 +11,7 @@ show_help() {
     echo ""
     echo "Options:"
     echo "  --backend       Deploy the main backend API"
-    echo "  --workers       Deploy worker Cloud Run Jobs (analysis, normalize, follow_up)"
+    echo "  --workers       Deploy worker Cloud Run Jobs (analysis, normalize, follow_up, podcast_audio)"
     echo "  --manager       Deploy the manager service"
     echo "  --all           Deploy all services (default)"
     echo "  --help          Show this help message"

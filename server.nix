@@ -170,6 +170,7 @@ in
     git
     curl
     wget
+    ffmpeg
   ];
 
   # Some programs need SUID wrappers, can be configured further or are
@@ -271,6 +272,7 @@ in
       "worker-analysis.service"
       "worker-normalization.service"
       "worker-follow-up.service"
+      "worker-podcast-audio.service"
       "worker-manager.service"
       "analyze-agent.service"
     ];
@@ -380,6 +382,29 @@ in
     };
   };
 
+  systemd.services.worker-podcast-audio = {
+    description = "Analyze This Worker (Podcast Audio)";
+    after = [ "network-online.target" ];
+    wants = [ "network-online.target" ];
+    path = [ pkgs.ffmpeg ];
+    serviceConfig = {
+      Type = "oneshot";
+      User = "analyze-worker";
+      Group = "analyze-this";
+      WorkingDirectory = "${appSrc}/backend";
+      ExecStart = "${pythonEnv}/bin/python worker.py --job-type podcast_audio";
+      EnvironmentFile = "/run/secrets/app_env";
+      Environment =
+        commonRuntimeEnv ++ [
+          "OTEL_SERVICE_NAME=analyze-worker-podcast-audio"
+          "GOOGLE_APPLICATION_CREDENTIALS=/run/secrets/worker_sa_json"
+        ];
+      TimeoutStartSec = "15min";
+      RuntimeMaxSec = "15min";
+      StateDirectory = "analyze-this";
+    };
+  };
+
   systemd.timers.worker-analysis = {
     description = "Run Analyze This Worker (Analysis) every 60s idle";
     wantedBy = [ "timers.target" ];
@@ -410,6 +435,18 @@ in
     timerConfig = {
       Unit = "worker-follow-up.service";
       OnBootSec = "50s";
+      OnUnitInactiveSec = "60s";
+      RandomizedDelaySec = "10s";
+      Persistent = true;
+    };
+  };
+
+  systemd.timers.worker-podcast-audio = {
+    description = "Run Analyze This Worker (Podcast Audio) every 60s idle";
+    wantedBy = [ "timers.target" ];
+    timerConfig = {
+      Unit = "worker-podcast-audio.service";
+      OnBootSec = "55s";
       OnUnitInactiveSec = "60s";
       RandomizedDelaySec = "10s";
       Persistent = true;

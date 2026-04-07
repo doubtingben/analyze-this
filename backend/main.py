@@ -11,6 +11,7 @@ import zipfile
 from pathlib import Path
 from contextlib import asynccontextmanager
 from typing import Optional, List
+from xml.sax.saxutils import escape as xml_escape
 from pydantic import BaseModel, Field, field_validator
 from fastapi import FastAPI, Request, Depends, HTTPException, status, File, UploadFile, Form, BackgroundTasks
 from fastapi.responses import HTMLResponse, RedirectResponse, FileResponse, Response, StreamingResponse
@@ -21,6 +22,7 @@ from starlette.concurrency import run_in_threadpool
 import requests
 import requests.adapters
 import httpx
+from itsdangerous import BadSignature, URLSafeSerializer
 from authlib.integrations.starlette_client import OAuth, OAuthError
 from dotenv import load_dotenv
 import firebase_admin
@@ -78,6 +80,7 @@ GOOGLE_IOS_CLIENT_ID = (os.getenv("GOOGLE_IOS_CLIENT_ID") or "").strip() or None
 GOOGLE_ANDROID_CLIENT_ID = (os.getenv("GOOGLE_ANDROID_CLIENT_ID") or "").strip() or None
 GOOGLE_ANDROID_DEBUG_CLIENT_ID = (os.getenv("GOOGLE_ANDROID_DEBUG_CLIENT_ID") or "").strip() or None
 APP_ENV = os.getenv("APP_ENV", "production").strip()
+PUBLIC_APP_URL = (os.getenv("PUBLIC_APP_URL") or "").rstrip("/")
 
 if APP_ENV == "production" and (not SECRET_KEY or SECRET_KEY == "super-secret-key-please-change"):
     raise RuntimeError("CRITICAL SECURITY ERROR: SECRET_KEY must be set to a secure value in production!")
@@ -385,6 +388,10 @@ async def read_followup_alt(request: Request):
 async def read_media(request: Request):
     return await render_dashboard(request)
 
+@app.get("/podcast")
+async def read_podcast(request: Request):
+    return await render_dashboard(request)
+
 @app.get("/login", dependencies=[Depends(auth_limiter)])
 async def login(request: Request):
     # Ensure fully qualified URL for redirect_uri to avoid mismatches
@@ -608,7 +615,9 @@ async def share_item(
     file_size: int = Form(None),
     duration: float = Form(None),
     width: int = Form(None),
-    height: int = Form(None)
+    height: int = Form(None),
+    source_url: str = Form(None),
+    source_meta: str = Form(None),
 ):
     # Auth Check
     auth_header = request.headers.get('Authorization')
@@ -668,6 +677,8 @@ async def share_item(
             'duration': duration,
             'width': width,
             'height': height,
+            'sourceUrl': source_url,
+            'sourceMeta': source_meta,
         }
         item_data['item_metadata'] = {key: value for key, value in item_metadata.items() if value is not None}
         
@@ -764,11 +775,22 @@ async def share_item(
     # Enforce Input Limits on Resolved Data (Fixes JSON bypass)
     final_title = item_data.get('title')
     final_content = item_data.get('content')
+    source_url = ((item_data.get('item_metadata') or {}).get('sourceUrl') or item_data.get('source_url'))
+    source_meta = ((item_data.get('item_metadata') or {}).get('sourceMeta') or item_data.get('source_meta'))
 
     if final_title and len(final_title) > MAX_TITLE_LENGTH:
         raise HTTPException(status_code=400, detail="Title too long")
     if final_content and len(final_content) > MAX_TEXT_LENGTH:
         raise HTTPException(status_code=400, detail="Content too long")
+    if source_url:
+        normalized_source_url = source_url.lower().strip()
+        if not (normalized_source_url.startswith('http://') or normalized_source_url.startswith('https://')):
+            raise HTTPException(status_code=400, detail="Invalid source URL scheme: Only http/https allowed")
+        item_metadata = dict(item_data.get('item_metadata') or {})
+        item_metadata['sourceUrl'] = source_url
+        if source_meta:
+            item_metadata['sourceMeta'] = source_meta
+        item_data['item_metadata'] = item_metadata
 
     # Security Validation: Prevent IDOR/Traversal on image content paths
     # If the backend is going to read this file (images/screenshots), ensure it belongs to the user.
@@ -881,6 +903,120 @@ async def get_items(request: Request):
     
     return items
 
+
+def _build_content_url(base_url: str, blob_path: str) -> str:
+    if APP_ENV == "development":
+        return f"{base_url}/static/{blob_path}"
+
+    secure_base_url = base_url.replace("http://", "https://")
+    return f"{secure_base_url}/api/content/{blob_path}"
+
+
+@app.get("/api/podcast/feed")
+async def get_podcast_feed(request: Request, limit: int = 50):
+    user_email = await get_authenticated_email(request)
+    base_url = _get_public_base_url(request)
+    feed_token = _generate_podcast_feed_token(user_email)
+    rss_url = f"{base_url}/api/podcast/rss?token={feed_token}"
+    try:
+        entries = await db.get_podcast_feed_entries(user_email, limit=limit)
+    except Exception as e:
+        print(f"Podcast feed unavailable for {user_email}: {e}")
+        return {
+            "rss_url": rss_url,
+            "entries": [],
+        }
+
+    response_entries = []
+    for entry in entries:
+        serialized = _serialize_value(entry)
+        entry_id = entry.get("firestore_id") or entry.get("id")
+        if entry.get("audio_storage_path") and entry_id:
+            serialized["audio_url"] = f"{base_url}/api/podcast/audio/{entry_id}?token={feed_token}"
+        else:
+            serialized["audio_url"] = None
+        response_entries.append(serialized)
+
+    return {
+        "rss_url": rss_url,
+        "entries": response_entries,
+    }
+
+
+@app.get("/api/podcast/audio/{entry_id}")
+async def get_podcast_audio_entry(entry_id: str, request: Request):
+    user_email = _load_podcast_feed_token(request.query_params.get("token"))
+    if not user_email:
+        user_email = await get_authenticated_email(request)
+    entry = await db.get_podcast_feed_entry(entry_id, user_email)
+    if not entry:
+        raise HTTPException(status_code=404, detail="Podcast entry not found")
+
+    blob_path = entry.get("audio_storage_path")
+    if not blob_path:
+        raise HTTPException(status_code=404, detail="Podcast audio not ready")
+
+    return await _serve_user_blob(blob_path, user_email)
+
+
+@app.get("/api/podcast/rss")
+async def get_podcast_rss(request: Request):
+    user_email = _load_podcast_feed_token(request.query_params.get("token"))
+    if not user_email:
+        user_email = await get_authenticated_email(request)
+
+    try:
+        entries = await db.get_podcast_feed_entries(user_email, limit=100)
+    except Exception as e:
+        print(f"Podcast RSS unavailable for {user_email}: {e}")
+        entries = []
+    base_url = _get_public_base_url(request)
+    feed_token = request.query_params.get("token") or _generate_podcast_feed_token(user_email)
+
+    item_xml = []
+    for entry in entries:
+        if entry.get("status") != "ready":
+            continue
+
+        entry_id = entry.get("firestore_id") or entry.get("id")
+        if not entry_id or not entry.get("audio_storage_path"):
+            continue
+
+        title = xml_escape(entry.get("title") or "Untitled episode")
+        description = entry.get("analysis_notes") or entry.get("summary") or ""
+        shared_item_url = entry.get("shared_item_url")
+        if shared_item_url:
+            description = f"{description}\n\nSource: {shared_item_url}" if description else f"Source: {shared_item_url}"
+        pub_date = entry.get("published_at") or entry.get("created_at") or datetime.datetime.now(datetime.timezone.utc)
+        if hasattr(pub_date, "strftime"):
+            pub_date_str = pub_date.strftime("%a, %d %b %Y %H:%M:%S GMT")
+        else:
+            pub_date_str = str(pub_date)
+        mime_type = xml_escape(entry.get("mime_type") or "audio/mpeg")
+        enclosure_url = xml_escape(f"{base_url}/api/podcast/audio/{entry_id}?token={feed_token}")
+        item_xml.append(
+            "      <item>\n"
+            f"        <guid>{xml_escape(str(entry_id))}</guid>\n"
+            f"        <title>{title}</title>\n"
+            f"        <description>{xml_escape(description)}</description>\n"
+            f"        <pubDate>{pub_date_str}</pubDate>\n"
+            f"        <enclosure url=\"{enclosure_url}\" type=\"{mime_type}\" />\n"
+            "      </item>"
+        )
+
+    rss_xml = (
+        "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
+        "<rss version=\"2.0\">\n"
+        "  <channel>\n"
+        f"    <title>{xml_escape(f'Analyze This Podcast Feed for {user_email}')}</title>\n"
+        f"    <link>{xml_escape(base_url)}</link>\n"
+        "    <description>Private podcast feed generated from Analyze This shared items.</description>\n"
+        f"{chr(10).join(item_xml)}\n"
+        "  </channel>\n"
+        "</rss>\n"
+    )
+    return Response(content=rss_xml, media_type="application/rss+xml")
+
 @app.get("/api/content/{blob_path:path}")
 async def get_content(blob_path: str, request: Request):
     # Auth Check
@@ -897,59 +1033,7 @@ async def get_content(blob_path: str, request: Request):
         
     if not user_email:
         raise HTTPException(status_code=401, detail="Unauthorized")
-
-    # Security Check: Ensure user owns the file and prevent traversal
-    # 1. Prevent Directory Traversal (basic string check)
-    if ".." in blob_path or blob_path.startswith("/") or "\\" in blob_path:
-        print(f"Potential traversal attempt by {user_email}: {blob_path}")
-        raise HTTPException(status_code=403, detail="Forbidden")
-
-    # 2. Ensure path starts with the user's upload directory
-    # expected prefix: uploads/{user_email}/
-    expected_prefix = f"uploads/{user_email}/"
-    if not blob_path.startswith(expected_prefix):
-        print(f"Access denied for {user_email} to {blob_path} (Prefix mismatch)")
-        raise HTTPException(status_code=403, detail="Forbidden")
-
-    try:
-        if APP_ENV == "development":
-             # 3. Additional filesystem path resolution check for Dev environment
-             base_dir = Path("static").resolve()
-             # Use safe join
-             requested_path = (base_dir / blob_path).resolve()
-
-             # Ensure the resolved path is strictly within the user's upload directory
-             user_upload_dir = (base_dir / "uploads" / user_email).resolve()
-
-             if not str(requested_path).startswith(str(user_upload_dir)):
-                 print(f"Path traversal detected for {user_email}: {blob_path} -> {requested_path}")
-                 raise HTTPException(status_code=403, detail="Forbidden")
-
-             if not requested_path.exists():
-                 raise HTTPException(status_code=404, detail="File not found")
-
-             return FileResponse(str(requested_path))
-        else:
-            bucket = storage.bucket()
-            blob = bucket.blob(blob_path)
-            
-            loop = asyncio.get_running_loop()
-            # Fetch metadata to get content_type and ensure file exists
-            await loop.run_in_executor(None, blob.reload)
-
-            def iterfile():
-                # Stream file from GCS in chunks to avoid memory exhaustion
-                with blob.open("rb") as f:
-                    while chunk := f.read(64 * 1024):  # 64KB chunks
-                        yield chunk
-
-            return StreamingResponse(iterfile(), media_type=blob.content_type)
-            
-    except HTTPException:
-        raise
-    except Exception as e:
-        print(f"Error serving content: {e}")
-        raise HTTPException(status_code=404, detail="File not found")
+    return await _serve_user_blob(blob_path, user_email)
 
 @app.get("/api/user")
 async def get_current_user(request: Request):
@@ -1003,6 +1087,33 @@ def _serialize_value(value):
             pass
     return value
 
+
+def _get_public_base_url(request: Request) -> str:
+    if PUBLIC_APP_URL:
+        return PUBLIC_APP_URL
+    base_url = str(request.base_url).rstrip("/")
+    if APP_ENV != "development":
+        base_url = base_url.replace("http://", "https://")
+    return base_url
+
+
+def _get_podcast_feed_serializer() -> URLSafeSerializer:
+    return URLSafeSerializer(SECRET_KEY, salt="podcast-feed")
+
+
+def _generate_podcast_feed_token(user_email: str) -> str:
+    return _get_podcast_feed_serializer().dumps({"user_email": user_email})
+
+
+def _load_podcast_feed_token(token: Optional[str]) -> Optional[str]:
+    if not token:
+        return None
+    try:
+        data = _get_podcast_feed_serializer().loads(token)
+    except BadSignature:
+        return None
+    return data.get("user_email")
+
 def _is_safe_user_blob_path(blob_path: str, user_email: str) -> bool:
     if not blob_path:
         return False
@@ -1037,6 +1148,46 @@ async def _read_user_blob(blob_path: str, user_email: str) -> Optional[bytes]:
         return await loop.run_in_executor(None, blob.download_as_bytes)
     except Exception:
         return None
+
+
+async def _serve_user_blob(blob_path: str, user_email: str):
+    if ".." in blob_path or blob_path.startswith("/") or "\\" in blob_path:
+        raise HTTPException(status_code=403, detail="Forbidden")
+
+    expected_prefix = f"uploads/{user_email}/"
+    if not blob_path.startswith(expected_prefix):
+        raise HTTPException(status_code=403, detail="Forbidden")
+
+    try:
+        if APP_ENV == "development":
+            base_dir = Path("static").resolve()
+            requested_path = (base_dir / blob_path).resolve()
+            user_upload_dir = (base_dir / "uploads" / user_email).resolve()
+
+            if not str(requested_path).startswith(str(user_upload_dir)):
+                raise HTTPException(status_code=403, detail="Forbidden")
+
+            if not requested_path.exists():
+                raise HTTPException(status_code=404, detail="File not found")
+
+            return FileResponse(str(requested_path))
+
+        bucket = storage.bucket()
+        blob = bucket.blob(blob_path)
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(None, blob.reload)
+
+        def iterfile():
+            with blob.open("rb") as f:
+                while chunk := f.read(64 * 1024):
+                    yield chunk
+
+        return StreamingResponse(iterfile(), media_type=blob.content_type)
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Error serving content: {e}")
+        raise HTTPException(status_code=404, detail="File not found")
 
 async def get_authenticated_email(request: Request) -> str:
     auth_header = request.headers.get('Authorization')

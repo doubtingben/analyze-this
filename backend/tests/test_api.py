@@ -6,6 +6,7 @@ import sys
 import tempfile
 import unittest
 import zipfile
+import xml.etree.ElementTree as ET
 from pathlib import Path
 from unittest.mock import patch
 
@@ -152,6 +153,112 @@ class TestApi(unittest.TestCase):
             self.assertTrue(any(entry["export_path"] == export_path for entry in manifest["files"]))
 
         file_path.unlink(missing_ok=True)
+
+    def test_get_podcast_feed_returns_notes_and_audio_url(self):
+        from models import PodcastFeedEntry, PodcastFeedEntryStatus
+
+        entry = PodcastFeedEntry(
+            user_email="dev@example.com",
+            item_id="item-123",
+            title="Feed episode",
+            summary="Episode summary",
+            analysis_notes="Overview\n\nShared item: /?item=item-123",
+            shared_item_url="/?item=item-123",
+            status=PodcastFeedEntryStatus.ready,
+            audio_storage_path="uploads/dev@example.com/podcast/item-123.mp3",
+            mime_type="audio/mpeg",
+        )
+        asyncio.run(main.db.create_podcast_feed_entry(entry))
+
+        response = self.client.get("/api/podcast/feed", headers=self.headers)
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        entries = payload["entries"]
+        self.assertEqual(len(entries), 1)
+        self.assertEqual(entries[0]["analysis_notes"], "Overview\n\nShared item: /?item=item-123")
+        self.assertEqual(entries[0]["shared_item_url"], "/?item=item-123")
+        self.assertIn("/api/podcast/audio/", entries[0]["audio_url"])
+        self.assertIn("token=", entries[0]["audio_url"])
+        self.assertIn("/api/podcast/rss?token=", payload["rss_url"])
+
+    def test_get_podcast_rss_uses_private_tokenized_urls(self):
+        from models import PodcastFeedEntry, PodcastFeedEntryStatus
+
+        entry = PodcastFeedEntry(
+            user_email="dev@example.com",
+            item_id="item-rss",
+            title="RSS episode",
+            summary="RSS summary",
+            analysis_notes="Episode notes",
+            shared_item_url="/?item=item-rss",
+            status=PodcastFeedEntryStatus.ready,
+            audio_storage_path="uploads/dev@example.com/podcast/item-rss.mp3",
+            mime_type="audio/mpeg",
+        )
+        asyncio.run(main.db.create_podcast_feed_entry(entry))
+
+        feed_response = self.client.get("/api/podcast/feed", headers=self.headers)
+        rss_url = feed_response.json()["rss_url"]
+
+        rss_response = self.client.get(rss_url)
+        self.assertEqual(rss_response.status_code, 200)
+        self.assertTrue(rss_response.headers["content-type"].startswith("application/rss+xml"))
+        self.assertIn("<title>RSS episode</title>", rss_response.text)
+        self.assertIn("/api/podcast/audio/", rss_response.text)
+        self.assertIn("token=", rss_response.text)
+
+    def test_get_podcast_rss_parses_as_valid_feed_xml(self):
+        from models import PodcastFeedEntry, PodcastFeedEntryStatus
+
+        entry = PodcastFeedEntry(
+            user_email="dev@example.com",
+            item_id="item-xml",
+            title="XML episode",
+            summary="XML summary",
+            analysis_notes="XML notes",
+            shared_item_url="/?item=item-xml",
+            status=PodcastFeedEntryStatus.ready,
+            audio_storage_path="uploads/dev@example.com/podcast/item-xml.mp3",
+            mime_type="audio/mpeg",
+        )
+        asyncio.run(main.db.create_podcast_feed_entry(entry))
+
+        feed_response = self.client.get("/api/podcast/feed", headers=self.headers)
+        rss_url = feed_response.json()["rss_url"]
+
+        rss_response = self.client.get(rss_url)
+        self.assertEqual(rss_response.status_code, 200)
+
+        root = ET.fromstring(rss_response.text)
+        self.assertEqual(root.tag, "rss")
+
+        channel = root.find("channel")
+        self.assertIsNotNone(channel)
+        self.assertEqual(channel.findtext("title"), "Analyze This Podcast Feed for dev@example.com")
+
+        item = channel.find("item")
+        self.assertIsNotNone(item)
+        self.assertEqual(item.findtext("title"), "XML episode")
+
+        enclosure = item.find("enclosure")
+        self.assertIsNotNone(enclosure)
+        self.assertIn("/api/podcast/audio/", enclosure.attrib.get("url", ""))
+        self.assertEqual(enclosure.attrib.get("type"), "audio/mpeg")
+
+    def test_get_podcast_feed_degrades_on_backend_error(self):
+        original = main.db.get_podcast_feed_entries
+
+        async def boom(user_email, limit=50):
+            raise RuntimeError("podcast storage unavailable")
+
+        main.db.get_podcast_feed_entries = boom
+        try:
+            response = self.client.get("/api/podcast/feed", headers=self.headers)
+            self.assertEqual(response.status_code, 200)
+            self.assertIn("/api/podcast/rss?token=", response.json()["rss_url"])
+            self.assertEqual(response.json()["entries"], [])
+        finally:
+            main.db.get_podcast_feed_entries = original
 
 
 if __name__ == "__main__":

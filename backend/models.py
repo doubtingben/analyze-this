@@ -44,6 +44,11 @@ class AnalysisResult(BaseModel):
     timeline: Optional[list[TimelineEvent]] = Field(default_factory=list)
     follow_up: Optional[str] = None
     tags: Optional[list[str]] = None  # Optional categorization
+    podcast_candidate: bool = Field(default=False)
+    podcast_candidate_reason: Optional[str] = None
+    podcast_source_kind: Optional[str] = None
+    podcast_title: Optional[str] = None
+    podcast_summary: Optional[str] = None
 
 class User(BaseModel):
     id: Optional[str] = Field(default=None) # Firestore ID
@@ -83,3 +88,32 @@ class ItemNote(BaseModel):
     note_type: str = Field(default="context")
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+class PodcastFeedEntryStatus(str, Enum):
+    queued = "queued"
+    processing = "processing"
+    ready = "ready"
+    failed = "failed"
+
+
+class PodcastFeedEntry(BaseModel):
+    id: str = Field(default_factory=lambda: str(uuid4()))
+    user_email: str
+    item_id: str
+    title: str
+    summary: Optional[str] = None
+    analysis_notes: Optional[str] = None
+    shared_item_url: Optional[str] = None
+    status: PodcastFeedEntryStatus = Field(default=PodcastFeedEntryStatus.queued)
+    audio_storage_path: Optional[str] = None
+    duration_seconds: Optional[int] = None
+    mime_type: Optional[str] = None
+    provider: Optional[str] = None
+    provider_voice_id: Optional[str] = None
+    source_kind: Optional[str] = None
+    script_text: Optional[str] = None
+    error: Optional[str] = None
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    published_at: Optional[datetime] = None

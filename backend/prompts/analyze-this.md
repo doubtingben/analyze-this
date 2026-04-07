@@ -70,3 +70,19 @@ If analysis does not produce a high confidence timeline item, set the item.statu
   "tags": [... optional tags ...]
 }
 ```
+
+## Podcast metadata
+
+Also include podcast metadata fields in every response:
+
+- `podcast_candidate`: boolean
+- `podcast_candidate_reason`: short string when false or when extra context matters
+- `podcast_source_kind`: one of `native_audio`, `narration`, `unsupported`
+- `podcast_title`: short episode title when suitable
+- `podcast_summary`: 1-2 sentence summary suitable for episode notes
+
+Use these rules:
+
+- `audio` items are usually `podcast_candidate: true` with `podcast_source_kind: "native_audio"`.
+- `text` items and readable documents are usually `podcast_candidate: true` with `podcast_source_kind: "narration"`.
+- Images and screenshots are usually not podcast candidates unless there is unusually rich text content to narrate.

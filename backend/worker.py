@@ -20,6 +20,7 @@ from dotenv import load_dotenv
 from worker_analysis import get_db, _process_analysis_item
 from worker_normalize import _process_normalize_item
 from worker_follow_up import _process_follow_up_item
+from worker_podcast_audio import _process_podcast_audio_item
 from worker_queue import process_queue_jobs
 
 # Configure logging
@@ -56,6 +57,11 @@ JOB_TYPE_CONFIG = {
     "follow_up": {
         "process_fn": _process_follow_up_item,
         "prepare_fn": prepare_tags,
+        "halt_on_error": False,
+    },
+    "podcast_audio": {
+        "process_fn": _process_podcast_audio_item,
+        "prepare_fn": None,
         "halt_on_error": False,
     },
 }

@@ -19,7 +19,7 @@ SERVICE_ACCOUNT_EMAIL="${SERVICE_ACCOUNT_NAME}@${PROJECT_ID}.iam.gserviceaccount
 echo "Using Service Account: $SERVICE_ACCOUNT_EMAIL"
 
 if [ -z "$1" ]; then
-  echo "Usage: ./backend/scripts/deploy-worker-job.sh <analysis|normalize|follow_up|all> [region]"
+  echo "Usage: ./backend/scripts/deploy-worker-job.sh <analysis|normalize|follow_up|podcast_audio|all> [region]"
   exit 1
 fi
 
@@ -63,6 +63,8 @@ deploy_worker_job() {
       --set-secrets "FIREBASE_STORAGE_BUCKET=FIREBASE_STORAGE_BUCKET:latest" \
       --set-secrets "OPENROUTER_API_KEY=OPENROUTER_API_KEY:latest" \
       --set-secrets "OPENROUTER_MODEL=OPENROUTER_MODEL:latest" \
+      --set-secrets "ELEVENLABS_API_KEY=ELEVENLABS_API_KEY:latest" \
+      --set-secrets "ELEVENLABS_VOICE_ID=ELEVENLABS_VOICE_ID:latest" \
       --task-timeout 900 \
       --max-retries 0
 
@@ -74,6 +76,8 @@ echo "Verifying required secrets in Secret Manager..."
 check_secret "FIREBASE_STORAGE_BUCKET"
 check_secret "OPENROUTER_API_KEY"
 check_secret "OPENROUTER_MODEL"
+check_secret "ELEVENLABS_API_KEY"
+check_secret "ELEVENLABS_VOICE_ID"
 check_secret "irc-server-password"
 check_secret "honey-comb-api-key"
 
@@ -83,10 +87,11 @@ if [ "$JOB_TYPE" = "all" ]; then
     deploy_worker_job "analysis"
     deploy_worker_job "normalize"
     deploy_worker_job "follow_up"
-elif [ "$JOB_TYPE" = "analysis" ] || [ "$JOB_TYPE" = "normalize" ] || [ "$JOB_TYPE" = "follow_up" ]; then
+    deploy_worker_job "podcast_audio"
+elif [ "$JOB_TYPE" = "analysis" ] || [ "$JOB_TYPE" = "normalize" ] || [ "$JOB_TYPE" = "follow_up" ] || [ "$JOB_TYPE" = "podcast_audio" ]; then
     deploy_worker_job "$JOB_TYPE"
 else
-    echo "Error: job type must be 'analysis', 'normalize', 'follow_up', or 'all'."
+    echo "Error: job type must be 'analysis', 'normalize', 'follow_up', 'podcast_audio', or 'all'."
     exit 1
 fi
 

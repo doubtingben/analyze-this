@@ -8,11 +8,14 @@ from unittest.mock import patch, AsyncMock, MagicMock
 sys.path.append(os.path.abspath(os.path.dirname(os.path.dirname(__file__))))
 
 import worker_analysis
+from models import PodcastFeedEntry
 
 # Mock Database Interface
 class MockDatabase:
     def __init__(self):
         self.items = {}
+        self.worker_jobs = []
+        self.feed_entries = {}
         
     async def get_shared_item(self, item_id):
         return self.items.get(item_id)
@@ -24,6 +27,38 @@ class MockDatabase:
         if item_id in self.items:
             self.items[item_id].update(updates)
             return True
+        return False
+
+    async def get_user_tags(self, user_email):
+        return []
+
+    async def enqueue_worker_job(self, item_id, user_email, job_type, payload=None):
+        self.worker_jobs.append({
+            "item_id": item_id,
+            "user_email": user_email,
+            "job_type": job_type,
+            "payload": payload or {},
+        })
+        return str(len(self.worker_jobs))
+
+    async def get_podcast_feed_entry_by_item(self, user_email, item_id):
+        return self.feed_entries.get((user_email, item_id))
+
+    async def create_podcast_feed_entry(self, entry: PodcastFeedEntry):
+        self.feed_entries[(entry.user_email, entry.item_id)] = {
+            "firestore_id": entry.id,
+            "user_email": entry.user_email,
+            "item_id": entry.item_id,
+            "status": entry.status,
+            "title": entry.title,
+        }
+        return entry
+
+    async def update_podcast_feed_entry(self, entry_id, updates):
+        for key, value in list(self.feed_entries.items()):
+            if value.get("firestore_id") == entry_id:
+                value.update(updates)
+                return True
         return False
 
 class TestWorkerAnalysis(unittest.TestCase):
@@ -59,7 +94,12 @@ class TestWorkerAnalysis(unittest.TestCase):
         self.assertEqual(updated_item['status'], 'timeline')
         self.assertEqual(updated_item['analysis'], {
             "overview": "Analysis Done",
-            "timeline": {"date": "2023-10-27", "principal": "Test"}
+            "timeline": {"date": "2023-10-27", "principal": "Test"},
+            "podcast_candidate": True,
+            "podcast_candidate_reason": None,
+            "podcast_source_kind": "narration",
+            "podcast_title": None,
+            "podcast_summary": "Analysis Done",
         })
         self.assertEqual(updated_item['next_step'], 'timeline')
         
@@ -109,7 +149,38 @@ class TestWorkerAnalysis(unittest.TestCase):
         
         # Verify
         updated_item = self.mock_db.items[item_id]
-        self.assertEqual(updated_item['analysis'], {"overview": "Forced Analysis", "timeline": {"date": "2024-01-01"}})
+        self.assertEqual(updated_item['analysis']["overview"], "Forced Analysis")
+        self.assertEqual(updated_item['analysis']["timeline"], {"date": "2024-01-01"})
+
+    @patch('worker_analysis.analyze_content')
+    def test_process_analysis_item_enqueues_podcast_job(self, mock_analyze):
+        mock_analyze.return_value = {
+            "overview": "Podcast ready text",
+            "podcast_candidate": True,
+            "podcast_source_kind": "narration",
+            "podcast_title": "Episode title",
+            "podcast_summary": "Episode summary",
+        }
+
+        item_id = "item-4"
+        self.mock_db.items[item_id] = {
+            "firestore_id": item_id,
+            "content": "podcast me",
+            "type": "text",
+            "status": "new",
+            "user_email": "dev@example.com",
+            "title": "My item",
+        }
+
+        asyncio.run(worker_analysis._process_analysis_item(self.mock_db, self.mock_db.items[item_id], {"tags_by_user": {}}))
+
+        self.assertEqual(
+            [job["job_type"] for job in self.mock_db.worker_jobs],
+            ["normalize", "podcast_audio"]
+        )
+        feed_entry = self.mock_db.feed_entries[("dev@example.com", item_id)]
+        self.assertEqual(feed_entry["status"], "queued")
+        self.assertEqual(feed_entry["title"], "Episode title")
 
 if __name__ == "__main__":
     unittest.main()
