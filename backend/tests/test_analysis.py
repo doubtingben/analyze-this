@@ -31,7 +31,12 @@ class TestAnalysis(unittest.TestCase):
         # Verification
         self.assertEqual(result, {
             "overview": "Dinner at 8pm",
-            "timeline": {"date": "2023-10-27", "principal": "Dinner"}
+            "timeline": {"date": "2023-10-27", "principal": "Dinner"},
+            "podcast_candidate": False,
+            "podcast_candidate_reason": None,
+            "podcast_source_kind": None,
+            "podcast_title": None,
+            "podcast_summary": "Dinner at 8pm",
         })
         mock_client.chat.completions.create.assert_called_once()
     
@@ -87,7 +92,12 @@ class TestAnalysis(unittest.TestCase):
         # Verification
         self.assertEqual(result, {
             "overview": "Image analysis",
-            "follow_up": "Need more info"
+            "follow_up": "Need more info",
+            "podcast_candidate": False,
+            "podcast_candidate_reason": None,
+            "podcast_source_kind": None,
+            "podcast_title": None,
+            "podcast_summary": "Image analysis",
         })
         
         # Check call arguments
@@ -121,7 +131,12 @@ class TestAnalysis(unittest.TestCase):
         # Verification
         self.assertEqual(result, {
             "overview": "Event from URL",
-            "timeline": {"date": "2023-11-01"}
+            "timeline": {"date": "2023-11-01"},
+            "podcast_candidate": False,
+            "podcast_candidate_reason": None,
+            "podcast_source_kind": None,
+            "podcast_title": None,
+            "podcast_summary": "Event from URL",
         })
         
         # Check call arguments
