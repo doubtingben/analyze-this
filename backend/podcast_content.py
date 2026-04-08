@@ -6,8 +6,12 @@ from dataclasses import dataclass
 from html import unescape
 from pathlib import Path
 from typing import Optional
+import socket
+import ipaddress
+from urllib.parse import urlparse, urljoin
 
 import firebase_admin
+import httpx
 import requests
 from firebase_admin import storage
 
@@ -293,18 +297,75 @@ def _extract_pdf_text(raw_bytes: bytes) -> str:
         return ""
 
 
+def _resolve_and_validate_ip(hostname: str) -> Optional[str]:
+    """Resolves hostname and validates it is a safe, public IP address to prevent SSRF."""
+    try:
+        # Resolve hostname to IP
+        ip_str = socket.gethostbyname(hostname)
+        ip_obj = ipaddress.ip_address(ip_str)
+
+        # Explicitly check for 0.0.0.0 (unspecified) and link-local, private, loopback
+        if str(ip_obj) == "0.0.0.0" or ip_obj.is_private or ip_obj.is_loopback or ip_obj.is_link_local or ip_obj.is_unspecified:
+            return None
+
+        return ip_str
+    except Exception:
+        return None
+
 def _extract_remote_text(source_url: str) -> Optional[str]:
     if not source_url:
         return None
 
     try:
-        response = requests.get(
-            source_url,
+        # Use httpx with manual redirect following to validate each step
+        with httpx.Client(
             timeout=PODCAST_FETCH_TIMEOUT_SECONDS,
             headers={"User-Agent": PODCAST_FETCH_USER_AGENT},
-            allow_redirects=True,
-        )
-        response.raise_for_status()
+            follow_redirects=False
+        ) as client:
+            current_url = source_url
+            response = None
+            max_redirects = 5
+
+            for _ in range(max_redirects):
+                parsed_url = urlparse(current_url)
+                hostname = parsed_url.hostname
+                if not hostname:
+                    return None
+
+                ip_str = _resolve_and_validate_ip(hostname)
+                if not ip_str:
+                    return None
+
+                # Protect against DNS rebinding by connecting directly to the validated IP,
+                # but pass the original Host header.
+                safe_url = f"{parsed_url.scheme}://{ip_str}"
+                if parsed_url.port:
+                    safe_url += f":{parsed_url.port}"
+                safe_url += f"{parsed_url.path}"
+                if parsed_url.query:
+                    safe_url += f"?{parsed_url.query}"
+                if parsed_url.fragment:
+                    safe_url += f"#{parsed_url.fragment}"
+
+                headers = {"User-Agent": PODCAST_FETCH_USER_AGENT, "Host": hostname}
+
+                response = client.get(safe_url, headers=headers)
+
+                if response.is_redirect:
+                    next_url = response.headers.get("Location")
+                    if not next_url:
+                        return None
+                    # Handle relative redirects securely
+                    current_url = urljoin(current_url, next_url)
+                    continue
+
+                response.raise_for_status()
+                break
+            else:
+                # Too many redirects
+                return None
+
     except Exception:
         return None
 
