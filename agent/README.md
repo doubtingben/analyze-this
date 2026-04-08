@@ -112,4 +112,30 @@ For file-based/command MCP servers that communicate via stdin/stdout:
 - Listens for messages addressing the bot.
 - Supports multiple MCP servers (SSE and stdio transports).
 - Prefixes tool names with server name when multiple servers are configured.
+- Includes local host tools for deployment, version checks, and journald log inspection.
 - Powered by OpenRouter-compatible chat completions.
+
+## Local Host Tools
+
+When deployed through the NixOS flake, the agent also exposes a local `get_service_logs` tool for reading recent journald logs from the host.
+
+Supported targets:
+
+- `backend`
+- `worker`
+- `worker_manager`
+- `worker_analysis`
+- `worker_normalization`
+- `worker_follow_up`
+- `worker_podcast_audio`
+
+Parameters:
+
+- `target` (required): service group or specific unit to inspect
+- `lines` (optional): number of recent lines to return, default `100`, max `500`
+- `since` (optional): journald-compatible time bound such as `15 minutes ago`
+- `grep` (optional): `journalctl --grep` pattern for server-side filtering
+
+Deployment requirement:
+
+- the `analyze-agent` system user must have access to `journalctl`, and membership in `systemd-journal` so it can read logs without sudo

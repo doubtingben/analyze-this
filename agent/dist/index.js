@@ -2,23 +2,21 @@ import 'dotenv/config';
 import OpenAI from 'openai';
 import { Client } from 'irc-framework';
 import { buildMcpToolRegistry } from './mcp.js';
-import { exec } from 'child_process';
+import { exec, execFile } from 'child_process';
 import { promisify } from 'util';
 const execAsync = promisify(exec);
-const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY;
-if (!OPENROUTER_API_KEY) {
-    throw new Error("OPENROUTER_API_KEY is required");
-}
-const OPENROUTER_MODEL = process.env.OPENROUTER_MODEL || "google/gemini-2.0-flash-exp:free";
-const OPENROUTER_BASE_URL = process.env.OPENROUTER_BASE_URL || "https://openrouter.ai/api/v1";
-const OPENROUTER_SITE_URL = process.env.OPENROUTER_SITE_URL || "";
-const OPENROUTER_APP_NAME = process.env.OPENROUTER_APP_NAME || "analyze-this-agent";
+const execFileAsync = promisify(execFile);
+const OPENAI_API_KEY = process.env.OPENAI_API_KEY || process.env.OPENROUTER_API_KEY || "ollama";
+const OPENAI_MODEL = process.env.OPENAI_MODEL || process.env.OPENROUTER_MODEL || "gemma4:31b";
+const OPENAI_BASE_URL = process.env.OPENAI_BASE_URL || process.env.OPENROUTER_BASE_URL || "http://nixos-gpt:11434/v1";
+const APP_SITE_URL = process.env.APP_SITE_URL || process.env.OPENROUTER_SITE_URL || "";
+const APP_NAME = process.env.APP_NAME || process.env.OPENROUTER_APP_NAME || "analyze-this-agent";
 const llm = new OpenAI({
-    apiKey: OPENROUTER_API_KEY,
-    baseURL: OPENROUTER_BASE_URL,
+    apiKey: OPENAI_API_KEY,
+    baseURL: OPENAI_BASE_URL,
     defaultHeaders: {
-        ...(OPENROUTER_SITE_URL ? { "HTTP-Referer": OPENROUTER_SITE_URL } : {}),
-        "X-Title": OPENROUTER_APP_NAME,
+        ...(APP_SITE_URL ? { "HTTP-Referer": APP_SITE_URL } : {}),
+        "X-Title": APP_NAME,
     },
 });
 // IRC Configuration
@@ -26,6 +24,90 @@ const IRC_SERVER = process.env.IRC_SERVER || 'chat.interestedparticipant.org';
 const IRC_PORT = parseInt(process.env.IRC_PORT || '6697');
 const IRC_NICK = process.env.IRC_NICK || 'AnalyzeBot';
 const IRC_CHANNEL = process.env.IRC_CHANNEL || '#analyze-this';
+const LOG_TARGET_UNITS = {
+    backend: ['analyze-backend.service'],
+    worker: [
+        'worker-manager.service',
+        'worker-analysis.service',
+        'worker-normalization.service',
+        'worker-follow-up.service',
+        'worker-podcast-audio.service',
+    ],
+    worker_manager: ['worker-manager.service'],
+    worker_analysis: ['worker-analysis.service'],
+    worker_normalization: ['worker-normalization.service'],
+    worker_follow_up: ['worker-follow-up.service'],
+    worker_podcast_audio: ['worker-podcast-audio.service'],
+};
+function isLogTarget(value) {
+    return Object.prototype.hasOwnProperty.call(LOG_TARGET_UNITS, value);
+}
+function validateLogLines(value) {
+    const parsed = Number(value ?? 100);
+    if (!Number.isFinite(parsed) || !Number.isInteger(parsed) || parsed < 1) {
+        throw new Error("lines must be a positive integer");
+    }
+    if (parsed > 500) {
+        throw new Error("lines must be 500 or less");
+    }
+    return parsed;
+}
+async function getServiceLogs(args) {
+    const target = args.target;
+    if (typeof target !== "string" || !isLogTarget(target)) {
+        throw new Error(`target must be one of: ${Object.keys(LOG_TARGET_UNITS).join(", ")}`);
+    }
+    const lines = validateLogLines(args.lines);
+    const since = typeof args.since === "string" && args.since.trim() ? args.since.trim() : "1 hour ago";
+    const grep = typeof args.grep === "string" && args.grep.trim() ? args.grep.trim() : undefined;
+    const units = LOG_TARGET_UNITS[target];
+    const journalctlArgs = [
+        "--no-pager",
+        "--output=short-iso",
+        "--since",
+        since,
+        "-n",
+        String(lines),
+        ...units.flatMap((unit) => ["-u", unit]),
+    ];
+    if (grep) {
+        journalctlArgs.push("--grep", grep);
+    }
+    try {
+        const { stdout, stderr } = await execFileAsync("journalctl", journalctlArgs, {
+            maxBuffer: 1024 * 1024,
+        });
+        const trimmedStdout = stdout.trim();
+        const trimmedStderr = stderr.trim();
+        return {
+            status: "success",
+            target,
+            units,
+            effective_since: since,
+            effective_lines: lines,
+            grep: grep || null,
+            logs: trimmedStdout || "No entries found.",
+            stderr: trimmedStderr || undefined,
+        };
+    }
+    catch (error) {
+        const stdout = typeof error?.stdout === "string" ? error.stdout.trim() : "";
+        const stderr = typeof error?.stderr === "string" ? error.stderr.trim() : "";
+        if ((error?.code === 1 || error?.code === undefined) && !stdout) {
+            return {
+                status: "success",
+                target,
+                units,
+                effective_since: since,
+                effective_lines: lines,
+                grep: grep || null,
+                logs: "No entries found.",
+                stderr: stderr || undefined,
+            };
+        }
+        throw new Error(stderr || stdout || error?.message || "journalctl failed");
+    }
+}
 async function run() {
     console.log('Starting AnalyzeBot...');
     // Initialize MCP Tools from configured servers
@@ -75,6 +157,39 @@ async function run() {
                             description: "The git branch or commit to check. Defaults to 'HEAD'.",
                         }
                     }
+                }
+            }
+        });
+        registry.tools.push({
+            type: "function",
+            function: {
+                name: "get_service_logs",
+                description: "Read recent journald logs for the backend or worker services on this host. Use this to inspect runtime failures, worker errors, or recent backend behavior.",
+                parameters: {
+                    type: "object",
+                    properties: {
+                        target: {
+                            type: "string",
+                            enum: Object.keys(LOG_TARGET_UNITS),
+                            description: "Which service logs to read. Use 'worker' for all worker-related units, or a specific worker target for one unit.",
+                        },
+                        lines: {
+                            type: "integer",
+                            description: "How many recent log lines to return. Default 100, maximum 500.",
+                            default: 100,
+                            minimum: 1,
+                            maximum: 500,
+                        },
+                        since: {
+                            type: "string",
+                            description: "Journald-compatible lower time bound such as '15 minutes ago' or '1 hour ago'. Defaults to '1 hour ago'.",
+                        },
+                        grep: {
+                            type: "string",
+                            description: "Optional journalctl grep pattern to filter matching log messages.",
+                        }
+                    },
+                    required: ["target"]
                 }
             }
         });
@@ -167,6 +282,9 @@ async function run() {
                     };
                 }
             }
+            if (name === "get_service_logs") {
+                return await getServiceLogs(args);
+            }
             return originalCallTool(name, args);
         };
         console.log(`Loaded ${registry.tools.length} total tools from MCP servers and local agents.`);
@@ -225,7 +343,7 @@ async function run() {
 }
 async function generateReply(prompt, tools, callTool, history = []) {
     const historyText = history.map(h => `<${h.nick}> ${h.message}`).join('\n');
-    const systemPrompt = `You are AnalyzeBot. Keep responses concise and useful in IRC. Use tools when needed. You can manage deployments and check the current app version using your tools. The official git repository URL is 'https://github.com/doubtingben/analyze-this.git'.\n\n` +
+    const systemPrompt = `You are AnalyzeBot. Keep responses concise and useful in IRC. Use tools when needed. You can manage deployments, check the current app version, and inspect backend and worker journald logs using your tools. The official git repository URL is 'https://github.com/doubtingben/analyze-this.git'.\n\n` +
         `Here is the recent channel history for context:\n` +
         (historyText ? historyText : "(no history yet)") + `\n\n` +
         `If the channel history is missing or incomplete for you to understand the context, it's ok to ask the user for additional context.`;
@@ -241,7 +359,7 @@ async function generateReply(prompt, tools, callTool, history = []) {
     ];
     for (let i = 0; i < 6; i++) {
         const completion = await llm.chat.completions.create({
-            model: OPENROUTER_MODEL,
+            model: OPENAI_MODEL,
             messages,
             tools: tools.length > 0 ? tools : undefined,
             tool_choice: tools.length > 0 ? "auto" : undefined,

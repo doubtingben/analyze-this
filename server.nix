@@ -239,6 +239,7 @@ in
     isSystemUser = true;
     group = "analyze-this";
     description = "Analyze This IRC Agent Service";
+    extraGroups = [ "systemd-journal" ];
   };
   
   # Sops-nix configuration
@@ -481,7 +482,7 @@ in
     wantedBy = [ "multi-user.target" ];
     after = [ "network-online.target" ];
     wants = [ "network-online.target" ];
-    path = [ pkgs.git pkgs.sudo pkgs.nixos-rebuild pkgs.nix ];
+    path = [ pkgs.git pkgs.sudo pkgs.nixos-rebuild pkgs.nix pkgs.systemd ];
     serviceConfig = {
       User = "analyze-agent";
       Group = "analyze-this";
