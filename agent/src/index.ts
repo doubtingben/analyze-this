@@ -8,22 +8,19 @@ import { promisify } from 'util';
 
 const execAsync = promisify(exec);
 
-const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY;
-if (!OPENROUTER_API_KEY) {
-    throw new Error("OPENROUTER_API_KEY is required");
-}
+const OPENAI_API_KEY = process.env.OPENAI_API_KEY || process.env.OPENROUTER_API_KEY || "ollama";
 
-const OPENROUTER_MODEL = process.env.OPENROUTER_MODEL || "google/gemini-2.0-flash-exp:free";
-const OPENROUTER_BASE_URL = process.env.OPENROUTER_BASE_URL || "https://openrouter.ai/api/v1";
-const OPENROUTER_SITE_URL = process.env.OPENROUTER_SITE_URL || "";
-const OPENROUTER_APP_NAME = process.env.OPENROUTER_APP_NAME || "analyze-this-agent";
+const OPENAI_MODEL = process.env.OPENAI_MODEL || process.env.OPENROUTER_MODEL || "gemma4:31b";
+const OPENAI_BASE_URL = process.env.OPENAI_BASE_URL || process.env.OPENROUTER_BASE_URL || "http://nixos-gpt:11434/v1";
+const APP_SITE_URL = process.env.APP_SITE_URL || process.env.OPENROUTER_SITE_URL || "";
+const APP_NAME = process.env.APP_NAME || process.env.OPENROUTER_APP_NAME || "analyze-this-agent";
 
 const llm = new OpenAI({
-    apiKey: OPENROUTER_API_KEY,
-    baseURL: OPENROUTER_BASE_URL,
+    apiKey: OPENAI_API_KEY,
+    baseURL: OPENAI_BASE_URL,
     defaultHeaders: {
-        ...(OPENROUTER_SITE_URL ? { "HTTP-Referer": OPENROUTER_SITE_URL } : {}),
-        "X-Title": OPENROUTER_APP_NAME,
+        ...(APP_SITE_URL ? { "HTTP-Referer": APP_SITE_URL } : {}),
+        "X-Title": APP_NAME,
     },
 });
 
@@ -272,7 +269,7 @@ async function generateReply(
 
     for (let i = 0; i < 6; i++) {
         const completion = await llm.chat.completions.create({
-            model: OPENROUTER_MODEL,
+            model: OPENAI_MODEL,
             messages,
             tools: tools.length > 0 ? tools : undefined,
             tool_choice: tools.length > 0 ? "auto" : undefined,

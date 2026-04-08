@@ -16,15 +16,16 @@ load_dotenv()
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
-OPENROUTER_MODEL = os.getenv("OPENROUTER_MODEL", "google/gemini-2.0-flash-exp:free")
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", os.getenv("OPENROUTER_API_KEY", "ollama"))
+OPENAI_MODEL = os.getenv("OPENAI_MODEL", os.getenv("OPENROUTER_MODEL", "gemma4:31b"))
+OPENAI_BASE_URL = os.getenv("OPENAI_BASE_URL", os.getenv("OPENROUTER_BASE_URL", "http://nixos-gpt:11434/v1"))
 
 client = None
-if OPENROUTER_API_KEY:
+if OPENAI_API_KEY:
     try:
         client = OpenAI(
-            base_url="https://openrouter.ai/api/v1",
-            api_key=OPENROUTER_API_KEY,
+            base_url=OPENAI_BASE_URL,
+            api_key=OPENAI_API_KEY,
         )
     except Exception as e:
         logger.error(f"Failed to initialize OpenAI client: {e}")
@@ -138,18 +139,18 @@ def normalize_item_title(content: str, item_type: str = 'text', current_title: s
         ]
 
     # Trace the LLM API call
-    with create_span("openrouter_api_call", {
-        "llm.provider": "openrouter",
-        "llm.model": OPENROUTER_MODEL,
+    with create_span("llm_api_call", {
+        "llm.provider": "openai_compatible",
+        "llm.model": OPENAI_MODEL,
         "llm.item_type": item_type,
         "llm.operation": "normalization",
         "llm.has_current_title": current_title is not None,
         "llm.has_analysis": analysis_data is not None,
     }) as llm_span:
         try:
-            logger.info(f"Sending normalization request to OpenRouter model: {OPENROUTER_MODEL}")
+            logger.info(f"Sending normalization request to model: {OPENAI_MODEL}")
             completion = client.chat.completions.create(
-                model=OPENROUTER_MODEL,
+                model=OPENAI_MODEL,
                 messages=messages,
                 response_format={"type": "json_object"}
             )

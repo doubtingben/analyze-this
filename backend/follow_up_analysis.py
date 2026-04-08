@@ -12,15 +12,16 @@ load_dotenv()
 
 logger = logging.getLogger(__name__)
 
-OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
-OPENROUTER_MODEL = os.getenv("OPENROUTER_MODEL", "google/gemini-2.0-flash-exp:free")
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", os.getenv("OPENROUTER_API_KEY", "ollama"))
+OPENAI_MODEL = os.getenv("OPENAI_MODEL", os.getenv("OPENROUTER_MODEL", "gemma4:31b"))
+OPENAI_BASE_URL = os.getenv("OPENAI_BASE_URL", os.getenv("OPENROUTER_BASE_URL", "http://nixos-gpt:11434/v1"))
 
 client = None
-if OPENROUTER_API_KEY:
+if OPENAI_API_KEY:
     try:
         client = OpenAI(
-            base_url="https://openrouter.ai/api/v1",
-            api_key=OPENROUTER_API_KEY,
+            base_url=OPENAI_BASE_URL,
+            api_key=OPENAI_API_KEY,
         )
     except Exception as e:
         logger.error(f"Failed to initialize OpenAI client: {e}")
@@ -72,17 +73,17 @@ def analyze_follow_up(content: str, item_type: str, original_analysis: dict, fol
     messages.append({"role": "user", "content": user_content})
 
     # Trace the LLM API call
-    with create_span("openrouter_api_call", {
-        "llm.provider": "openrouter",
-        "llm.model": OPENROUTER_MODEL,
+    with create_span("llm_api_call", {
+        "llm.provider": "openai_compatible",
+        "llm.model": OPENAI_MODEL,
         "llm.item_type": item_type,
         "llm.notes_count": len(follow_up_notes),
         "llm.has_preferred_tags": preferred_tags is not None,
     }) as llm_span:
         try:
-            logger.info(f"Sending follow-up analysis request to OpenRouter model: {OPENROUTER_MODEL}")
+            logger.info(f"Sending follow-up analysis request to model: {OPENAI_MODEL}")
             completion = client.chat.completions.create(
-                model=OPENROUTER_MODEL,
+                model=OPENAI_MODEL,
                 messages=messages,
                 response_format={"type": "json_object"}
             )
