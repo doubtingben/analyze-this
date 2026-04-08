@@ -68,6 +68,9 @@
       ];
       shellHook = ''
         export PYTHONPATH="$PWD/backend${PYTHONPATH:+:$PYTHONPATH}"
+        export NPM_CONFIG_PREFIX="$HOME/.npm-global"
+        export NPM_CONFIG_CACHE="$HOME/.npm-cache"
+        export PATH="$HOME/.npm-global/bin:$PATH"
       '';
     };
 
