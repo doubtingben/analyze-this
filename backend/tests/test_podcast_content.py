@@ -22,9 +22,11 @@ class TestPodcastContent(unittest.TestCase):
         self.assertIn("Example Article", script)
         self.assertIn("First paragraph line one. Line two.\n\nSecond paragraph starts here.", script)
 
-    @patch("podcast_content.requests.get")
-    def test_build_podcast_script_uses_analysis_as_intro_and_source_url_as_body(self, mock_get):
+    @patch("podcast_content._resolve_and_validate_ip", return_value="93.184.216.34")
+    @patch("podcast_content.httpx.Client.get")
+    def test_build_podcast_script_uses_analysis_as_intro_and_source_url_as_body(self, mock_get, mock_resolve_ip):
         response = Mock()
+        response.is_redirect = False
         response.headers = {"content-type": "text/html; charset=utf-8"}
         response.text = """
         <html>
