@@ -3,10 +3,11 @@ import OpenAI from 'openai';
 import { Client } from 'irc-framework';
 import { buildMcpToolRegistry } from './mcp.js';
 import type { McpToolRegistry } from './mcp.js';
-import { exec } from 'child_process';
+import { exec, execFile } from 'child_process';
 import { promisify } from 'util';
 
 const execAsync = promisify(exec);
+const execFileAsync = promisify(execFile);
 
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY || process.env.OPENROUTER_API_KEY || "ollama";
 
@@ -29,6 +30,101 @@ const IRC_SERVER = process.env.IRC_SERVER || 'chat.interestedparticipant.org';
 const IRC_PORT = parseInt(process.env.IRC_PORT || '6697');
 const IRC_NICK = process.env.IRC_NICK || 'AnalyzeBot';
 const IRC_CHANNEL = process.env.IRC_CHANNEL || '#analyze-this';
+
+const LOG_TARGET_UNITS = {
+    backend: ['analyze-backend.service'],
+    worker: [
+        'worker-manager.service',
+        'worker-analysis.service',
+        'worker-normalization.service',
+        'worker-follow-up.service',
+        'worker-podcast-audio.service',
+    ],
+    worker_manager: ['worker-manager.service'],
+    worker_analysis: ['worker-analysis.service'],
+    worker_normalization: ['worker-normalization.service'],
+    worker_follow_up: ['worker-follow-up.service'],
+    worker_podcast_audio: ['worker-podcast-audio.service'],
+} as const;
+
+type LogTarget = keyof typeof LOG_TARGET_UNITS;
+
+function isLogTarget(value: string): value is LogTarget {
+    return Object.prototype.hasOwnProperty.call(LOG_TARGET_UNITS, value);
+}
+
+function validateLogLines(value: unknown): number {
+    const parsed = Number(value ?? 100);
+    if (!Number.isFinite(parsed) || !Number.isInteger(parsed) || parsed < 1) {
+        throw new Error("lines must be a positive integer");
+    }
+    if (parsed > 500) {
+        throw new Error("lines must be 500 or less");
+    }
+    return parsed;
+}
+
+async function getServiceLogs(args: Record<string, any>) {
+    const target = args.target;
+    if (typeof target !== "string" || !isLogTarget(target)) {
+        throw new Error(`target must be one of: ${Object.keys(LOG_TARGET_UNITS).join(", ")}`);
+    }
+
+    const lines = validateLogLines(args.lines);
+    const since = typeof args.since === "string" && args.since.trim() ? args.since.trim() : "1 hour ago";
+    const grep = typeof args.grep === "string" && args.grep.trim() ? args.grep.trim() : undefined;
+    const units = LOG_TARGET_UNITS[target];
+
+    const journalctlArgs = [
+        "--no-pager",
+        "--output=short-iso",
+        "--since",
+        since,
+        "-n",
+        String(lines),
+        ...units.flatMap((unit) => ["-u", unit]),
+    ];
+
+    if (grep) {
+        journalctlArgs.push("--grep", grep);
+    }
+
+    try {
+        const { stdout, stderr } = await execFileAsync("journalctl", journalctlArgs, {
+            maxBuffer: 1024 * 1024,
+        });
+        const trimmedStdout = stdout.trim();
+        const trimmedStderr = stderr.trim();
+
+        return {
+            status: "success",
+            target,
+            units,
+            effective_since: since,
+            effective_lines: lines,
+            grep: grep || null,
+            logs: trimmedStdout || "No entries found.",
+            stderr: trimmedStderr || undefined,
+        };
+    } catch (error: any) {
+        const stdout = typeof error?.stdout === "string" ? error.stdout.trim() : "";
+        const stderr = typeof error?.stderr === "string" ? error.stderr.trim() : "";
+        if ((error?.code === 1 || error?.code === undefined) && !stdout) {
+            return {
+                status: "success",
+                target,
+                units,
+                effective_since: since,
+                effective_lines: lines,
+                grep: grep || null,
+                logs: "No entries found.",
+                stderr: stderr || undefined,
+            };
+        }
+
+        throw new Error(stderr || stdout || error?.message || "journalctl failed");
+    }
+}
 
 async function run() {
     console.log('Starting AnalyzeBot...');
@@ -82,6 +178,40 @@ async function run() {
                             description: "The git branch or commit to check. Defaults to 'HEAD'.",
                         }
                     }
+                }
+            }
+        });
+
+        registry.tools.push({
+            type: "function",
+            function: {
+                name: "get_service_logs",
+                description: "Read recent journald logs for the backend or worker services on this host. Use this to inspect runtime failures, worker errors, or recent backend behavior.",
+                parameters: {
+                    type: "object",
+                    properties: {
+                        target: {
+                            type: "string",
+                            enum: Object.keys(LOG_TARGET_UNITS),
+                            description: "Which service logs to read. Use 'worker' for all worker-related units, or a specific worker target for one unit.",
+                        },
+                        lines: {
+                            type: "integer",
+                            description: "How many recent log lines to return. Default 100, maximum 500.",
+                            default: 100,
+                            minimum: 1,
+                            maximum: 500,
+                        },
+                        since: {
+                            type: "string",
+                            description: "Journald-compatible lower time bound such as '15 minutes ago' or '1 hour ago'. Defaults to '1 hour ago'.",
+                        },
+                        grep: {
+                            type: "string",
+                            description: "Optional journalctl grep pattern to filter matching log messages.",
+                        }
+                    },
+                    required: ["target"]
                 }
             }
         });
@@ -177,6 +307,9 @@ async function run() {
                     };
                 }
             }
+            if (name === "get_service_logs") {
+                return await getServiceLogs(args);
+            }
             return originalCallTool(name, args);
         };
 
@@ -251,7 +384,7 @@ async function generateReply(
     history: { nick: string, message: string }[] = []
 ): Promise<string> {
     const historyText = history.map(h => `<${h.nick}> ${h.message}`).join('\n');
-    const systemPrompt = `You are AnalyzeBot. Keep responses concise and useful in IRC. Use tools when needed. You can manage deployments and check the current app version using your tools. The official git repository URL is 'https://github.com/doubtingben/analyze-this.git'.\n\n` +
+    const systemPrompt = `You are AnalyzeBot. Keep responses concise and useful in IRC. Use tools when needed. You can manage deployments, check the current app version, and inspect backend and worker journald logs using your tools. The official git repository URL is 'https://github.com/doubtingben/analyze-this.git'.\n\n` +
         `Here is the recent channel history for context:\n` +
         (historyText ? historyText : "(no history yet)") + `\n\n` +
         `If the channel history is missing or incomplete for you to understand the context, it's ok to ask the user for additional context.`;
