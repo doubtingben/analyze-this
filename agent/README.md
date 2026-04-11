@@ -11,6 +11,8 @@ An IRC agent that connects to Ergo server, uses OpenRouter for LLM responses, an
     IRC_PORT=6697
     IRC_NICK=AnalyzeBot
     IRC_CHANNEL=#analyze-this
+    IRC_TYPING_ENABLED=true
+    IRC_TYPING_INTERVAL_MS=3000
     OPENROUTER_API_KEY=your_openrouter_api_key
     OPENROUTER_MODEL=google/gemini-2.0-flash-exp:free
 
@@ -110,10 +112,39 @@ For file-based/command MCP servers that communicate via stdin/stdout:
 - Connects to IRC with TLS.
 - Joins `#analyze-this`.
 - Listens for messages addressing the bot.
+- Emits IRCv3 typing notifications while the bot is working on a reply.
 - Supports multiple MCP servers (SSE and stdio transports).
 - Prefixes tool names with server name when multiple servers are configured.
 - Includes local host tools for deployment, version checks, and journald log inspection.
 - Powered by OpenRouter-compatible chat completions.
+
+## Typing Notifications
+
+The agent can advertise that it is working by sending IRCv3 `TAGMSG` messages with the client-only `+typing` tag while a reply is being generated.
+
+Requirements:
+
+- the IRC server must support `message-tags`
+- the user client must display typing notifications
+
+Configuration:
+
+- `IRC_TYPING_ENABLED`: defaults to `true`; set to `false` to disable typing notifications
+- `IRC_TYPING_INTERVAL_MS`: heartbeat interval in milliseconds; defaults to `3000` and is clamped to at least 3000ms to match the IRCv3 guidance
+
+Behavior:
+
+- when the bot starts working, it sends `@+typing=active TAGMSG <target>`
+- while work continues, it refreshes the typing signal on the same target
+- when the bot finishes or errors, it sends `@+typing=done TAGMSG <target>`
+- in channels, this is visible to everyone in the channel
+
+For WeeChat, enable display with:
+
+```weechat
+/set typing.look.enabled_nicks on
+/set irc.look.typing_status_nicks on
+```
 
 ## Local Host Tools
 

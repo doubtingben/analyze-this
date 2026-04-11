@@ -24,6 +24,9 @@ const IRC_SERVER = process.env.IRC_SERVER || 'chat.interestedparticipant.org';
 const IRC_PORT = parseInt(process.env.IRC_PORT || '6697');
 const IRC_NICK = process.env.IRC_NICK || 'AnalyzeBot';
 const IRC_CHANNEL = process.env.IRC_CHANNEL || '#analyze-this';
+const IRC_TYPING_ENABLED = (process.env.IRC_TYPING_ENABLED || 'true').toLowerCase() !== 'false';
+const IRC_TYPING_INTERVAL_MS = parseInt(process.env.IRC_TYPING_INTERVAL_MS || '3000', 10);
+const IRC_TYPING_MIN_INTERVAL_MS = Math.max(3000, Number.isFinite(IRC_TYPING_INTERVAL_MS) ? IRC_TYPING_INTERVAL_MS : 3000);
 const LOG_TARGET_UNITS = {
     backend: ['analyze-backend.service'],
     worker: [
@@ -294,6 +297,7 @@ async function run() {
     }
     // Initialize IRC Client
     const client = new Client();
+    const typingManager = createTypingManager(client);
     client.connect({
         host: IRC_SERVER,
         port: IRC_PORT,
@@ -305,6 +309,7 @@ async function run() {
     });
     client.on('registered', () => {
         console.log('Connected to IRC server.');
+        console.log(`IRC typing notifications ${typingManager.isAvailable() ? 'enabled' : 'disabled'} (message-tags ${client.network.cap.isEnabled('message-tags') ? 'active' : 'unavailable'}).`);
         client.join(IRC_CHANNEL);
         console.log(`Joined ${IRC_CHANNEL}`);
     });
@@ -321,6 +326,7 @@ async function run() {
             if (message.startsWith(`${IRC_NICK}:`) || message.includes(IRC_NICK)) {
                 const query = message.replace(`${IRC_NICK}:`, '').trim();
                 console.log(`Received query from ${nick}: ${query}`);
+                const stopTyping = typingManager.start(IRC_CHANNEL);
                 try {
                     const text = await generateReply(query, registry.tools, registry.callTool, channelHistory);
                     const replyText = text || "(no response)";
@@ -333,6 +339,9 @@ async function run() {
                 catch (err) {
                     console.error('Error generating response:', err);
                     client.say(IRC_CHANNEL, `${nick}: Sorry, I encountered an error processing your request.`);
+                }
+                finally {
+                    stopTyping();
                 }
             }
         }
@@ -404,5 +413,75 @@ function safeParseJson(value) {
     catch {
         return {};
     }
+}
+function createTypingManager(client) {
+    const entries = new Map();
+    function isAvailable() {
+        return IRC_TYPING_ENABLED &&
+            client.network.cap.isEnabled('message-tags') &&
+            client.network.supportsTag('typing');
+    }
+    function sendTyping(target, state) {
+        if (!isAvailable()) {
+            return;
+        }
+        try {
+            client.tagmsg(target, { '+typing': state });
+        }
+        catch (error) {
+            console.error(`Failed to send typing state ${state} to ${target}:`, error);
+        }
+    }
+    function sendActive(target, entry) {
+        const now = Date.now();
+        if (now - entry.lastSentAt < IRC_TYPING_MIN_INTERVAL_MS) {
+            return;
+        }
+        sendTyping(target, 'active');
+        entry.lastSentAt = now;
+    }
+    function stop(target) {
+        const entry = entries.get(target);
+        if (!entry) {
+            return;
+        }
+        entry.activeRequests -= 1;
+        if (entry.activeRequests > 0) {
+            return;
+        }
+        if (entry.interval) {
+            clearInterval(entry.interval);
+        }
+        entries.delete(target);
+        sendTyping(target, 'done');
+    }
+    function start(target) {
+        let entry = entries.get(target);
+        if (!entry) {
+            entry = {
+                activeRequests: 0,
+                interval: null,
+                lastSentAt: 0,
+            };
+            entries.set(target, entry);
+        }
+        entry.activeRequests += 1;
+        if (entry.activeRequests === 1) {
+            sendActive(target, entry);
+            entry.interval = setInterval(() => {
+                const currentEntry = entries.get(target);
+                if (!currentEntry || currentEntry.activeRequests < 1) {
+                    return;
+                }
+                sendActive(target, currentEntry);
+            }, IRC_TYPING_MIN_INTERVAL_MS);
+        }
+        return () => stop(target);
+    }
+    return {
+        isAvailable,
+        start,
+        stop,
+    };
 }
 run().catch(console.error);
