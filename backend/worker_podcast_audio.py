@@ -74,6 +74,7 @@ async def _process_podcast_audio_item(db, data, context):
         return False, "unsupported_type"
 
     driver = get_podcast_audio_driver()
+    episode = None
 
     try:
         with create_span("generate_podcast_audio", {"item.id": item_id, "podcast.source_kind": source_kind}):
@@ -83,6 +84,13 @@ async def _process_podcast_audio_item(db, data, context):
                 resolved_source_kind = source_kind
             else:
                 episode = resolve_episode_content(data, analysis)
+                logger.info(
+                    "Resolved podcast episode content for item %s: body_source=%s retrieval_error=%s details=%s",
+                    item_id,
+                    episode.body_source,
+                    episode.retrieval_error,
+                    episode.retrieval_details,
+                )
                 script_text = build_podcast_script(data, analysis, episode)
                 if not script_text:
                     raise RuntimeError("text_extraction_failed")
@@ -109,17 +117,21 @@ async def _process_podcast_audio_item(db, data, context):
             "script_text": script_text,
             "analysis_notes": build_podcast_notes(data, analysis),
             "shared_item_url": build_shared_item_url(item_id),
+            "debug_source_retrieval_error": episode.retrieval_error if source_kind != "native_audio" else None,
+            "debug_source_retrieval_details": episode.retrieval_details if source_kind != "native_audio" else None,
             "error": None,
             "updated_at": datetime.now(timezone.utc),
             "published_at": datetime.now(timezone.utc),
         })
         return True, None
     except Exception as exc:
-        logger.error(f"Podcast audio processing failed for item {item_id}: {exc}")
+        logger.exception("Podcast audio processing failed for item %s", item_id)
         record_exception(exc)
         await db.update_podcast_feed_entry(feed_entry_id, {
             "status": "failed",
             "error": str(exc),
+            "debug_source_retrieval_error": episode.retrieval_error if episode else None,
+            "debug_source_retrieval_details": episode.retrieval_details if episode else None,
             "updated_at": datetime.now(timezone.utc),
         })
         return False, str(exc)

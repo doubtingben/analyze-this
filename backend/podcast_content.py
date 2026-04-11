@@ -2,6 +2,7 @@ import os
 import re
 import subprocess
 import tempfile
+import logging
 from dataclasses import dataclass
 from html import unescape
 from pathlib import Path
@@ -24,6 +25,7 @@ PODCAST_FETCH_USER_AGENT = os.getenv(
     "PODCAST_FETCH_USER_AGENT",
     "AnalyzeThisPodcastBot/1.0 (+https://analyzethis.app)",
 )
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -31,6 +33,8 @@ class EpisodeContent:
     intro_text: Optional[str]
     body_text: Optional[str]
     body_source: str
+    retrieval_error: Optional[str] = None
+    retrieval_details: dict | None = None
 
 
 def build_shared_item_url(item_id: str) -> Optional[str]:
@@ -156,54 +160,36 @@ def normalize_audio_bytes(audio_bytes: bytes, mime_type: str) -> tuple[bytes, st
 
 
 def extract_podcast_text(item: dict) -> Optional[str]:
-    item_type = (item.get("type") or "").lower()
-    if item_type == "text":
-        return _truncate_text(item.get("content"))
-
-    if item_type == "web_url":
-        return _extract_remote_text(item.get("content"))
-
-    if item_type == "audio":
-        return None
-
-    if item_type != "file":
-        return None
-
-    blob_path = item.get("content")
-    if not blob_path:
-        return None
-
-    mime_type = ((item.get("item_metadata") or {}).get("mimeType") or "").lower()
-    filename = ((item.get("item_metadata") or {}).get("fileName") or blob_path).lower()
-    raw_bytes = read_blob_bytes(blob_path)
-
-    if mime_type == "application/pdf" or filename.endswith(".pdf"):
-        return _truncate_text(_extract_pdf_text(raw_bytes))
-
-    if mime_type.startswith("text/") or filename.endswith(".txt"):
-        return _truncate_text(raw_bytes.decode("utf-8", errors="ignore"))
-
-    return None
+    text, _details = extract_podcast_text_with_diagnostics(item)
+    return text
 
 
 def resolve_episode_content(item: dict, analysis: dict) -> EpisodeContent:
     intro_text = _truncate_intro_text(
         analysis.get("podcast_summary") or analysis.get("overview") or ""
     )
-    body_text = extract_podcast_text(item)
+    body_text, retrieval_details = extract_podcast_text_with_diagnostics(item)
     body_source = "item_content" if body_text else "none"
+    retrieval_error = retrieval_details.get("failure_reason")
 
     if not body_text:
         source_url = ((item.get("item_metadata") or {}).get("sourceUrl") or "").strip()
         if source_url:
-            body_text = _extract_remote_text(source_url)
+            body_text, remote_details = _extract_remote_text_with_diagnostics(source_url)
             if body_text:
                 body_source = "source_url"
+                retrieval_details = remote_details
+                retrieval_error = None
+            else:
+                retrieval_details = remote_details
+                retrieval_error = remote_details.get("failure_reason")
 
     return EpisodeContent(
         intro_text=intro_text,
         body_text=body_text,
         body_source=body_source,
+        retrieval_error=retrieval_error,
+        retrieval_details=retrieval_details,
     )
 
 
@@ -234,6 +220,100 @@ def build_podcast_script(item: dict, analysis: dict, episode: EpisodeContent | N
 
 def get_episode_body_source(item: dict, analysis: dict) -> str:
     return resolve_episode_content(item, analysis).body_source
+
+
+def extract_podcast_text_with_diagnostics(item: dict) -> tuple[Optional[str], dict]:
+    item_type = (item.get("type") or "").lower()
+    item_metadata = item.get("item_metadata") or {}
+
+    if item_type == "text":
+        text = _truncate_text(item.get("content"))
+        return text, {
+            "source": "item_content",
+            "item_type": item_type,
+            "text_length": len(text or ""),
+            "failure_reason": None if text else "empty_text_content",
+        }
+
+    if item_type == "web_url":
+        source_url = item.get("content")
+        text, details = _extract_remote_text_with_diagnostics(source_url)
+        details.setdefault("source", "item_content")
+        details.setdefault("item_type", item_type)
+        return text, details
+
+    if item_type == "audio":
+        return None, {
+            "source": "item_content",
+            "item_type": item_type,
+            "failure_reason": "audio_source_has_no_text",
+        }
+
+    if item_type != "file":
+        return None, {
+            "source": "item_content",
+            "item_type": item_type or "unknown",
+            "failure_reason": "unsupported_item_type",
+        }
+
+    blob_path = item.get("content")
+    if not blob_path:
+        return None, {
+            "source": "item_content",
+            "item_type": item_type,
+            "failure_reason": "missing_blob_path",
+        }
+
+    mime_type = (item_metadata.get("mimeType") or "").lower()
+    filename = (item_metadata.get("fileName") or blob_path).lower()
+
+    try:
+        raw_bytes = read_blob_bytes(blob_path)
+    except Exception as exc:
+        logger.warning("Podcast source blob read failed for %s: %s", blob_path, exc)
+        return None, {
+            "source": "item_content",
+            "item_type": item_type,
+            "blob_path": blob_path,
+            "mime_type": mime_type,
+            "filename": filename,
+            "failure_reason": f"blob_read_failed:{type(exc).__name__}",
+        }
+
+    if mime_type == "application/pdf" or filename.endswith(".pdf"):
+        text = _truncate_text(_extract_pdf_text(raw_bytes))
+        return text, {
+            "source": "item_content",
+            "item_type": item_type,
+            "blob_path": blob_path,
+            "mime_type": mime_type or "application/pdf",
+            "filename": filename,
+            "byte_length": len(raw_bytes),
+            "text_length": len(text or ""),
+            "failure_reason": None if text else "pdf_text_extraction_empty",
+        }
+
+    if mime_type.startswith("text/") or filename.endswith(".txt"):
+        text = _truncate_text(raw_bytes.decode("utf-8", errors="ignore"))
+        return text, {
+            "source": "item_content",
+            "item_type": item_type,
+            "blob_path": blob_path,
+            "mime_type": mime_type or "text/plain",
+            "filename": filename,
+            "byte_length": len(raw_bytes),
+            "text_length": len(text or ""),
+            "failure_reason": None if text else "text_blob_empty",
+        }
+
+    return None, {
+        "source": "item_content",
+        "item_type": item_type,
+        "blob_path": blob_path,
+        "mime_type": mime_type,
+        "filename": filename,
+        "failure_reason": "unsupported_file_type",
+    }
 
 
 def build_podcast_notes(item: dict, analysis: dict) -> Optional[str]:
@@ -294,8 +374,16 @@ def _extract_pdf_text(raw_bytes: bytes) -> str:
 
 
 def _extract_remote_text(source_url: str) -> Optional[str]:
+    text, _details = _extract_remote_text_with_diagnostics(source_url)
+    return text
+
+
+def _extract_remote_text_with_diagnostics(source_url: str) -> tuple[Optional[str], dict]:
     if not source_url:
-        return None
+        return None, {
+            "source": "source_url",
+            "failure_reason": "missing_source_url",
+        }
 
     try:
         response = requests.get(
@@ -305,15 +393,53 @@ def _extract_remote_text(source_url: str) -> Optional[str]:
             allow_redirects=True,
         )
         response.raise_for_status()
-    except Exception:
-        return None
+    except requests.Timeout:
+        return None, {
+            "source": "source_url",
+            "source_url": source_url,
+            "failure_reason": "source_fetch_timeout",
+        }
+    except requests.HTTPError as exc:
+        status_code = exc.response.status_code if exc.response is not None else None
+        return None, {
+            "source": "source_url",
+            "source_url": source_url,
+            "status_code": status_code,
+            "failure_reason": f"source_fetch_http_{status_code or 'unknown'}",
+        }
+    except requests.RequestException as exc:
+        return None, {
+            "source": "source_url",
+            "source_url": source_url,
+            "failure_reason": f"source_fetch_request_error:{type(exc).__name__}",
+        }
+    except Exception as exc:
+        return None, {
+            "source": "source_url",
+            "source_url": source_url,
+            "failure_reason": f"source_fetch_unexpected_error:{type(exc).__name__}",
+        }
 
     content_type = (response.headers.get("content-type") or "").lower()
+    details = {
+        "source": "source_url",
+        "source_url": source_url,
+        "final_url": response.url,
+        "status_code": response.status_code,
+        "content_type": content_type,
+        "content_length": len(response.content or b""),
+    }
     if "application/pdf" in content_type or source_url.lower().endswith(".pdf"):
-        return _truncate_text(_extract_pdf_text(response.content))
+        text = _truncate_text(_extract_pdf_text(response.content))
+        details["text_length"] = len(text or "")
+        details["failure_reason"] = None if text else "source_pdf_text_extraction_empty"
+        return text, details
 
     text = _extract_html_text(response.text if response.text else response.content.decode("utf-8", errors="ignore"))
-    return _truncate_text(text)
+    text = _truncate_text(text)
+    details["text_length"] = len(text or "")
+    details["failure_reason"] = None if text else "source_html_text_extraction_empty"
+    return text, details
 
 
 def _extract_html_text(html: str) -> str:
