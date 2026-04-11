@@ -437,6 +437,34 @@ async def get_items_by_status(status: str, limit: int = 20) -> str:
     return "\n".join(output_lines)
 
 
+async def retry_failed_worker_jobs_tool(job_type: Optional[str] = None, job_id: Optional[str] = None) -> str:
+    """Retry failed worker jobs by job_type or a specific job_id."""
+    database = await get_db()
+    
+    if job_id:
+        success = await database.reset_worker_job(job_id)
+        if success:
+            return f"Successfully queued job {job_id} for retry."
+        else:
+            return f"Failed to reset job {job_id} or job not found."
+            
+    # If no job_id is provided, try retrieving failed jobs (filtered by type if given)
+    jobs = await database.get_failed_worker_jobs(job_type=job_type)
+    
+    if not jobs:
+        return f"No failed jobs found{f' for type {job_type}' if job_type else ''}."
+        
+    reset_count = 0
+    for job in jobs:
+        j_id = job.get('firestore_id') or job.get('id')
+        if j_id:
+            success = await database.reset_worker_job(j_id)
+            if success:
+                reset_count += 1
+                
+    return f"Successfully queued {reset_count} failed jobs for retry{f' (type: {job_type})' if job_type else ''}."
+
+
 # Create MCP server
 server = Server("analyze-this-monitor")
 
@@ -445,6 +473,23 @@ server = Server("analyze-this-monitor")
 async def list_tools() -> list[Tool]:
     """List available monitoring tools."""
     return [
+        Tool(
+            name="retry_failed_jobs",
+            description="Retry failed worker jobs. You can specify a job_id for a single job, or a job_type to retry all of that type.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "job_type": {
+                        "type": "string",
+                        "description": "Optional: Filter by job type (e.g., 'podcast_audio', 'analysis')"
+                    },
+                    "job_id": {
+                        "type": "string",
+                        "description": "Optional: Retry a specific job by ID"
+                    }
+                }
+            }
+        ),
         Tool(
             name="get_users_info",
             description="Get summary information about all users including their item counts and last activity",
@@ -713,6 +758,12 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
                 return [TextContent(type="text", text="Error: status parameter is required")]
             limit = arguments.get("limit", 20)
             result = await get_items_by_status(status=status, limit=limit)
+            return [TextContent(type="text", text=result)]
+        
+        elif name == "retry_failed_jobs":
+            job_type = arguments.get("job_type")
+            job_id = arguments.get("job_id")
+            result = await retry_failed_worker_jobs_tool(job_type=job_type, job_id=job_id)
             return [TextContent(type="text", text=result)]
         
         # ---- TickTick Kanban Board Tools ----
