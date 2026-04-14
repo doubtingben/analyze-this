@@ -26,7 +26,7 @@ chrome.contextMenus.onClicked.addListener((info, tab) => {
         console.log("Context menu clicked: analyze-this-selection");
         const selectedText = info.selectionText || "";
         console.log("Selected text:", selectedText);
-        sendToBackend("text", selectedText, tab.title || "Selected Text");
+        sendToBackend("text", selectedText, tab.title || "Selected Text", tab?.url || info.pageUrl || "");
     } else if (info.menuItemId === "analyze-this-page") {
         console.log("Context menu clicked: analyze-this-page");
         // Inject capture script to take full-page screenshot
@@ -43,11 +43,11 @@ chrome.contextMenus.onClicked.addListener((info, tab) => {
         console.log("Image URL:", imageUrl);
         // Use page title for context, with "Image from" prefix
         const title = tab.title ? `Image from ${tab.title}` : "Shared Image";
-        sendToBackend("image", imageUrl, title);
+        sendToBackend("image", imageUrl, title, tab?.url || info.pageUrl || "");
     }
 });
 
-async function sendToBackend(type, content, title) {
+async function sendToBackend(type, content, title, sourceUrl = "") {
     try {
         // Get OAuth Token
         const token = await getAuthToken();
@@ -67,6 +67,7 @@ async function sendToBackend(type, content, title) {
                 type: type,
                 content: content,
                 title: title,
+                ...(sourceUrl ? { source_url: sourceUrl } : {}),
                 user_email: "me@example.com" // Backend will overwrite this from token but model expects it
             })
         });
@@ -150,7 +151,7 @@ async function handleCaptureComplete(dataUrl, title, url) {
         formData.append('type', 'screenshot');
         formData.append('title', title || 'Page Screenshot');
         if (url) {
-            formData.append('url', url);
+            formData.append('source_url', url);
         }
 
         // Upload to backend
