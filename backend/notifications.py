@@ -35,6 +35,13 @@ _EVENT_COLORS = {
     "updated via follow-up": _CLR_GREEN,
 }
 
+_WORKER_EVENT_COLORS = {
+    "started": _CLR_BLUE,
+    "completed": _CLR_GREEN,
+    "idle": _CLR_GREY,
+    "failed": _CLR_RED,
+}
+
 
 def _compact_text(value: str | None) -> str:
     if not value:
@@ -60,6 +67,24 @@ def format_item_message(event: str, user_email: str, item_id: str, title: str | 
         parts.append(detail_text)
     parts.append(user)
     parts.append(f"{COLOR}{_CLR_GREY}{short_id}{RESET}")
+
+    base = " | ".join(parts)
+    if len(base) > IRCCAT_MAX_LEN:
+        base = base[: IRCCAT_MAX_LEN - 1] + "…"
+    return base
+
+
+def format_worker_message(worker_name: str, event: str, detail: str | None = None) -> str:
+    safe_worker_name = _compact_text(worker_name) or "worker"
+    detail_text = _compact_text(detail)
+    color = _WORKER_EVENT_COLORS.get(event, _CLR_GREY)
+
+    parts = [
+        f"{BOLD}{COLOR}{color}worker {event}{RESET}",
+        safe_worker_name,
+    ]
+    if detail_text:
+        parts.append(detail_text)
 
     base = " | ".join(parts)
     if len(base) > IRCCAT_MAX_LEN:

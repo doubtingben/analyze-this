@@ -18,7 +18,8 @@ class TestWorkerQueue(unittest.TestCase):
     @patch('worker_queue.shutdown_tracing')
     @patch('worker_queue.create_span')
     @patch('worker_queue.create_linked_span')
-    def test_process_queue_jobs_batch_fetch(self, mock_linked_span, mock_span, mock_shutdown, mock_init):
+    @patch('worker_queue.send_irccat_message', new_callable=AsyncMock)
+    def test_process_queue_jobs_batch_fetch(self, mock_irccat, mock_linked_span, mock_span, mock_shutdown, mock_init):
         # Setup mocks
         mock_db = MagicMock()
         mock_db.lease_worker_jobs = AsyncMock()
@@ -91,12 +92,14 @@ class TestWorkerQueue(unittest.TestCase):
         # Job 3 -> Item 1
         args, _ = process_fn.call_args_list[2]
         self.assertEqual(args[1]['firestore_id'], 'item1')
+        self.assertEqual(mock_irccat.await_count, 2)
 
     @patch('worker_queue.init_tracing')
     @patch('worker_queue.shutdown_tracing')
     @patch('worker_queue.create_span')
     @patch('worker_queue.create_linked_span')
-    def test_process_queue_jobs_fallback(self, mock_linked_span, mock_span, mock_shutdown, mock_init):
+    @patch('worker_queue.send_irccat_message', new_callable=AsyncMock)
+    def test_process_queue_jobs_fallback(self, mock_irccat, mock_linked_span, mock_span, mock_shutdown, mock_init):
         # Test fallback when batch fetch misses an item
         mock_db = MagicMock()
         mock_db.lease_worker_jobs = AsyncMock()
@@ -135,6 +138,7 @@ class TestWorkerQueue(unittest.TestCase):
         mock_db.get_shared_items_by_ids.assert_called_once()
         mock_db.get_shared_item.assert_called_once_with('item1')
         process_fn.assert_called_once()
+        self.assertEqual(mock_irccat.await_count, 2)
 
 if __name__ == '__main__':
     unittest.main()

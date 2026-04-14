@@ -8,7 +8,7 @@ from tracing import (
     create_linked_span, create_span, add_span_attributes,
     record_exception, add_span_event
 )
-from notifications import format_item_message, send_irccat_message
+from notifications import format_item_message, format_worker_message, send_irccat_message
 
 
 async def start_health_check_server():
@@ -49,6 +49,17 @@ async def process_queue_jobs(
     # Generate a stable worker ID for this session
     worker_id = os.getenv("WORKER_ID") or f"{socket.gethostname()}-{os.getpid()}-{uuid4().hex[:6]}"
     logger.info(f"Worker {worker_id} started for {job_type} jobs. Continuous: {continuous}")
+    await send_irccat_message(format_worker_message(
+        job_type,
+        "started",
+        detail=f"worker_id={worker_id} continuous={continuous} limit={limit}"
+    ))
+
+    jobs_seen = 0
+    jobs_completed = 0
+    jobs_failed = 0
+    jobs_exceptions = 0
+    had_unhandled_exception = False
 
     if continuous:
         # Start health check server in background
@@ -69,6 +80,7 @@ async def process_queue_jobs(
                 continue
 
             logger.info(f"Leased {len(jobs)} {job_type} jobs.")
+            jobs_seen += len(jobs)
 
             context = {}
             if prepare_fn:
@@ -160,11 +172,13 @@ async def process_queue_jobs(
                         if success:
                             job_span.set_attribute("job.status", "completed")
                             add_span_event("job_completed", {"job_id": job_id})
+                            jobs_completed += 1
                             if job_id:
                                 await db.complete_worker_job(job_id)
                         else:
                             job_span.set_attribute("job.status", "failed")
                             job_span.set_attribute("job.error", error or "job_failed")
+                            jobs_failed += 1
                             if job_id:
                                 await db.fail_worker_job(job_id, error or "job_failed")
                             # Send failure notification
@@ -180,6 +194,7 @@ async def process_queue_jobs(
                     except Exception as exc:
                         logger.error(f"Job {job_id} failed with exception: {exc}")
                         job_span.set_attribute("job.status", "exception")
+                        jobs_exceptions += 1
                         record_exception(exc)
                         if job_id:
                             await db.fail_worker_job(job_id, str(exc))
@@ -205,6 +220,26 @@ async def process_queue_jobs(
             if not continuous:
                 logger.info("Batch complete. Exiting.")
                 break
+    except Exception:
+        had_unhandled_exception = True
+        raise
     finally:
+        if had_unhandled_exception:
+            end_event = "failed"
+            detail = (
+                f"worker_id={worker_id} processed={jobs_seen} "
+                f"completed={jobs_completed} failed={jobs_failed} exceptions={jobs_exceptions}"
+            )
+        elif jobs_seen == 0:
+            end_event = "idle"
+            detail = f"worker_id={worker_id} processed=0"
+        else:
+            end_event = "completed"
+            detail = (
+                f"worker_id={worker_id} processed={jobs_seen} "
+                f"completed={jobs_completed} failed={jobs_failed} exceptions={jobs_exceptions}"
+            )
+
+        await send_irccat_message(format_worker_message(job_type, end_event, detail=detail))
         # Shutdown tracing to flush any pending spans
         shutdown_tracing()

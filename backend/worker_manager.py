@@ -7,6 +7,7 @@ import zoneinfo
 from dotenv import load_dotenv
 
 from database import DatabaseInterface, FirestoreDatabase, SQLiteDatabase
+from notifications import format_worker_message, send_irccat_message
 from worker_queue import start_health_check_server
 
 # Configure logging
@@ -262,19 +263,38 @@ async def run_manager(continuous: bool = False):
         f"Continuous: {continuous}. Rules: {len(MANAGER_RULES)}. "
         f"Job launching: {ENABLE_JOB_LAUNCHING}"
     )
+    await send_irccat_message(format_worker_message(
+        "manager",
+        "started",
+        detail=(
+            f"continuous={continuous} interval={MANAGER_INTERVAL_SECONDS}s "
+            f"rules={len(MANAGER_RULES)} job_launching={ENABLE_JOB_LAUNCHING}"
+        ),
+    ))
 
     if continuous:
         asyncio.create_task(start_health_check_server())
 
-    while True:
-        await run_manager_cycle(db)
+    cycles_run = 0
+    had_unhandled_exception = False
+    try:
+        while True:
+            await run_manager_cycle(db)
+            cycles_run += 1
 
-        if not continuous:
-            logger.info("Single run complete. Exiting.")
-            return
+            if not continuous:
+                logger.info("Single run complete. Exiting.")
+                return
 
-        logger.info(f"Sleeping {MANAGER_INTERVAL_SECONDS}s until next cycle...")
-        await asyncio.sleep(MANAGER_INTERVAL_SECONDS)
+            logger.info(f"Sleeping {MANAGER_INTERVAL_SECONDS}s until next cycle...")
+            await asyncio.sleep(MANAGER_INTERVAL_SECONDS)
+    except Exception:
+        had_unhandled_exception = True
+        raise
+    finally:
+        event = "failed" if had_unhandled_exception else "completed"
+        detail = f"continuous={continuous} cycles={cycles_run}"
+        await send_irccat_message(format_worker_message("manager", event, detail=detail))
 
 
 def main():
