@@ -83,6 +83,34 @@ async def rule_retry_single_attempt_failures(db: DatabaseInterface, logger: logg
     return reset_count
 
 
+async def rule_retry_expired_leases(db: DatabaseInterface, logger: logging.Logger) -> int:
+    """Reset leased jobs whose lease has expired back to queued."""
+    jobs = await db.get_expired_leased_worker_jobs()
+
+    if not jobs:
+        return 0
+
+    reset_count = 0
+    for job in jobs:
+        job_id = job.get('firestore_id') or job.get('id')
+        job_type = job.get('job_type', 'unknown')
+        item_id = job.get('item_id', 'unknown')
+        lease_expires_at = job.get('lease_expires_at')
+
+        logger.warning(
+            f"Resetting expired lease for job {job_id} "
+            f"(type={job_type}, item={item_id}, lease_expires_at={lease_expires_at})"
+        )
+
+        success = await db.reset_worker_job(job_id)
+        if success:
+            reset_count += 1
+        else:
+            logger.warning(f"Failed to reset expired leased job {job_id}")
+
+    return reset_count
+
+
 async def rule_reset_missing_analysis_failures(db: DatabaseInterface, logger: logging.Logger) -> int:
     """Reset normalize jobs that failed due to missing_analysis back to queued."""
     count = await db.reset_failed_jobs('normalize', 'missing_analysis')
@@ -231,6 +259,7 @@ def _run_job(job_name: str) -> None:
 # Registry of all manager rules. Add new rules here.
 MANAGER_RULES = [
     ("retry_single_attempt_failures", rule_retry_single_attempt_failures),
+    ("retry_expired_leases", rule_retry_expired_leases),
     ("reset_missing_analysis_failures", rule_reset_missing_analysis_failures),
     ("create_timeline_follow_ups", rule_create_timeline_follow_ups),
     ("launch_worker_jobs", rule_launch_worker_jobs),

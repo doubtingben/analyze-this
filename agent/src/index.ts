@@ -112,7 +112,7 @@ async function getServiceLogs(args: Record<string, any>) {
     } catch (error: any) {
         const stdout = typeof error?.stdout === "string" ? error.stdout.trim() : "";
         const stderr = typeof error?.stderr === "string" ? error.stderr.trim() : "";
-        if ((error?.code === 1 || error?.code === undefined) && !stdout) {
+        if ((error?.code === 1 || error?.code === undefined) && (!stdout || stdout === "-- No entries --")) {
             return {
                 status: "success",
                 target,
@@ -207,7 +207,7 @@ async function run() {
                         },
                         since: {
                             type: "string",
-                            description: "Journald-compatible lower time bound such as '15 minutes ago' or '1 hour ago'. Defaults to '1 hour ago'.",
+                            description: "Journald-compatible lower time bound such as '15 minutes ago' or '1 hour ago'. Defaults to '1 hour ago'. If no logs are found for a specific ID, try a wider range like '1 day ago'.",
                         },
                         grep: {
                             type: "string",

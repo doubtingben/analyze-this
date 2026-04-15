@@ -11,6 +11,30 @@ import worker_manager
 
 
 class TestWorkerManager(unittest.TestCase):
+    def test_retry_expired_leases_resets_stale_jobs(self):
+        db = MagicMock()
+        db.get_expired_leased_worker_jobs = AsyncMock(return_value=[
+            {
+                "firestore_id": "job-1",
+                "job_type": "analysis",
+                "item_id": "item-1",
+                "lease_expires_at": "2026-04-15T11:00:00+00:00",
+            },
+            {
+                "firestore_id": "job-2",
+                "job_type": "normalize",
+                "item_id": "item-2",
+                "lease_expires_at": "2026-04-15T11:05:00+00:00",
+            },
+        ])
+        db.reset_worker_job = AsyncMock(side_effect=[True, False])
+
+        count = asyncio.run(worker_manager.rule_retry_expired_leases(db, worker_manager.logger))
+
+        self.assertEqual(count, 1)
+        db.get_expired_leased_worker_jobs.assert_awaited_once()
+        self.assertEqual(db.reset_worker_job.await_count, 2)
+
     @patch("worker_manager.send_irccat_message", new_callable=AsyncMock)
     def test_run_manager_cycle_sends_summary_when_rules_act(self, mock_irccat):
         db = MagicMock()

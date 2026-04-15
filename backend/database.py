@@ -134,6 +134,10 @@ class DatabaseInterface(ABC):
         pass
 
     @abstractmethod
+    async def get_expired_leased_worker_jobs(self, job_type: Optional[str] = None, older_than_seconds: int = 0) -> List[dict]:
+        pass
+
+    @abstractmethod
     async def reset_worker_job(self, job_id: str) -> bool:
         pass
 
@@ -782,6 +786,27 @@ class FirestoreDatabase(DatabaseInterface):
                 attempts = int(data.get('attempts', 0))
                 if max_attempts is not None and attempts > max_attempts:
                     continue
+                results.append(data)
+            return results
+
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(None, get_jobs)
+
+    async def get_expired_leased_worker_jobs(self, job_type: Optional[str] = None, older_than_seconds: int = 0) -> List[dict]:
+        def get_jobs():
+            cutoff = datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(seconds=max(0, older_than_seconds))
+            query = (
+                self.db.collection('worker_queue')
+                .where(filter=FieldFilter('status', '==', WorkerJobStatus.leased.value))
+                .where(filter=FieldFilter('lease_expires_at', '<=', cutoff))
+            )
+            if job_type:
+                query = query.where(filter=FieldFilter('job_type', '==', job_type))
+
+            results = []
+            for doc in query.stream():
+                data = doc.to_dict()
+                data['firestore_id'] = doc.id
                 results.append(data)
             return results
 
@@ -1573,6 +1598,36 @@ class SQLiteDatabase(DatabaseInterface):
                     'status': job.status,
                     'attempts': job.attempts,
                     'error': job.error,
+                    'created_at': job.created_at.isoformat() if job.created_at else None,
+                    'updated_at': job.updated_at.isoformat() if job.updated_at else None,
+                }
+                for job in jobs
+            ]
+
+    async def get_expired_leased_worker_jobs(self, job_type: Optional[str] = None, older_than_seconds: int = 0) -> List[dict]:
+        async with self.SessionLocal() as session:
+            cutoff = datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(seconds=max(0, older_than_seconds))
+            query = (
+                select(DBWorkerJob)
+                .where(DBWorkerJob.status == WorkerJobStatus.leased.value)
+                .where(DBWorkerJob.lease_expires_at.is_not(None))
+                .where(DBWorkerJob.lease_expires_at <= cutoff)
+            )
+            if job_type:
+                query = query.where(DBWorkerJob.job_type == job_type)
+
+            result = await session.execute(query)
+            jobs = result.scalars().all()
+            return [
+                {
+                    'firestore_id': job.id,
+                    'item_id': job.item_id,
+                    'user_email': job.user_email,
+                    'job_type': job.job_type,
+                    'status': job.status,
+                    'attempts': job.attempts,
+                    'error': job.error,
+                    'lease_expires_at': job.lease_expires_at.isoformat() if job.lease_expires_at else None,
                     'created_at': job.created_at.isoformat() if job.created_at else None,
                     'updated_at': job.updated_at.isoformat() if job.updated_at else None,
                 }
