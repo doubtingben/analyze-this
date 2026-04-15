@@ -92,7 +92,7 @@ class TestWorkerQueue(unittest.TestCase):
         # Job 3 -> Item 1
         args, _ = process_fn.call_args_list[2]
         self.assertEqual(args[1]['firestore_id'], 'item1')
-        self.assertEqual(mock_irccat.await_count, 2)
+        self.assertEqual(mock_irccat.await_count, 1)
 
     @patch('worker_queue.init_tracing')
     @patch('worker_queue.shutdown_tracing')
@@ -138,7 +138,7 @@ class TestWorkerQueue(unittest.TestCase):
         mock_db.get_shared_items_by_ids.assert_called_once()
         mock_db.get_shared_item.assert_called_once_with('item1')
         process_fn.assert_called_once()
-        self.assertEqual(mock_irccat.await_count, 2)
+        self.assertEqual(mock_irccat.await_count, 1)
 
 if __name__ == '__main__':
     unittest.main()

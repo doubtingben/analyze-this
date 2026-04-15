@@ -240,16 +240,23 @@ MANAGER_RULES = [
 async def run_manager_cycle(db: DatabaseInterface):
     """Execute all manager rules once."""
     logger.info("Starting manager cycle...")
+    actions = []
 
     for rule_name, rule_fn in MANAGER_RULES:
         try:
             count = await rule_fn(db, logger)
             if count > 0:
                 logger.info(f"Rule '{rule_name}' acted on {count} job(s).")
+                actions.append(f"{rule_name}={count}")
             else:
                 logger.debug(f"Rule '{rule_name}' found nothing to do.")
         except Exception as e:
             logger.error(f"Rule '{rule_name}' failed: {e}")
+
+    if actions:
+        await send_irccat_message(
+            format_worker_message("manager", "completed", detail=" ".join(actions))
+        )
 
     logger.info("Manager cycle complete.")
 
@@ -263,14 +270,6 @@ async def run_manager(continuous: bool = False):
         f"Continuous: {continuous}. Rules: {len(MANAGER_RULES)}. "
         f"Job launching: {ENABLE_JOB_LAUNCHING}"
     )
-    await send_irccat_message(format_worker_message(
-        "manager",
-        "started",
-        detail=(
-            f"continuous={continuous} interval={MANAGER_INTERVAL_SECONDS}s "
-            f"rules={len(MANAGER_RULES)} job_launching={ENABLE_JOB_LAUNCHING}"
-        ),
-    ))
 
     if continuous:
         asyncio.create_task(start_health_check_server())
@@ -292,9 +291,9 @@ async def run_manager(continuous: bool = False):
         had_unhandled_exception = True
         raise
     finally:
-        event = "failed" if had_unhandled_exception else "completed"
-        detail = f"continuous={continuous} cycles={cycles_run}"
-        await send_irccat_message(format_worker_message("manager", event, detail=detail))
+        if had_unhandled_exception:
+            detail = f"continuous={continuous} cycles={cycles_run}"
+            await send_irccat_message(format_worker_message("manager", "failed", detail=detail))
 
 
 def main():

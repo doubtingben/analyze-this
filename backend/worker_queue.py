@@ -49,11 +49,6 @@ async def process_queue_jobs(
     # Generate a stable worker ID for this session
     worker_id = os.getenv("WORKER_ID") or f"{socket.gethostname()}-{os.getpid()}-{uuid4().hex[:6]}"
     logger.info(f"Worker {worker_id} started for {job_type} jobs. Continuous: {continuous}")
-    await send_irccat_message(format_worker_message(
-        job_type,
-        "started",
-        detail=f"worker_id={worker_id} continuous={continuous} limit={limit}"
-    ))
 
     jobs_seen = 0
     jobs_completed = 0
@@ -230,16 +225,17 @@ async def process_queue_jobs(
                 f"worker_id={worker_id} processed={jobs_seen} "
                 f"completed={jobs_completed} failed={jobs_failed} exceptions={jobs_exceptions}"
             )
-        elif jobs_seen == 0:
-            end_event = "idle"
-            detail = f"worker_id={worker_id} processed=0"
-        else:
+        elif jobs_seen > 0:
             end_event = "completed"
             detail = (
                 f"worker_id={worker_id} processed={jobs_seen} "
                 f"completed={jobs_completed} failed={jobs_failed} exceptions={jobs_exceptions}"
             )
+        else:
+            end_event = None
+            detail = None
 
-        await send_irccat_message(format_worker_message(job_type, end_event, detail=detail))
+        if end_event:
+            await send_irccat_message(format_worker_message(job_type, end_event, detail=detail))
         # Shutdown tracing to flush any pending spans
         shutdown_tracing()

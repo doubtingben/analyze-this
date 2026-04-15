@@ -36,10 +36,16 @@ _EVENT_COLORS = {
 }
 
 _WORKER_EVENT_COLORS = {
-    "started": _CLR_BLUE,
     "completed": _CLR_GREEN,
-    "idle": _CLR_GREY,
     "failed": _CLR_RED,
+}
+
+_WORKER_NAME_COLORS = {
+    "analysis": _CLR_BLUE,
+    "normalize": _CLR_TEAL,
+    "follow_up": _CLR_PURPLE,
+    "podcast_audio": _CLR_ORANGE,
+    "manager": _CLR_GREEN,
 }
 
 
@@ -77,11 +83,12 @@ def format_item_message(event: str, user_email: str, item_id: str, title: str | 
 def format_worker_message(worker_name: str, event: str, detail: str | None = None) -> str:
     safe_worker_name = _compact_text(worker_name) or "worker"
     detail_text = _compact_text(detail)
-    color = _WORKER_EVENT_COLORS.get(event, _CLR_GREY)
+    event_color = _WORKER_EVENT_COLORS.get(event, _CLR_GREY)
+    worker_color = _WORKER_NAME_COLORS.get(safe_worker_name, _CLR_GREY)
 
     parts = [
-        f"{BOLD}{COLOR}{color}worker {event}{RESET}",
-        safe_worker_name,
+        f"{BOLD}{COLOR}{event_color}worker {event}{RESET}",
+        f"{COLOR}{worker_color}{safe_worker_name}{RESET}",
     ]
     if detail_text:
         parts.append(detail_text)
