@@ -418,9 +418,17 @@ async function generateReply(
         });
 
         const choice = completion.choices[0];
-        const assistantMessage = choice?.message;
+        const assistantMessage = choice?.message as any;
         if (!assistantMessage) {
             return "I couldn't generate a response.";
+        }
+
+        // Log reasoning/thinking if available (handling both standard content and potential reasoning_content field)
+        if (assistantMessage.reasoning_content) {
+            console.log(`[Reasoning/Thinking] ${assistantMessage.reasoning_content}`);
+        }
+        if (assistantMessage.content) {
+            console.log(`[Assistant Content] ${assistantMessage.content}`);
         }
 
         if (assistantMessage.tool_calls && assistantMessage.tool_calls.length > 0) {
@@ -432,10 +440,17 @@ async function generateReply(
 
             for (const toolCall of assistantMessage.tool_calls) {
                 const args = safeParseJson(toolCall.function.arguments);
+                console.log(`[Tool Call] ${toolCall.function.name}(${JSON.stringify(args)})`);
+                
                 let result: any;
                 try {
                     result = await callTool(toolCall.function.name, args);
+                    // Log truncated result to avoid flooding logs with large data
+                    const resultStr = JSON.stringify(result);
+                    const preview = resultStr.length > 1000 ? resultStr.substring(0, 1000) + "... [truncated]" : resultStr;
+                    console.log(`[Tool Result] ${toolCall.function.name} -> ${preview}`);
                 } catch (error: any) {
+                    console.error(`[Tool Error] ${toolCall.function.name}:`, error);
                     result = { error: String(error?.message || error) };
                 }
                 messages.push({
