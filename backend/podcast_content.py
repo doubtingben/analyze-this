@@ -9,7 +9,11 @@ from pathlib import Path
 from typing import Optional
 
 import firebase_admin
-import requests
+import httpx
+import socket
+import ipaddress
+import urllib.parse
+
 from firebase_admin import storage
 
 
@@ -373,6 +377,33 @@ def _extract_pdf_text(raw_bytes: bytes) -> str:
         return ""
 
 
+
+def _resolve_and_validate_ip(hostname: str) -> str:
+    try:
+        ip_str = socket.gethostbyname(hostname)
+    except socket.gaierror:
+        raise ValueError(f"Could not resolve {hostname}")
+
+    ip_obj = ipaddress.ip_address(ip_str)
+    if (ip_obj.is_private or
+        ip_obj.is_loopback or
+        ip_obj.is_link_local or
+        ip_obj.is_unspecified or
+        str(ip_obj) == "0.0.0.0"):
+        raise ValueError(f"Forbidden IP {ip_str}")
+
+    return ip_str
+
+class SSRFTransport(httpx.HTTPTransport):
+    def handle_request(self, request):
+        hostname = request.url.host
+        if request.url.scheme in ("http", "https"):
+            ip_str = _resolve_and_validate_ip(hostname)
+            request.extensions['sni_hostname'] = hostname
+            request.url = request.url.copy_with(host=ip_str)
+            request.headers["Host"] = hostname
+        return super().handle_request(request)
+
 def _extract_remote_text(source_url: str) -> Optional[str]:
     text, _details = _extract_remote_text_with_diagnostics(source_url)
     return text
@@ -385,21 +416,52 @@ def _extract_remote_text_with_diagnostics(source_url: str) -> tuple[Optional[str
             "failure_reason": "missing_source_url",
         }
 
+    current_url = source_url
+    max_redirects = 5
+    redirect_count = 0
+    final_url = current_url
+    status_code = None
+    content = b""
+    content_type = ""
+
     try:
-        response = requests.get(
-            source_url,
-            timeout=PODCAST_FETCH_TIMEOUT_SECONDS,
-            headers={"User-Agent": PODCAST_FETCH_USER_AGENT},
-            allow_redirects=True,
-        )
-        response.raise_for_status()
-    except requests.Timeout:
+        with httpx.Client(transport=SSRFTransport(), timeout=PODCAST_FETCH_TIMEOUT_SECONDS) as client:
+            while redirect_count <= max_redirects:
+                response = client.get(
+                    current_url,
+                    headers={"User-Agent": PODCAST_FETCH_USER_AGENT},
+                    follow_redirects=False,
+                )
+                status_code = response.status_code
+                final_url = str(response.url)
+
+                if response.is_redirect:
+                    location = response.headers.get("Location")
+                    if not location:
+                        break
+                    current_url = urllib.parse.urljoin(current_url, location)
+                    parsed_url = urllib.parse.urlparse(current_url)
+                    if parsed_url.scheme not in ("http", "https"):
+                        raise ValueError(f"Invalid redirect scheme: {parsed_url.scheme}")
+
+                    redirect_count += 1
+                    continue
+
+                response.raise_for_status()
+                content = response.content
+                content_type = response.headers.get("content-type", "").lower()
+                break
+
+            if redirect_count > max_redirects:
+                raise ValueError("Too many redirects")
+
+    except httpx.TimeoutException:
         return None, {
             "source": "source_url",
             "source_url": source_url,
             "failure_reason": "source_fetch_timeout",
         }
-    except requests.HTTPError as exc:
+    except httpx.HTTPStatusError as exc:
         status_code = exc.response.status_code if exc.response is not None else None
         return None, {
             "source": "source_url",
@@ -407,7 +469,7 @@ def _extract_remote_text_with_diagnostics(source_url: str) -> tuple[Optional[str
             "status_code": status_code,
             "failure_reason": f"source_fetch_http_{status_code or 'unknown'}",
         }
-    except requests.RequestException as exc:
+    except httpx.RequestError as exc:
         return None, {
             "source": "source_url",
             "source_url": source_url,
@@ -420,22 +482,26 @@ def _extract_remote_text_with_diagnostics(source_url: str) -> tuple[Optional[str
             "failure_reason": f"source_fetch_unexpected_error:{type(exc).__name__}",
         }
 
-    content_type = (response.headers.get("content-type") or "").lower()
     details = {
         "source": "source_url",
         "source_url": source_url,
-        "final_url": response.url,
-        "status_code": response.status_code,
+        "final_url": final_url,
+        "status_code": status_code,
         "content_type": content_type,
-        "content_length": len(response.content or b""),
+        "content_length": len(content),
     }
-    if "application/pdf" in content_type or source_url.lower().endswith(".pdf"):
-        text = _truncate_text(_extract_pdf_text(response.content))
+    if "application/pdf" in content_type or final_url.lower().endswith(".pdf"):
+        text = _truncate_text(_extract_pdf_text(content))
         details["text_length"] = len(text or "")
         details["failure_reason"] = None if text else "source_pdf_text_extraction_empty"
         return text, details
 
-    text = _extract_html_text(response.text if response.text else response.content.decode("utf-8", errors="ignore"))
+    try:
+        html_text = content.decode("utf-8", errors="ignore")
+    except Exception:
+        html_text = ""
+
+    text = _extract_html_text(html_text)
     text = _truncate_text(text)
     details["text_length"] = len(text or "")
     details["failure_reason"] = None if text else "source_html_text_extraction_empty"
