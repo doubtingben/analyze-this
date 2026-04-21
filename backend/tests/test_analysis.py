@@ -7,7 +7,7 @@ import json
 # Add backend directory to path to import analysis
 sys.path.append(os.path.abspath(os.path.dirname(os.path.dirname(__file__))))
 
-from analysis import analyze_content, get_image_data_url
+from analysis import analyze_content, get_image_data_url, normalize_analysis
 
 class TestAnalysis(unittest.TestCase):
 
@@ -39,6 +39,61 @@ class TestAnalysis(unittest.TestCase):
             "podcast_summary": "Dinner at 8pm",
         })
         mock_client.chat.completions.create.assert_called_once()
+
+    def test_normalize_analysis_unwraps_item_analysis_payload(self):
+        result = normalize_analysis({
+            "item": {
+                "status": "timeline",
+                "analysis": {
+                    "overview": "Festival at the pier",
+                    "timeline": [
+                        {
+                            "date": "2024-04-26",
+                            "time": "10:00:00",
+                            "location": "St Pete Pier",
+                            "principal": "The Club Wellness Festival",
+                        }
+                    ],
+                    "tags": ["wellness", "festival", "fitness"],
+                    "podcast_candidate": True,
+                    "podcast_source_kind": "narration",
+                    "podcast_title": "The Club Wellness Festival",
+                    "podcast_summary": "An overview of the festival.",
+                },
+            }
+        })
+
+        self.assertNotIn("item", result)
+        self.assertEqual(result["overview"], "Festival at the pier")
+        self.assertEqual(result["tags"], ["wellness", "festival", "fitness"])
+        self.assertEqual(result["timeline"][0]["location"], "St Pete Pier")
+        self.assertTrue(result["podcast_candidate"])
+        self.assertEqual(result["podcast_source_kind"], "narration")
+
+    @patch('analysis.client')
+    @patch('analysis.get_analysis_prompt')
+    def test_analyze_content_unwraps_item_analysis_payload(self, mock_get_prompt, mock_client):
+        mock_get_prompt.return_value = "System Prompt"
+
+        mock_completion = MagicMock()
+        mock_completion.choices[0].message.content = json.dumps({
+            "item": {
+                "status": "timeline",
+                "analysis": {
+                    "overview": "Event wrapped by model",
+                    "timeline": [{"date": "2024-04-26", "principal": "Event"}],
+                    "tags": ["event"],
+                },
+            }
+        })
+        mock_client.chat.completions.create.return_value = mock_completion
+
+        result = analyze_content("Event at 10am")
+
+        self.assertNotIn("item", result)
+        self.assertEqual(result["overview"], "Event wrapped by model")
+        self.assertEqual(result["timeline"], [{"date": "2024-04-26", "principal": "Event"}])
+        self.assertEqual(result["tags"], ["event"])
     
     @patch('analysis.client')
     def test_analyze_content_exception(self, mock_client):

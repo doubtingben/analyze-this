@@ -7,6 +7,7 @@ from uuid import uuid4
 
 from dotenv import load_dotenv
 
+from analysis import normalize_analysis
 from podcast_audio import get_podcast_audio_driver
 from podcast_content import (
     build_podcast_notes,
@@ -40,7 +41,7 @@ def _audio_extension(mime_type: str | None) -> str:
 async def _process_podcast_audio_item(db, data, context):
     item_id = data.get("firestore_id") or data.get("id")
     user_email = data.get("user_email")
-    analysis = data.get("analysis") or {}
+    analysis = normalize_analysis(data.get("analysis") or {})
     add_span_attributes({
         "podcast.item_id": item_id,
         "podcast.user_email": user_email or "unknown",

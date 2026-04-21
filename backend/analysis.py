@@ -219,11 +219,42 @@ def generate_embedding(text: str) -> list[float] | None:
         return None
 
 
+def _unwrap_analysis_payload(raw_response: dict) -> dict:
+    """Flatten model responses that wrap the actual analysis in an item object."""
+    if not isinstance(raw_response, dict):
+        return raw_response
+
+    item_payload = raw_response.get("item")
+    if isinstance(item_payload, dict) and isinstance(item_payload.get("analysis"), dict):
+        return dict(item_payload["analysis"])
+
+    analysis_payload = raw_response.get("analysis")
+    canonical_keys = {
+        "overview",
+        "timeline",
+        "follow_up",
+        "tags",
+        "consumption_time_minutes",
+        "podcast_candidate",
+        "podcast_candidate_reason",
+        "podcast_source_kind",
+        "podcast_title",
+        "podcast_summary",
+        "error",
+    }
+    if isinstance(analysis_payload, dict) and not any(key in raw_response for key in canonical_keys):
+        return dict(analysis_payload)
+
+    return raw_response
+
+
 def normalize_analysis(raw_response: dict) -> dict:
     """
     Normalizes AI analysis response to standard format.
     Ensures 'overview' field exists even if AI doesn't provide it.
     """
+    raw_response = _unwrap_analysis_payload(raw_response)
+
     if not raw_response:
         return {
             "overview": "Analysis unavailable",
