@@ -218,7 +218,7 @@ def generate_embedding(text: str, task_type: str = "RETRIEVAL_DOCUMENT") -> list
                 contents=text,
                 config={
                     'task_type': task_type,
-                    'output_dimensionality': 768
+                    'output_dimensionality': 1536
                 }
             )
             if response and response.embeddings:

@@ -29,7 +29,7 @@ def test_generate_embedding_gemini():
             contents="hello world",
             config={
                 'task_type': "RETRIEVAL_QUERY",
-                'output_dimensionality': 768
+                'output_dimensionality': 1536
             }
         )
 
