@@ -10,6 +10,7 @@ gunicorn
 itsdangerous
 google-auth
 google-auth-oauthlib
+google-genai
 openai
 aiosqlite
 sqlalchemy

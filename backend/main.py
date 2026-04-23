@@ -1732,7 +1732,7 @@ async def search_items_endpoint(request: Request, q: str, limit: int = 10):
         with create_span("generate_search_embedding", {"query": q}) as embed_span:
             # Run in executor to avoid blocking event loop
             loop = asyncio.get_running_loop()
-            query_embedding = await loop.run_in_executor(None, generate_embedding, q)
+            query_embedding = await loop.run_in_executor(None, generate_embedding, q, "RETRIEVAL_QUERY")
             
             if not query_embedding:
                 embed_span.set_attribute("embedding.success", False)

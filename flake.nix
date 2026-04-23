@@ -35,6 +35,7 @@
       firebase-admin
       google-auth
       google-auth-oauthlib
+      google-genai
       greenlet
       gunicorn
       httpx
@@ -67,6 +68,7 @@
         age
       ];
       shellHook = ''
+        export LD_LIBRARY_PATH="${pkgs.stdenv.cc.cc.lib}/lib:$LD_LIBRARY_PATH"
         export PYTHONPATH="$PWD/backend${PYTHONPATH:+:$PYTHONPATH}"
         export NPM_CONFIG_PREFIX="$HOME/.npm-global"
         export NPM_CONFIG_CACHE="$HOME/.npm-cache"
