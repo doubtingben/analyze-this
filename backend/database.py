@@ -1008,6 +1008,7 @@ class DBPodcastFeedEntry(Base):
     shared_item_url = Column(String, nullable=True)
     status = Column(String, nullable=False, default='queued', index=True)
     audio_storage_path = Column(String, nullable=True)
+    audio_byte_length = Column(Integer, nullable=True)
     duration_seconds = Column(Integer, nullable=True)
     mime_type = Column(String, nullable=True)
     provider = Column(String, nullable=True)
@@ -1114,6 +1115,7 @@ class SQLiteDatabase(DatabaseInterface):
                             shared_item_url VARCHAR,
                             status VARCHAR NOT NULL,
                             audio_storage_path VARCHAR,
+                            audio_byte_length INTEGER,
                             duration_seconds INTEGER,
                             mime_type VARCHAR,
                             provider VARCHAR,
@@ -1132,6 +1134,14 @@ class SQLiteDatabase(DatabaseInterface):
                     sync_conn.execute(text("CREATE UNIQUE INDEX ix_podcast_feed_entries_user_item ON podcast_feed_entries (user_email, item_id)"))
 
             await conn.run_sync(ensure_podcast_feed_entries_table)
+
+            def ensure_podcast_feed_entry_columns(sync_conn):
+                inspector = inspect(sync_conn)
+                columns = [col['name'] for col in inspector.get_columns('podcast_feed_entries')]
+                if 'audio_byte_length' not in columns:
+                    sync_conn.execute(text("ALTER TABLE podcast_feed_entries ADD COLUMN audio_byte_length INTEGER"))
+
+            await conn.run_sync(ensure_podcast_feed_entry_columns)
 
     async def close(self):
         await self.engine.dispose()
@@ -1167,6 +1177,7 @@ class SQLiteDatabase(DatabaseInterface):
                 shared_item_url=entry.shared_item_url,
                 status=entry.status,
                 audio_storage_path=entry.audio_storage_path,
+                audio_byte_length=entry.audio_byte_length,
                 duration_seconds=entry.duration_seconds,
                 mime_type=entry.mime_type,
                 provider=entry.provider,
@@ -1202,6 +1213,7 @@ class SQLiteDatabase(DatabaseInterface):
                     'shared_item_url': entry.shared_item_url,
                     'status': entry.status,
                     'audio_storage_path': entry.audio_storage_path,
+                    'audio_byte_length': entry.audio_byte_length,
                     'duration_seconds': entry.duration_seconds,
                     'mime_type': entry.mime_type,
                     'provider': entry.provider,
@@ -1236,6 +1248,7 @@ class SQLiteDatabase(DatabaseInterface):
                 'shared_item_url': entry.shared_item_url,
                 'status': entry.status,
                 'audio_storage_path': entry.audio_storage_path,
+                'audio_byte_length': entry.audio_byte_length,
                 'duration_seconds': entry.duration_seconds,
                 'mime_type': entry.mime_type,
                 'provider': entry.provider,
@@ -1268,6 +1281,7 @@ class SQLiteDatabase(DatabaseInterface):
                 'shared_item_url': entry.shared_item_url,
                 'status': entry.status,
                 'audio_storage_path': entry.audio_storage_path,
+                'audio_byte_length': entry.audio_byte_length,
                 'duration_seconds': entry.duration_seconds,
                 'mime_type': entry.mime_type,
                 'provider': entry.provider,

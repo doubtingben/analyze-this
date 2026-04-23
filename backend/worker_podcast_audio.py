@@ -14,6 +14,7 @@ from podcast_content import (
     build_podcast_script,
     build_shared_item_url,
     normalize_audio_bytes,
+    probe_audio_duration_seconds,
     resolve_episode_content,
     upload_audio_bytes,
 )
@@ -104,16 +105,22 @@ async def _process_podcast_audio_item(db, data, context):
                 )
 
         normalized_audio_bytes, normalized_mime_type = normalize_audio_bytes(result.audio_bytes or b"", result.mime_type)
+        duration_seconds = probe_audio_duration_seconds(normalized_audio_bytes, normalized_mime_type) or result.duration_seconds
+        audio_byte_length = len(normalized_audio_bytes)
         blob_path = f"uploads/{user_email}/podcast/{item_id}-{uuid4().hex}.{_audio_extension(normalized_mime_type)}"
         upload_audio_bytes(blob_path, normalized_audio_bytes, normalized_mime_type)
+        provider_voice_id = None
+        if result.provider == "elevenlabs":
+            provider_voice_id = result.provider_metadata.get("voice_id") or os.getenv("ELEVENLABS_VOICE_ID")
 
         await db.update_podcast_feed_entry(feed_entry_id, {
             "status": "ready",
             "audio_storage_path": blob_path,
-            "duration_seconds": result.duration_seconds,
+            "audio_byte_length": audio_byte_length,
+            "duration_seconds": duration_seconds,
             "mime_type": normalized_mime_type,
             "provider": result.provider,
-            "provider_voice_id": os.getenv("ELEVENLABS_VOICE_ID"),
+            "provider_voice_id": provider_voice_id,
             "source_kind": resolved_source_kind,
             "script_text": script_text,
             "analysis_notes": build_podcast_notes(data, analysis),

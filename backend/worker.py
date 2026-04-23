@@ -5,6 +5,7 @@ Usage:
     python worker.py --job-type analysis [--limit 20] [--lease-seconds 600]
     python worker.py --job-type normalize [--limit 20] [--lease-seconds 600]
     python worker.py --job-type follow_up [--limit 20] [--lease-seconds 600]
+    python worker.py --job-type podcast_audio [--limit 20] [--lease-seconds 600]
 
 Dispatches to the appropriate processor function from the existing worker modules.
 Runs in batch mode (process available jobs, then exit) - no health check server needed.

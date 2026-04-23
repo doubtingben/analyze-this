@@ -993,6 +993,7 @@ async def get_podcast_rss(request: Request):
         else:
             pub_date_str = str(pub_date)
         mime_type = xml_escape(entry.get("mime_type") or "audio/mpeg")
+        audio_byte_length = int(entry.get("audio_byte_length") or 0)
         enclosure_url = xml_escape(f"{base_url}/api/podcast/audio/{entry_id}?token={feed_token}")
         item_xml.append(
             "      <item>\n"
@@ -1000,7 +1001,7 @@ async def get_podcast_rss(request: Request):
             f"        <title>{title}</title>\n"
             f"        <description>{xml_escape(description)}</description>\n"
             f"        <pubDate>{pub_date_str}</pubDate>\n"
-            f"        <enclosure url=\"{enclosure_url}\" type=\"{mime_type}\" />\n"
+            f"        <enclosure url=\"{enclosure_url}\" length=\"{audio_byte_length}\" type=\"{mime_type}\" />\n"
             "      </item>"
         )
 

@@ -89,6 +89,7 @@ class TestPodcastAudioDriver(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(first_payload["voice_settings"], driver.voice_settings)
         self.assertEqual(result.provider_metadata["chunk_count"], 3)
         self.assertEqual(result.provider_metadata["item_id"], "abc")
+        self.assertEqual(result.provider_metadata["voice_id"], "voice-123")
 
 
 if __name__ == "__main__":

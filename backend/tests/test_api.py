@@ -219,6 +219,7 @@ class TestApi(unittest.TestCase):
             shared_item_url="/?item=item-xml",
             status=PodcastFeedEntryStatus.ready,
             audio_storage_path="uploads/dev@example.com/podcast/item-xml.mp3",
+            audio_byte_length=12345,
             mime_type="audio/mpeg",
         )
         asyncio.run(main.db.create_podcast_feed_entry(entry))
@@ -243,6 +244,7 @@ class TestApi(unittest.TestCase):
         enclosure = item.find("enclosure")
         self.assertIsNotNone(enclosure)
         self.assertIn("/api/podcast/audio/", enclosure.attrib.get("url", ""))
+        self.assertEqual(enclosure.attrib.get("length"), "12345")
         self.assertEqual(enclosure.attrib.get("type"), "audio/mpeg")
 
     def test_get_podcast_feed_degrades_on_backend_error(self):

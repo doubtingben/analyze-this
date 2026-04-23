@@ -107,6 +107,7 @@ class PodcastFeedEntry(BaseModel):
     shared_item_url: Optional[str] = None
     status: PodcastFeedEntryStatus = Field(default=PodcastFeedEntryStatus.queued)
     audio_storage_path: Optional[str] = None
+    audio_byte_length: Optional[int] = None
     duration_seconds: Optional[int] = None
     mime_type: Optional[str] = None
     provider: Optional[str] = None

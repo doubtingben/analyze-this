@@ -159,6 +159,50 @@ def normalize_audio_bytes(audio_bytes: bytes, mime_type: str) -> tuple[bytes, st
         return output_path.read_bytes(), output_mime_type
 
 
+def probe_audio_duration_seconds(audio_bytes: bytes, mime_type: str) -> Optional[int]:
+    if not audio_bytes:
+        return None
+
+    input_extension = ".wav" if mime_type == "audio/wav" else ".mp3"
+    with tempfile.TemporaryDirectory(prefix="podcast-probe-") as temp_dir:
+        input_path = Path(temp_dir) / f"input{input_extension}"
+        input_path.write_bytes(audio_bytes)
+
+        try:
+            result = subprocess.run(
+                [
+                    "ffprobe",
+                    "-v",
+                    "error",
+                    "-show_entries",
+                    "format=duration",
+                    "-of",
+                    "default=noprint_wrappers=1:nokey=1",
+                    str(input_path),
+                ],
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+        except FileNotFoundError:
+            logger.warning("ffprobe is not installed; podcast duration_seconds will be omitted")
+            return None
+        except subprocess.CalledProcessError as exc:
+            stderr = (exc.stderr or "").strip()
+            logger.warning("ffprobe failed while reading podcast duration: %s", stderr or exc.returncode)
+            return None
+
+    duration_text = result.stdout.strip()
+    if not duration_text or duration_text == "N/A":
+        return None
+
+    try:
+        return max(1, round(float(duration_text)))
+    except ValueError:
+        logger.warning("ffprobe returned invalid podcast duration: %s", duration_text)
+        return None
+
+
 def extract_podcast_text(item: dict) -> Optional[str]:
     text, _details = extract_podcast_text_with_diagnostics(item)
     return text

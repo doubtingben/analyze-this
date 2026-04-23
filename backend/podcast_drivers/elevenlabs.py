@@ -61,6 +61,7 @@ class ElevenLabsPodcastAudioDriver(PodcastAudioDriver):
                 provider_metadata={
                     "title": title,
                     "chunk_count": chunk_count,
+                    "voice_id": chosen_voice_id,
                     "voice_settings": self.voice_settings,
                     **(metadata or {}),
                 },

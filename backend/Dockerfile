@@ -11,6 +11,11 @@ ENV APP_HOME /app
 WORKDIR $APP_HOME
 COPY . ./
 
+# Install runtime tools used by podcast audio workers.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ffmpeg \
+    && rm -rf /var/lib/apt/lists/*
+
 # Install production dependencies.
 RUN pip install --no-cache-dir -r requirements.txt
 
