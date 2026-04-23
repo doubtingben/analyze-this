@@ -3,6 +3,7 @@ import logging
 import base64
 from functools import lru_cache
 from openai import OpenAI
+from google import genai
 from dotenv import load_dotenv
 import firebase_admin
 from firebase_admin import storage
@@ -19,7 +20,15 @@ OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", os.getenv("OPENROUTER_API_KEY", "ol
 OPENAI_MODEL = os.getenv("OPENAI_MODEL", os.getenv("OPENROUTER_MODEL", "gemma4:31b"))
 OPENAI_BASE_URL = os.getenv("OPENAI_BASE_URL", os.getenv("OPENROUTER_BASE_URL", "http://nixos-gpt:11434/v1"))
 # Use OpenAI's embedding model natively or fallback
-EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "text-embedding-3-small")
+EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "gemini-embedding-2-preview")
+
+GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
+google_genai_client = None
+if GOOGLE_API_KEY:
+    try:
+        google_genai_client = genai.Client(api_key=GOOGLE_API_KEY)
+    except Exception as e:
+        logger.error(f"Failed to initialize Google GenAI client: {e}")
 
 client = None
 if OPENAI_API_KEY:
@@ -193,14 +202,34 @@ def analyze_content(content: str, item_type: str = 'text', preferred_tags: list[
             return normalize_analysis({"error": str(e)})
 
 
-def generate_embedding(text: str) -> list[float] | None:
+def generate_embedding(text: str, task_type: str = "RETRIEVAL_DOCUMENT") -> list[float] | None:
     """
     Generates a vector embedding for the given text.
     """
-    if not client:
-        return None
-    
     if not text:
+        return None
+
+    # Handle Gemini Embeddings (e.g. gemini-embedding-2-preview or text-embedding-004)
+    if google_genai_client and ("gemini" in EMBEDDING_MODEL or "text-embedding" in EMBEDDING_MODEL):
+        try:
+            logger.info(f"Generating Gemini embedding using model: {EMBEDDING_MODEL}, task_type: {task_type}")
+            response = google_genai_client.models.embed_content(
+                model=EMBEDDING_MODEL,
+                contents=text,
+                config={
+                    'task_type': task_type,
+                    'output_dimensionality': 768
+                }
+            )
+            if response and response.embeddings:
+                return response.embeddings[0].values
+            return None
+        except Exception as e:
+            logger.error(f"Failed to generate Gemini embedding: {e}")
+            return None
+
+    # Fallback to OpenAI compatible client
+    if not client:
         return None
 
     try:

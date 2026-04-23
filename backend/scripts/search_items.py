@@ -27,7 +27,7 @@ async def search_items(query, user_email, limit=10):
     
     # Generate embedding for query
     logger.info(f"Generating embedding for query: '{query}'")
-    query_embedding = generate_embedding(query)
+    query_embedding = generate_embedding(query, "RETRIEVAL_QUERY")
     
     if not query_embedding:
         logger.error("Failed to generate embedding for query.")
