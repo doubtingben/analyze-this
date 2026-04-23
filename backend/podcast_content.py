@@ -1,5 +1,6 @@
 import os
 import re
+import json
 import subprocess
 import tempfile
 import logging
@@ -11,12 +12,20 @@ from typing import Optional
 import firebase_admin
 import requests
 from firebase_admin import storage
+from openai import OpenAI
 
 
 APP_ENV = os.getenv("APP_ENV", "production")
 PUBLIC_APP_URL = (os.getenv("PUBLIC_APP_URL") or "").rstrip("/")
 MAX_PODCAST_TEXT_CHARS = int(os.getenv("MAX_PODCAST_TEXT_CHARS", "12000"))
 MAX_PODCAST_INTRO_CHARS = int(os.getenv("MAX_PODCAST_INTRO_CHARS", "1200"))
+PODCAST_CONTENT_RETRIEVER = os.getenv("PODCAST_CONTENT_RETRIEVER", "deterministic").lower()
+PODCAST_RETRIEVER_MODEL = os.getenv(
+    "PODCAST_RETRIEVER_MODEL",
+    os.getenv("OPENAI_MODEL", os.getenv("OPENROUTER_MODEL", "gemma4:31b")),
+)
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", os.getenv("OPENROUTER_API_KEY", "ollama"))
+OPENAI_BASE_URL = os.getenv("OPENAI_BASE_URL", os.getenv("OPENROUTER_BASE_URL", "http://nixos-gpt:11434/v1"))
 PODCAST_TARGET_LOUDNESS_LUFS = os.getenv("PODCAST_TARGET_LOUDNESS_LUFS", "-16")
 PODCAST_TARGET_TRUE_PEAK_DBTP = os.getenv("PODCAST_TARGET_TRUE_PEAK_DBTP", "-1.5")
 PODCAST_TARGET_LOUDNESS_RANGE = os.getenv("PODCAST_TARGET_LOUDNESS_RANGE", "11")
@@ -27,10 +36,37 @@ PODCAST_FETCH_USER_AGENT = os.getenv(
 )
 logger = logging.getLogger(__name__)
 
+client = None
+if OPENAI_API_KEY:
+    try:
+        client = OpenAI(base_url=OPENAI_BASE_URL, api_key=OPENAI_API_KEY)
+    except Exception as exc:
+        logger.error("Failed to initialize podcast retriever client: %s", exc)
+
 
 @dataclass
 class EpisodeContent:
     intro_text: Optional[str]
+    body_text: Optional[str]
+    body_source: str
+    retrieval_error: Optional[str] = None
+    retrieval_details: dict | None = None
+
+
+@dataclass
+class PodcastRetrievalRequest:
+    item_id: str
+    user_email: str
+    item_type: str
+    title: Optional[str]
+    content: Optional[str]
+    item_metadata: dict
+    analysis: dict
+    max_chars: int = MAX_PODCAST_TEXT_CHARS
+
+
+@dataclass
+class PodcastRetrievalResult:
     body_text: Optional[str]
     body_source: str
     retrieval_error: Optional[str] = None
@@ -212,12 +248,66 @@ def resolve_episode_content(item: dict, analysis: dict) -> EpisodeContent:
     intro_text = _truncate_intro_text(
         analysis.get("podcast_summary") or analysis.get("overview") or ""
     )
+    request = PodcastRetrievalRequest(
+        item_id=item.get("firestore_id") or item.get("id") or "",
+        user_email=item.get("user_email") or "",
+        item_type=(item.get("type") or "").lower(),
+        title=item.get("title"),
+        content=item.get("content"),
+        item_metadata=item.get("item_metadata") or {},
+        analysis=analysis or {},
+    )
+    result = retrieve_podcast_content(request)
+
+    return EpisodeContent(
+        intro_text=intro_text,
+        body_text=result.body_text,
+        body_source=result.body_source,
+        retrieval_error=result.retrieval_error,
+        retrieval_details=result.retrieval_details,
+    )
+
+
+def retrieve_podcast_content(request: PodcastRetrievalRequest) -> PodcastRetrievalResult:
+    deterministic_result = _retrieve_podcast_content_deterministic(request)
+    if PODCAST_CONTENT_RETRIEVER != "agentic":
+        return deterministic_result
+
+    try:
+        agentic_result = _retrieve_podcast_content_agentic(request, deterministic_result)
+        if agentic_result.body_text:
+            return agentic_result
+        return _merge_retrieval_fallback(deterministic_result, agentic_result)
+    except Exception as exc:
+        logger.warning("Agentic podcast content retrieval failed; using deterministic result: %s", exc)
+        fallback_details = deterministic_result.retrieval_details or {}
+        return PodcastRetrievalResult(
+            body_text=deterministic_result.body_text,
+            body_source=deterministic_result.body_source,
+            retrieval_error=deterministic_result.retrieval_error,
+            retrieval_details={
+                **fallback_details,
+                "strategy": "deterministic_fallback",
+                "agentic_error": f"{type(exc).__name__}:{exc}",
+            },
+        )
+
+
+def _retrieve_podcast_content_deterministic(request: PodcastRetrievalRequest) -> PodcastRetrievalResult:
+    item = {
+        "firestore_id": request.item_id,
+        "user_email": request.user_email,
+        "type": request.item_type,
+        "title": request.title,
+        "content": request.content,
+        "item_metadata": request.item_metadata,
+    }
     body_text, retrieval_details = extract_podcast_text_with_diagnostics(item)
     body_source = "item_content" if body_text else "none"
     retrieval_error = retrieval_details.get("failure_reason")
 
     if not body_text:
-        source_url = ((item.get("item_metadata") or {}).get("sourceUrl") or "").strip()
+        source_url = (request.item_metadata.get("sourceUrl") or "").strip()
         if source_url:
             body_text, remote_details = _extract_remote_text_with_diagnostics(source_url)
             if body_text:
@@ -228,12 +318,156 @@ def resolve_episode_content(item: dict, analysis: dict) -> EpisodeContent:
                 retrieval_details = remote_details
                 retrieval_error = remote_details.get("failure_reason")
 
-    return EpisodeContent(
-        intro_text=intro_text,
-        body_text=body_text,
+    return PodcastRetrievalResult(
+        body_text=_truncate_text_to_limit(body_text, request.max_chars),
         body_source=body_source,
         retrieval_error=retrieval_error,
-        retrieval_details=retrieval_details,
+        retrieval_details={
+            **(retrieval_details or {}),
+            "strategy": "deterministic",
+        },
+    )
+
+
+def _retrieve_podcast_content_agentic(
+    request: PodcastRetrievalRequest,
+    deterministic_result: PodcastRetrievalResult,
+) -> PodcastRetrievalResult:
+    if not client:
+        raise RuntimeError("podcast_retriever_client_not_initialized")
+
+    candidates = _build_agentic_retrieval_candidates(request)
+    if deterministic_result.body_text and not any(candidate.get("body_text") for candidate in candidates):
+        candidates.append({
+            "source": deterministic_result.body_source,
+            "body_text": deterministic_result.body_text,
+            "details": deterministic_result.retrieval_details or {},
+        })
+
+    prompt = (
+        "You retrieve source content for private podcast narration. "
+        "Use only the provided item fields and Python-collected candidate text. "
+        "Do not invent source text. Do not summarize. Select and clean the best readable source text, "
+        "preserving the original meaning and paragraph structure. Respect max_chars. "
+        "Return only JSON with keys: body_text, body_source, retrieval_error, retrieval_details."
+    )
+    payload = {
+        "item": {
+            "item_id": request.item_id,
+            "item_type": request.item_type,
+            "title": request.title,
+            "content": _safe_preview(request.content, 1000),
+            "item_metadata": request.item_metadata,
+            "analysis": {
+                "overview": request.analysis.get("overview"),
+                "podcast_title": request.analysis.get("podcast_title"),
+                "podcast_summary": request.analysis.get("podcast_summary"),
+            },
+        },
+        "max_chars": request.max_chars,
+        "candidates": candidates,
+        "deterministic_result": {
+            "body_source": deterministic_result.body_source,
+            "retrieval_error": deterministic_result.retrieval_error,
+            "retrieval_details": deterministic_result.retrieval_details,
+        },
+    }
+
+    completion = client.chat.completions.create(
+        model=PODCAST_RETRIEVER_MODEL,
+        messages=[
+            {"role": "system", "content": prompt},
+            {"role": "user", "content": json.dumps(payload, default=str)},
+        ],
+        response_format={"type": "json_object"},
+    )
+    result_content = completion.choices[0].message.content or "{}"
+    parsed = json.loads(result_content)
+    result = _parse_agentic_retrieval_result(parsed, request.max_chars)
+    details = result.retrieval_details or {}
+    return PodcastRetrievalResult(
+        body_text=result.body_text,
+        body_source=result.body_source,
+        retrieval_error=result.retrieval_error,
+        retrieval_details={
+            **details,
+            "strategy": "agentic",
+            "candidate_count": len(candidates),
+        },
+    )
+
+
+def _build_agentic_retrieval_candidates(request: PodcastRetrievalRequest) -> list[dict]:
+    candidates = []
+    item = {
+        "firestore_id": request.item_id,
+        "user_email": request.user_email,
+        "type": request.item_type,
+        "title": request.title,
+        "content": request.content,
+        "item_metadata": request.item_metadata,
+    }
+
+    body_text, details = extract_podcast_text_with_diagnostics(item)
+    candidates.append({
+        "source": "item_content",
+        "body_text": _truncate_text_to_limit(body_text, request.max_chars),
+        "details": details,
+    })
+
+    source_url = (request.item_metadata.get("sourceUrl") or "").strip()
+    if source_url and source_url != request.content:
+        remote_text, remote_details = _extract_remote_text_with_diagnostics(source_url)
+        candidates.append({
+            "source": "source_url",
+            "body_text": _truncate_text_to_limit(remote_text, request.max_chars),
+            "details": remote_details,
+        })
+
+    return candidates
+
+
+def _parse_agentic_retrieval_result(parsed: dict, max_chars: int) -> PodcastRetrievalResult:
+    if not isinstance(parsed, dict):
+        return PodcastRetrievalResult(
+            body_text=None,
+            body_source="none",
+            retrieval_error="agent_invalid_json_shape",
+            retrieval_details={"raw_type": type(parsed).__name__},
+        )
+
+    body_text = _truncate_text_to_limit(parsed.get("body_text"), max_chars)
+    body_source = parsed.get("body_source") or ("agentic" if body_text else "none")
+    retrieval_error = parsed.get("retrieval_error")
+    if not body_text and not retrieval_error:
+        retrieval_error = "agent_no_text_returned"
+    details = parsed.get("retrieval_details")
+    if not isinstance(details, dict):
+        details = {"agent_retrieval_details_type": type(details).__name__}
+
+    return PodcastRetrievalResult(
+        body_text=body_text,
+        body_source=str(body_source),
+        retrieval_error=str(retrieval_error) if retrieval_error else None,
+        retrieval_details=details,
+    )
+
+
+def _merge_retrieval_fallback(
+    deterministic_result: PodcastRetrievalResult,
+    agentic_result: PodcastRetrievalResult,
+) -> PodcastRetrievalResult:
+    details = deterministic_result.retrieval_details or {}
+    return PodcastRetrievalResult(
+        body_text=deterministic_result.body_text,
+        body_source=deterministic_result.body_source,
+        retrieval_error=deterministic_result.retrieval_error,
+        retrieval_details={
+            **details,
+            "strategy": "deterministic_fallback",
+            "agentic_error": agentic_result.retrieval_error,
+            "agentic_details": agentic_result.retrieval_details,
+        },
     )
 
 
@@ -380,12 +614,16 @@ def build_podcast_notes(item: dict, analysis: dict) -> Optional[str]:
 
 
 def _truncate_text(text: Optional[str]) -> Optional[str]:
+    return _truncate_text_to_limit(text, MAX_PODCAST_TEXT_CHARS)
+
+
+def _truncate_text_to_limit(text: Optional[str], max_chars: int) -> Optional[str]:
     if not text:
         return text
     cleaned = _clean_podcast_script_text(str(text))
-    if len(cleaned) <= MAX_PODCAST_TEXT_CHARS:
+    if len(cleaned) <= max_chars:
         return cleaned
-    truncated = cleaned[:MAX_PODCAST_TEXT_CHARS]
+    truncated = cleaned[:max_chars]
     return truncated.rsplit(" ", 1)[0]
 
 
@@ -397,6 +635,15 @@ def _truncate_intro_text(text: Optional[str]) -> Optional[str]:
         return cleaned
     truncated = cleaned[:MAX_PODCAST_INTRO_CHARS]
     return truncated.rsplit(" ", 1)[0]
+
+
+def _safe_preview(text: Optional[str], max_chars: int) -> Optional[str]:
+    if text is None:
+        return None
+    value = str(text)
+    if len(value) <= max_chars:
+        return value
+    return value[:max_chars]
 
 
 def _extract_pdf_text(raw_bytes: bytes) -> str:

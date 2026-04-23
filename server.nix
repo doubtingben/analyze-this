@@ -399,6 +399,7 @@ in
         commonRuntimeEnv ++ [
           "OTEL_SERVICE_NAME=analyze-worker-podcast-audio"
           "GOOGLE_APPLICATION_CREDENTIALS=/run/secrets/worker_sa_json"
+          "PODCAST_CONTENT_RETRIEVER=agentic"
         ];
       TimeoutStartSec = "15min";
       RuntimeMaxSec = "15min";

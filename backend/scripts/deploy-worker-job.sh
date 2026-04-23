@@ -42,6 +42,11 @@ check_secret() {
 deploy_worker_job() {
     local JOB_TYPE="$1"
     local JOB_NAME="worker-${JOB_TYPE//_/-}"
+    local EXTRA_ENV_VARS=""
+
+    if [ "$JOB_TYPE" = "podcast_audio" ]; then
+      EXTRA_ENV_VARS=",PODCAST_CONTENT_RETRIEVER=agentic"
+    fi
 
     echo "Deploying Cloud Run Job: $JOB_NAME (job_type=$JOB_TYPE)..."
 
@@ -57,7 +62,7 @@ deploy_worker_job() {
       --set-env-vars "IRCCAT_ENABLED=true" \
       --set-env-vars "OTEL_ENABLED=true" \
       --set-env-vars "OTEL_EXPORTER_OTLP_ENDPOINT=https://api.honeycomb.io" \
-      --set-env-vars "OTEL_SERVICE_NAME=${JOB_NAME}" \
+      --set-env-vars "OTEL_SERVICE_NAME=${JOB_NAME}${EXTRA_ENV_VARS}" \
       --set-secrets "IRCCAT_BEARER_TOKEN=irc-server-password:latest" \
       --set-secrets "HONEYCOMB_API_KEY=honey-comb-api-key:latest" \
       --set-secrets "FIREBASE_STORAGE_BUCKET=FIREBASE_STORAGE_BUCKET:latest" \

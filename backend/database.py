@@ -1015,6 +1015,8 @@ class DBPodcastFeedEntry(Base):
     provider_voice_id = Column(String, nullable=True)
     source_kind = Column(String, nullable=True)
     script_text = Column(String, nullable=True)
+    debug_source_retrieval_error = Column(String, nullable=True)
+    debug_source_retrieval_details = Column(JSON, nullable=True)
     error = Column(String, nullable=True)
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.datetime.utcnow)
@@ -1122,6 +1124,8 @@ class SQLiteDatabase(DatabaseInterface):
                             provider_voice_id VARCHAR,
                             source_kind VARCHAR,
                             script_text VARCHAR,
+                            debug_source_retrieval_error VARCHAR,
+                            debug_source_retrieval_details JSON,
                             error VARCHAR,
                             created_at DATETIME,
                             updated_at DATETIME,
@@ -1140,6 +1144,10 @@ class SQLiteDatabase(DatabaseInterface):
                 columns = [col['name'] for col in inspector.get_columns('podcast_feed_entries')]
                 if 'audio_byte_length' not in columns:
                     sync_conn.execute(text("ALTER TABLE podcast_feed_entries ADD COLUMN audio_byte_length INTEGER"))
+                if 'debug_source_retrieval_error' not in columns:
+                    sync_conn.execute(text("ALTER TABLE podcast_feed_entries ADD COLUMN debug_source_retrieval_error VARCHAR"))
+                if 'debug_source_retrieval_details' not in columns:
+                    sync_conn.execute(text("ALTER TABLE podcast_feed_entries ADD COLUMN debug_source_retrieval_details JSON"))
 
             await conn.run_sync(ensure_podcast_feed_entry_columns)
 
@@ -1184,6 +1192,8 @@ class SQLiteDatabase(DatabaseInterface):
                 provider_voice_id=entry.provider_voice_id,
                 source_kind=entry.source_kind,
                 script_text=entry.script_text,
+                debug_source_retrieval_error=entry.debug_source_retrieval_error,
+                debug_source_retrieval_details=entry.debug_source_retrieval_details,
                 error=entry.error,
                 created_at=entry.created_at,
                 updated_at=entry.updated_at,
@@ -1220,6 +1230,8 @@ class SQLiteDatabase(DatabaseInterface):
                     'provider_voice_id': entry.provider_voice_id,
                     'source_kind': entry.source_kind,
                     'script_text': entry.script_text,
+                    'debug_source_retrieval_error': entry.debug_source_retrieval_error,
+                    'debug_source_retrieval_details': entry.debug_source_retrieval_details,
                     'error': entry.error,
                     'created_at': entry.created_at,
                     'updated_at': entry.updated_at,
@@ -1255,6 +1267,8 @@ class SQLiteDatabase(DatabaseInterface):
                 'provider_voice_id': entry.provider_voice_id,
                 'source_kind': entry.source_kind,
                 'script_text': entry.script_text,
+                'debug_source_retrieval_error': entry.debug_source_retrieval_error,
+                'debug_source_retrieval_details': entry.debug_source_retrieval_details,
                 'error': entry.error,
                 'created_at': entry.created_at,
                 'updated_at': entry.updated_at,
@@ -1288,6 +1302,8 @@ class SQLiteDatabase(DatabaseInterface):
                 'provider_voice_id': entry.provider_voice_id,
                 'source_kind': entry.source_kind,
                 'script_text': entry.script_text,
+                'debug_source_retrieval_error': entry.debug_source_retrieval_error,
+                'debug_source_retrieval_details': entry.debug_source_retrieval_details,
                 'error': entry.error,
                 'created_at': entry.created_at,
                 'updated_at': entry.updated_at,

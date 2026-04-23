@@ -5,7 +5,25 @@ from unittest.mock import Mock, patch
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
-from podcast_content import build_podcast_script, get_episode_body_source
+import podcast_content
+from podcast_content import (
+    PodcastRetrievalRequest,
+    build_podcast_script,
+    get_episode_body_source,
+    retrieve_podcast_content,
+)
+
+
+class _MockCompletion:
+    def __init__(self, content):
+        self.choices = [Mock(message=Mock(content=content))]
+
+
+class _MockRetrieverClient:
+    def __init__(self, content):
+        self.chat = Mock()
+        self.chat.completions = Mock()
+        self.chat.completions.create = Mock(return_value=_MockCompletion(content))
 
 
 class TestPodcastContent(unittest.TestCase):
@@ -62,6 +80,56 @@ class TestPodcastContent(unittest.TestCase):
         self.assertIn("First source paragraph.", script)
         self.assertIn("Second source paragraph.", script)
         self.assertEqual(get_episode_body_source(item, analysis), "source_url")
+
+    def test_agentic_retriever_cleans_candidate_text(self):
+        request = PodcastRetrievalRequest(
+            item_id="item-1",
+            user_email="dev@example.com",
+            item_type="text",
+            title="Example",
+            content="Original paragraph with navigation noise.",
+            item_metadata={},
+            analysis={"overview": "Overview"},
+        )
+        client = _MockRetrieverClient(
+            '{"body_text":"Original paragraph.","body_source":"item_content",'
+            '"retrieval_error":null,"retrieval_details":{"selected_source":"item_content"}}'
+        )
+
+        with (
+            patch.object(podcast_content, "PODCAST_CONTENT_RETRIEVER", "agentic"),
+            patch.object(podcast_content, "client", client),
+        ):
+            result = retrieve_podcast_content(request)
+
+        self.assertEqual(result.body_text, "Original paragraph.")
+        self.assertEqual(result.body_source, "item_content")
+        self.assertIsNone(result.retrieval_error)
+        self.assertEqual(result.retrieval_details["strategy"], "agentic")
+        self.assertEqual(result.retrieval_details["candidate_count"], 1)
+        self.assertEqual(client.chat.completions.create.call_count, 1)
+
+    def test_agentic_retriever_falls_back_to_deterministic_text(self):
+        request = PodcastRetrievalRequest(
+            item_id="item-1",
+            user_email="dev@example.com",
+            item_type="text",
+            title="Example",
+            content="Original paragraph.",
+            item_metadata={},
+            analysis={"overview": "Overview"},
+        )
+
+        with (
+            patch.object(podcast_content, "PODCAST_CONTENT_RETRIEVER", "agentic"),
+            patch.object(podcast_content, "client", None),
+        ):
+            result = retrieve_podcast_content(request)
+
+        self.assertEqual(result.body_text, "Original paragraph.")
+        self.assertEqual(result.body_source, "item_content")
+        self.assertEqual(result.retrieval_details["strategy"], "deterministic_fallback")
+        self.assertIn("podcast_retriever_client_not_initialized", result.retrieval_details["agentic_error"])
 
 
 if __name__ == "__main__":

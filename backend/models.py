@@ -114,6 +114,8 @@ class PodcastFeedEntry(BaseModel):
     provider_voice_id: Optional[str] = None
     source_kind: Optional[str] = None
     script_text: Optional[str] = None
+    debug_source_retrieval_error: Optional[str] = None
+    debug_source_retrieval_details: Optional[dict] = None
     error: Optional[str] = None
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
