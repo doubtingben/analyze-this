@@ -63,10 +63,11 @@ async def backfill_embeddings(force=False):
             embedding = generate_embedding(overview)
             
             if embedding:
-                # Update document
-                db.db.collection('shared_items').document(item_id).update({'embedding': embedding})
-                updated += 1
-                logger.info(f"Updated item {item_id}")
+                if await db.update_shared_item(item_id, {'embedding': embedding}):
+                    updated += 1
+                    logger.info(f"Updated item {item_id}")
+                else:
+                    logger.error(f"Failed to update embedding for {item_id}")
             else:
                 logger.error(f"Failed to generate embedding for {item_id}")
                 

@@ -182,6 +182,21 @@ class FirestoreDatabase(DatabaseInterface):
             })
         self.db: FirestoreClient = firestore.client()
 
+    @staticmethod
+    def _coerce_vector_fields(data: dict) -> dict:
+        if not isinstance(data, dict) or 'embedding' not in data:
+            return data
+
+        embedding = data.get('embedding')
+        if embedding is None or hasattr(embedding, "to_map_value"):
+            return data
+
+        from google.cloud.firestore_v1.vector import Vector
+
+        coerced = dict(data)
+        coerced['embedding'] = Vector(embedding)
+        return coerced
+
     def _encode_tag(self, tag: str) -> str:
         return base64.urlsafe_b64encode(tag.encode('utf-8')).decode('utf-8').rstrip('=')
 
@@ -217,7 +232,7 @@ class FirestoreDatabase(DatabaseInterface):
         return user
 
     async def create_shared_item(self, item: SharedItem) -> SharedItem:
-        item_dict = item.dict()
+        item_dict = self._coerce_vector_fields(item.dict())
         item_ref = self.db.collection('shared_items').document(item.id)
 
         # Extract tags for denormalization
@@ -360,6 +375,7 @@ class FirestoreDatabase(DatabaseInterface):
 
     async def update_shared_item(self, item_id: str, updates: dict) -> bool:
         item_ref = self.db.collection('shared_items').document(item_id)
+        updates = self._coerce_vector_fields(updates)
 
         # Check if analysis tags are being updated
         check_tags = 'analysis' in updates
@@ -845,6 +861,7 @@ class FirestoreDatabase(DatabaseInterface):
     async def search_similar_items(self, embedding: List[float], user_email: str, limit: int = 10) -> List[dict]:
         # Firestore Vector Search using `find_nearest`
         try:
+            from google.cloud.firestore_v1.base_vector_query import DistanceMeasure
             from google.cloud.firestore_v1.vector import Vector
             
             # Create a vector from the list of floats
@@ -860,8 +877,8 @@ class FirestoreDatabase(DatabaseInterface):
             query = base_query.find_nearest(
                 vector_field="embedding",
                 query_vector=query_vector,
-                distance_measure="COSINE",
-                limit=limit
+                limit=limit,
+                distance_measure=DistanceMeasure.COSINE
             )
             
             results = []
