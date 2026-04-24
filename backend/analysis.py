@@ -1,9 +1,13 @@
 import os
 import logging
 import base64
+import mimetypes
+import time
 from functools import lru_cache
+from pathlib import Path
 from openai import OpenAI
 from google import genai
+from google.genai import types
 from dotenv import load_dotenv
 import firebase_admin
 from firebase_admin import storage
@@ -21,6 +25,12 @@ OPENAI_MODEL = os.getenv("OPENAI_MODEL", os.getenv("OPENROUTER_MODEL", "gemma4:3
 OPENAI_BASE_URL = os.getenv("OPENAI_BASE_URL", os.getenv("OPENROUTER_BASE_URL", "http://nixos-gpt:11434/v1"))
 # Use OpenAI's embedding model natively or fallback
 EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "gemini-embedding-2-preview")
+GEMINI_EMBEDDING_MAX_RETRIES = max(0, int(os.getenv("GEMINI_EMBEDDING_MAX_RETRIES", "4")))
+GEMINI_EMBEDDING_RETRY_BASE_DELAY = max(0.0, float(os.getenv("GEMINI_EMBEDDING_RETRY_BASE_DELAY", "2.0")))
+GEMINI_EMBEDDING_INLINE_BYTES_LIMIT = max(
+    1,
+    int(os.getenv("GEMINI_EMBEDDING_INLINE_BYTES_LIMIT", str(20 * 1024 * 1024))),
+)
 
 GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
 google_genai_client = None
@@ -99,6 +109,114 @@ def get_image_data_url(content: str) -> str | None:
     except Exception as e:
         logger.error(f"Failed to fetch image from storage: {e}")
         return None
+
+
+def _guess_mime_type(content: str | None, item_metadata: dict | None = None) -> str | None:
+    if item_metadata:
+        mime_type = item_metadata.get("mimeType") or item_metadata.get("mime_type")
+        if mime_type:
+            return str(mime_type)
+
+    if not content:
+        return None
+
+    guessed, _ = mimetypes.guess_type(content)
+    return guessed
+
+
+def _read_storage_bytes(content: str) -> bytes | None:
+    try:
+        if os.getenv("APP_ENV") == "development":
+            local_path = Path("static") / content
+            if not local_path.exists():
+                return None
+            return local_path.read_bytes()
+
+        bucket = storage.bucket()
+        blob = bucket.blob(content)
+        if not blob.exists():
+            return None
+        return blob.download_as_bytes()
+    except Exception as e:
+        logger.warning("Failed to read embedding media bytes for %s: %s", content, e)
+        return None
+
+
+def _decode_data_url(content: str) -> tuple[bytes, str] | None:
+    if not content.startswith("data:"):
+        return None
+
+    try:
+        header, encoded = content.split(",", 1)
+        mime_type = header[5:].split(";", 1)[0] or "application/octet-stream"
+        if ";base64" not in header:
+            return None
+        return base64.b64decode(encoded), mime_type
+    except Exception:
+        return None
+
+
+def _build_multimodal_embedding_contents(
+    text: str,
+    *,
+    item_type: str | None = None,
+    content: str | None = None,
+    item_metadata: dict | None = None,
+    title: str | None = None,
+):
+    normalized_type = (item_type or "").lower()
+    if normalized_type not in {"image", "screenshot", "audio", "video", "file"}:
+        if title:
+            return f"Title: {title}\nSummary: {text}"
+        return text
+
+    parts: list[types.Part] = []
+    context_bits = []
+    if title:
+        context_bits.append(f"Title: {title}")
+    if text:
+        context_bits.append(f"Summary: {text}")
+    if context_bits:
+        parts.append(types.Part.from_text(text="\n".join(context_bits)))
+
+    mime_type = _guess_mime_type(content, item_metadata)
+    supported_media = False
+    if normalized_type in {"image", "screenshot"}:
+        supported_media = bool(mime_type and mime_type.startswith("image/"))
+    elif normalized_type == "audio":
+        supported_media = bool(mime_type and mime_type.startswith("audio/"))
+    elif normalized_type == "video":
+        supported_media = bool(mime_type and mime_type.startswith("video/"))
+    elif normalized_type == "file":
+        supported_media = mime_type in {"application/pdf", "text/plain"}
+
+    if not supported_media or not content:
+        return parts or text
+
+    data_url = _decode_data_url(content)
+    if data_url:
+        raw_bytes, data_url_mime_type = data_url
+        mime_type = data_url_mime_type
+    elif content.startswith(("http://", "https://")):
+        logger.info("Skipping multimodal embedding fetch for remote URL content: %s", content)
+        return parts or text
+    else:
+        raw_bytes = _read_storage_bytes(content)
+
+    if not raw_bytes:
+        return parts or text
+
+    if len(raw_bytes) > GEMINI_EMBEDDING_INLINE_BYTES_LIMIT:
+        logger.warning(
+            "Skipping inline embedding media for %s (%d bytes exceeds %d byte limit).",
+            content,
+            len(raw_bytes),
+            GEMINI_EMBEDDING_INLINE_BYTES_LIMIT,
+        )
+        return parts or text
+
+    parts.append(types.Part.from_bytes(data=raw_bytes, mime_type=mime_type))
+    return parts
 
 def build_analysis_prompt(preferred_tags: list[str] | None) -> str:
     prompt_text = get_analysis_prompt()
@@ -202,31 +320,68 @@ def analyze_content(content: str, item_type: str = 'text', preferred_tags: list[
             return normalize_analysis({"error": str(e)})
 
 
-def generate_embedding(text: str, task_type: str = "RETRIEVAL_DOCUMENT") -> list[float] | None:
+def generate_embedding(
+    text: str,
+    task_type: str = "RETRIEVAL_DOCUMENT",
+    *,
+    item_type: str | None = None,
+    content: str | None = None,
+    item_metadata: dict | None = None,
+    title: str | None = None,
+) -> list[float] | None:
     """
     Generates a vector embedding for the given text.
     """
     if not text:
         return None
 
-    # Handle Gemini Embeddings (e.g. gemini-embedding-2-preview or text-embedding-004)
-    if google_genai_client and ("gemini" in EMBEDDING_MODEL or "text-embedding" in EMBEDDING_MODEL):
-        try:
-            logger.info(f"Generating Gemini embedding using model: {EMBEDDING_MODEL}, task_type: {task_type}")
-            response = google_genai_client.models.embed_content(
-                model=EMBEDDING_MODEL,
-                contents=text,
-                config={
-                    'task_type': task_type,
-                    'output_dimensionality': 1536
-                }
-            )
-            if response and response.embeddings:
-                return response.embeddings[0].values
-            return None
-        except Exception as e:
-            logger.error(f"Failed to generate Gemini embedding: {e}")
-            return None
+    use_gemini_embeddings = "gemini" in EMBEDDING_MODEL
+
+    if use_gemini_embeddings and not google_genai_client:
+        logger.error(
+            "Gemini embedding model '%s' requires GOOGLE_API_KEY, but no Google GenAI client is configured.",
+            EMBEDDING_MODEL,
+        )
+        return None
+
+    # Handle Gemini embeddings through the Google GenAI client.
+    if use_gemini_embeddings and google_genai_client:
+        embed_contents = _build_multimodal_embedding_contents(
+            text,
+            item_type=item_type,
+            content=content,
+            item_metadata=item_metadata,
+            title=title,
+        )
+        for attempt in range(GEMINI_EMBEDDING_MAX_RETRIES + 1):
+            try:
+                logger.info(f"Generating Gemini embedding using model: {EMBEDDING_MODEL}, task_type: {task_type}")
+                response = google_genai_client.models.embed_content(
+                    model=EMBEDDING_MODEL,
+                    contents=embed_contents,
+                    config={
+                        'task_type': task_type,
+                        'output_dimensionality': 1536
+                    }
+                )
+                if response and response.embeddings:
+                    return response.embeddings[0].values
+                return None
+            except Exception as e:
+                if attempt < GEMINI_EMBEDDING_MAX_RETRIES and _is_rate_limit_error(e):
+                    delay = GEMINI_EMBEDDING_RETRY_BASE_DELAY * (2 ** attempt)
+                    logger.warning(
+                        "Gemini embedding rate limited for model '%s'; retrying in %.1fs (attempt %d/%d).",
+                        EMBEDDING_MODEL,
+                        delay,
+                        attempt + 1,
+                        GEMINI_EMBEDDING_MAX_RETRIES,
+                    )
+                    time.sleep(delay)
+                    continue
+
+                logger.error(f"Failed to generate Gemini embedding: {e}")
+                return None
 
     # Fallback to OpenAI compatible client
     if not client:
@@ -237,7 +392,7 @@ def generate_embedding(text: str, task_type: str = "RETRIEVAL_DOCUMENT") -> list
         if len(text) > 8000:
             text = text[:8000]
 
-        logger.info(f"Generating embedding using model: {EMBEDDING_MODEL}")
+        logger.info(f"Generating OpenAI-compatible embedding using model: {EMBEDDING_MODEL}")
         response = client.embeddings.create(
             input=[text],
             model=EMBEDDING_MODEL
@@ -246,6 +401,19 @@ def generate_embedding(text: str, task_type: str = "RETRIEVAL_DOCUMENT") -> list
     except Exception as e:
         logger.error(f"Failed to generate embedding: {e}")
         return None
+
+
+def _is_rate_limit_error(exc: Exception) -> bool:
+    status_code = getattr(exc, "status_code", None)
+    code = getattr(exc, "code", None)
+    message = str(exc).lower()
+    return (
+        status_code == 429
+        or code == 429
+        or "429" in message
+        or "too many requests" in message
+        or "rate limit" in message
+    )
 
 
 def _unwrap_analysis_payload(raw_response: dict) -> dict:

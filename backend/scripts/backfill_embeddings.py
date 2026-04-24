@@ -60,7 +60,13 @@ async def backfill_embeddings(force=False):
                 continue
                 
             logger.info(f"Generating embedding for item {item_id}...")
-            embedding = generate_embedding(overview)
+            embedding = generate_embedding(
+                overview,
+                item_type=data.get('type'),
+                content=data.get('content'),
+                item_metadata=data.get('item_metadata'),
+                title=data.get('title'),
+            )
             
             if embedding:
                 if await db.update_shared_item(item_id, {'embedding': embedding}):

@@ -1,6 +1,7 @@
 import os
 import argparse
 import asyncio
+import functools
 import logging
 from datetime import datetime, timezone
 from dotenv import load_dotenv
@@ -220,7 +221,18 @@ async def process_items_async(limit: int = 10, item_id: str = None, force: bool 
                 try:
                     overview = analysis_result.get('overview', '')
                     if overview:
-                         embedding = await loop.run_in_executor(None, generate_embedding, overview, "RETRIEVAL_DOCUMENT")
+                         embedding = await loop.run_in_executor(
+                             None,
+                             functools.partial(
+                                 generate_embedding,
+                                 overview,
+                                 "RETRIEVAL_DOCUMENT",
+                                 item_type=item_type,
+                                 content=content,
+                                 item_metadata=data.get("item_metadata"),
+                                 title=data.get("title"),
+                             ),
+                         )
                 except Exception as e:
                     logger.error(f"Failed to generate embedding: {e}")
 
@@ -346,7 +358,18 @@ async def _process_analysis_item(db, data, context):
                 overview = analysis_result.get('overview', '')
                 if overview:
                     # Optional: wrapping embedding generation in a span if tracing is desired for it
-                    embedding = await loop.run_in_executor(None, generate_embedding, overview, "RETRIEVAL_DOCUMENT")
+                    embedding = await loop.run_in_executor(
+                        None,
+                        functools.partial(
+                            generate_embedding,
+                            overview,
+                            "RETRIEVAL_DOCUMENT",
+                            item_type=item_type,
+                            content=content,
+                            item_metadata=data.get("item_metadata"),
+                            title=data.get("title"),
+                        ),
+                    )
             except Exception as e:
                 logger.error(f"Failed to generate embedding: {e}")
 
