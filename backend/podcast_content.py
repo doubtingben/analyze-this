@@ -4,6 +4,9 @@ import json
 import subprocess
 import tempfile
 import logging
+import socket
+import ipaddress
+import urllib.parse
 from dataclasses import dataclass
 from html import unescape
 from pathlib import Path
@@ -664,6 +667,24 @@ def _extract_pdf_text(raw_bytes: bytes) -> str:
         return ""
 
 
+
+def _resolve_and_validate_ip(hostname: str) -> str:
+    try:
+        ip_str = socket.gethostbyname(hostname)
+    except socket.gaierror as exc:
+        raise ValueError(f"DNS resolution failed for {hostname}") from exc
+
+    ip_obj = ipaddress.ip_address(ip_str)
+
+    if (ip_obj.is_private or
+        ip_obj.is_loopback or
+        ip_obj.is_link_local or
+        ip_obj.is_unspecified or
+        str(ip_obj) == "0.0.0.0"):
+        raise ValueError(f"Resolved IP {ip_str} is blocked (private/loopback/link-local/unspecified)")
+
+    return ip_str
+
 def _extract_remote_text(source_url: str) -> Optional[str]:
     text, _details = _extract_remote_text_with_diagnostics(source_url)
     return text
@@ -676,14 +697,53 @@ def _extract_remote_text_with_diagnostics(source_url: str) -> tuple[Optional[str
             "failure_reason": "missing_source_url",
         }
 
+    current_url = source_url
+    max_redirects = 5
+    redirect_count = 0
+    response = None
+
     try:
-        response = requests.get(
-            source_url,
-            timeout=PODCAST_FETCH_TIMEOUT_SECONDS,
-            headers={"User-Agent": PODCAST_FETCH_USER_AGENT},
-            allow_redirects=True,
-        )
-        response.raise_for_status()
+        while redirect_count <= max_redirects:
+            parsed_url = urllib.parse.urlparse(current_url)
+            hostname = parsed_url.hostname
+            if not hostname:
+                raise ValueError(f"Invalid URL: {current_url}")
+
+            _resolve_and_validate_ip(hostname)
+
+            response = requests.get(
+                current_url,
+                timeout=PODCAST_FETCH_TIMEOUT_SECONDS,
+                headers={"User-Agent": PODCAST_FETCH_USER_AGENT},
+                allow_redirects=False,
+            )
+
+            if response.status_code in (301, 302, 303, 307, 308):
+                location = response.headers.get('Location')
+                if not location:
+                    break
+                current_url = urllib.parse.urljoin(current_url, location)
+                redirect_count += 1
+                continue
+
+            response.raise_for_status()
+            break
+
+        if redirect_count > max_redirects:
+            raise requests.TooManyRedirects("Too many redirects")
+
+    except ValueError as exc:
+        return None, {
+            "source": "source_url",
+            "source_url": source_url,
+            "failure_reason": f"source_fetch_ssrf_blocked:{str(exc)}",
+        }
+    except requests.TooManyRedirects:
+        return None, {
+            "source": "source_url",
+            "source_url": source_url,
+            "failure_reason": "source_fetch_too_many_redirects",
+        }
     except requests.Timeout:
         return None, {
             "source": "source_url",
