@@ -5,6 +5,7 @@ This script tests all available tools without running a full MCP client.
 """
 import os
 import asyncio
+import pytest
 import sys
 from dotenv import load_dotenv
 
@@ -25,6 +26,7 @@ from mcp_server import (
 load_dotenv()
 
 
+@pytest.mark.anyio
 async def test_get_users_info():
     """Test get_users_info tool."""
     print("\n" + "=" * 80)
@@ -40,6 +42,7 @@ async def test_get_users_info():
         traceback.print_exc()
 
 
+@pytest.mark.anyio
 async def test_get_worker_queue_status():
     """Test get_worker_queue_status tool."""
     print("\n" + "=" * 80)
@@ -55,6 +58,7 @@ async def test_get_worker_queue_status():
         traceback.print_exc()
 
 
+@pytest.mark.anyio
 async def test_get_errors():
     """Test get_errors tool."""
     print("\n" + "=" * 80)
@@ -70,6 +74,7 @@ async def test_get_errors():
         traceback.print_exc()
 
 
+@pytest.mark.anyio
 async def test_get_items_by_status():
     """Test get_items_by_status tool."""
     print("\n" + "=" * 80)
@@ -85,6 +90,7 @@ async def test_get_items_by_status():
         traceback.print_exc()
 
 
+@pytest.mark.anyio
 async def test_database_connection():
     """Test database connection."""
     print("\n" + "=" * 80)

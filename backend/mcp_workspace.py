@@ -6,6 +6,7 @@ and maintain git repositories for debugging scraping strategies.
 """
 import os
 import sys
+import shlex
 import subprocess
 import tempfile
 import asyncio
@@ -138,9 +139,9 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
                 return [TextContent(type="text", text="Error: command is required")]
                 
             try:
+                args = shlex.split(command)
                 result = subprocess.run(
-                    command,
-                    shell=True,
+                    args,
                     capture_output=True,
                     text=True,
                     timeout=60,
