@@ -429,7 +429,7 @@ async def auth(request: Request):
 
 @app.get("/logout")
 async def logout(request: Request):
-    request.session.pop('user', None)
+    request.session.clear()
     return RedirectResponse(url='/')
 
 @app.get("/api/version")
