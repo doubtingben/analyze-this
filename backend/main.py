@@ -741,8 +741,6 @@ async def share_item(
             except Exception as e:
                 print(f"Upload failed: {e}")
                 detail = "File upload failed"
-                if APP_ENV == "development":
-                    detail = f"File upload failed: {str(e)}"
                 raise HTTPException(status_code=500, detail=detail)
     else:
         raise HTTPException(status_code=400, detail="Unsupported Content-Type")
@@ -1461,8 +1459,6 @@ async def create_item_note(
                 record_exception(e)
                 print(f"Note file upload failed: {e}")
                 detail = "File upload failed"
-                if APP_ENV == "development":
-                    detail = f"File upload failed: {str(e)}"
                 raise HTTPException(status_code=500, detail=detail)
 
     # Create the note in database
